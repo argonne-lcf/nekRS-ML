@@ -7,3 +7,8 @@ CMakeFiles
 plugin_config.cu
 *.swp
 .cache/
+
+# Related to SmartSim/SmartRedis devs
+*.out
+*.err
+*/cmake.log

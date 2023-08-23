@@ -139,6 +139,8 @@ set(ENABLE_HYPRE_GPU OFF CACHE BOOL "Enable HYPRE GPU support")
 set(NEKRS_GPU_MPI ON CACHE BOOL "Enable GPU aware MPI")
 set(ENABLE_CVODE OFF CACHE BOOL "Enable CVODE support")
 
+set(ENABLE_SMARTREDIS OFF CACHE BOOL "Enable SmartRedis for in situ ML")
+
 ###############################################################################
 # Set compiler flags                                                          #
 ###############################################################################
@@ -273,6 +275,11 @@ include(config/nek5000.cmake)
 # nrs
 include(config/nrs.cmake)
 
+# SmartRedis
+if(ENABLE_SMARTREDIS)
+  find_library(SR_LIB smartredis PATHS ${SMARTREDIS_PATH}/install/lib NO_DEFAULT_PATH REQUIRED)
+endif()
+
 # Link dependencies 
 target_link_libraries(nekrs-lib PUBLIC libocca PRIVATE nekrs-hypre nekrs-hypre-device gs ${GSLIB} blas lapack ${CMAKE_DL_LIBS})
 if(OpenMP_FOUND)
@@ -283,6 +290,12 @@ if(ENABLE_AMGX AND OCCA_CUDA_ENABLED)
   target_compile_definitions(nekrs-lib PUBLIC -DENABLE_AMGX)
   target_link_libraries(nekrs-lib PUBLIC amgxsh amgx)
   target_include_directories(nekrs-lib PUBLIC 3rd_party/AMGX/base/include 3rd_party/AMGX/core/include)
+endif()
+
+if(ENABLE_SMARTREDIS)
+  target_compile_definitions(nekrs-lib PUBLIC -DENABLE_SMARTREDIS)
+  target_include_directories(nekrs-lib PUBLIC ${SMARTREDIS_PATH}/include)
+  target_link_libraries(nekrs-lib PUBLIC ${SR_LIB})
 endif()
 
 if (ENABLE_CVODE)
@@ -374,6 +387,9 @@ if(OCCA_OPENCL_ENABLED)
   message(NOTICE "OPENCL backend enabled (flags: ${OCCA_OPENCL_COMPILER_FLAGS})")
 endif()
 message(NOTICE "GPU aware MPI support: ${NEKRS_GPU_MPI}")
+if(ENABLE_SMARTREDIS)
+  message(NOTICE "SmartRedis support enabled")
+endif()
 message(NOTICE "-------------------------------------------")
 
 #################################################################################

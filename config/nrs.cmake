@@ -60,6 +60,7 @@ set(SRC
     src/plugins/RANSktau.cpp
     src/plugins/lowMach.cpp
     src/plugins/lpm.cpp
+    src/plugins/smartRedis.cpp
     src/findpts/findpts.cpp
     src/pointInterpolation/pointInterpolation.cpp
     src/neknek/neknek.cpp
