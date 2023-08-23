@@ -1,4 +1,5 @@
 build/
+install_dir/
 CMakeFiles
 *.tgz
 .vscode/
@@ -7,3 +8,4 @@ CMakeFiles
 plugin_config.cu
 *.swp
 .cache/
+compile
