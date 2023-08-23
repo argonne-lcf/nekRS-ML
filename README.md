@@ -11,6 +11,8 @@ COPYRIGHT (c) 2019-2023 UCHICAGO ARGONNE, LLC
 [![License](https://img.shields.io/badge/License-BSD%203--Clause-orange.svg)](https://opensource.org/licenses/BSD-3-Clause)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.7984525.svg)](https://doi.org/10.5281/zenodo.7984525)
 
+This is the fork of NekRS which contains a series of efforts to integrate AI/ML capabilities within the flow solver. It is managed by the Leadership Computing Facility (LCF) at the Argonne National Laboratory. Please explore the other branches to see what capabilities are available and how to use them on LCF machines. This is the `master` branch, which is the same as the latest release of the official [NekRS repo](https://github.com/Nek5000/nekRS).
+
 **nekRS** is a fast and scaleable computational fluid dynamics (CFD) solver targeting HPC applications. The code started as an early fork of [libParanumal](https://github.com/paranumal/libparanumal) in 2019.
 
 Capabilities:
@@ -40,13 +42,13 @@ Requirements:
 Download the latest release available under
 
 ```sh
-https://github.com/Nek5000/nekRS/archive/refs/tags/v23.0.tar.gz 
+https://github.com/argonne-lcf/nekRS-ML/archive/refs/heads/master.zip
 ```
 
 or clone our GitHub repository:
 
 ```sh
-https://github.com/Nek5000/nekRS.git
+https://github.com/argonne-lcf/nekRS-ML.git
 ```
 The `master` branch always points to the latest stable release while `next`
 provides an early preview of the next upcoming release (do not use in a production environment).
