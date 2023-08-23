@@ -11,6 +11,8 @@ COPYRIGHT (c) 2019-2023 UCHICAGO ARGONNE, LLC
 [![License](https://img.shields.io/badge/License-BSD%203--Clause-orange.svg)](https://opensource.org/licenses/BSD-3-Clause)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.7984525.svg)](https://doi.org/10.5281/zenodo.7984525)
 
+This branch of NekRS-ML ...
+
 **nekRS** is a fast and scaleable computational fluid dynamics (CFD) solver targeting HPC applications. The code started as an early fork of [libParanumal](https://github.com/paranumal/libparanumal) in 2019.
 
 Capabilities:
@@ -40,13 +42,13 @@ Requirements:
 Download the latest release available under
 
 ```sh
-https://github.com/Nek5000/nekRS/archive/refs/tags/v23.0.tar.gz 
+https://github.com/argonne-lcf/nekRS-ML/archive/refs/heads/GNN.zip
 ```
 
 or clone our GitHub repository:
 
 ```sh
-https://github.com/Nek5000/nekRS.git
+https://github.com/argonne-lcf/nekRS-ML.git
 ```
 The `master` branch always points to the latest stable release while `next`
 provides an early preview of the next upcoming release (do not use in a production environment).
@@ -80,6 +82,31 @@ cd $NEKRS_HOME/examples/turbPipePeriodic
 mpirun -np 2 nekrs --setup turbPipe.par
 ```
 For convenience we provide various launch scripts in the `bin` directory.
+
+## Polaris Instructions
+
+Set the envirnment with
+```sh
+module swap PrgEnv-nvhpc PrgEnv-gnu
+module load cudatoolkit-standalone
+module load cmake
+module unload cray-libsci
+export CRAY_ACCEL_TARGET=nvidia80
+```
+
+and build the code with
+```sh
+CC=cc CXX=CC FC=ftn ./nrsconfig -DCMAKE_INSTALL_PREFIX=</path/to/install/dir>
+```
+where `</path/to/install/dir>` can be a user's home directory or a project space.
+
+Then run the examples with
+```sh
+export NEKRS_HOME=</path/to/install/dir>
+export PATH=$NEKRS_HOME/bin:$PATH
+cd examples/tgv_gnn
+mpiexec -n 1 --ppn 1 --cpu-bind numa nekrs --setup tgv.par
+```
 
 ## Documentation 
 For documentation, see our [readthedocs page](https://nekrs.readthedocs.io/en/latest/). For now it's just a dummy. We hope to improve it soon. 
