@@ -81,6 +81,31 @@ mpirun -np 2 nekrs --setup turbPipe.par
 ```
 For convenience we provide various launch scripts in the `bin` directory.
 
+## Polaris Instructions
+
+Set the envirnment with
+```sh
+module swap PrgEnv-nvhpc PrgEnv-gnu
+module load cudatoolkit-standalone
+module load cmake
+module unload cray-libsci
+export CRAY_ACCEL_TARGET=nvidia80
+```
+
+and build the code with
+```sh
+CC=cc CXX=CC FC=ftn ./nrsconfig -DCMAKE_INSTALL_PREFIX=</path/to/install/dir>
+```
+where `</path/to/install/dir>` can be a user's home directory or a project space.
+
+Then run the examples with
+```sh
+export NEKRS_HOME=</path/to/install/dir>
+export PATH=$NEKRS_HOME/bin:$PATH
+cd examples/ktauChannel
+mpiexec -n 4 --ppn 4 --cpu-bind numa nekrs --setup channel.par
+```
+
 ## Documentation 
 For documentation, see our [readthedocs page](https://nekrs.readthedocs.io/en/latest/). For now it's just a dummy. We hope to improve it soon. 
 
