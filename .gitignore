@@ -8,7 +8,15 @@ plugin_config.cu
 *.swp
 .cache/
 
+# Related to ktauChannel example
+examples/ktauChannel_smartredis/channel.nek5000
+examples/ktauChannel_smartredis/channel0.f00001
+examples/ktauChannel_smartredis/profile.dat
+examples/ktauChannel_smartredis/cmake.log
+
 # Related to SmartSim/SmartRedis devs
 *.out
 *.err
-*/cmake.log
+*/outputs/
+*.colocated_launcher.sh
+

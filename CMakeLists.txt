@@ -294,7 +294,7 @@ endif()
 
 if(ENABLE_SMARTREDIS)
   target_compile_definitions(nekrs-lib PUBLIC -DENABLE_SMARTREDIS)
-  target_include_directories(nekrs-lib PUBLIC ${SMARTREDIS_PATH}/include)
+  target_include_directories(nekrs-lib PUBLIC ${SMARTREDIS_PATH}/install/include)
   target_link_libraries(nekrs-lib PUBLIC ${SR_LIB})
 endif()
 

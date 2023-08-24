@@ -2,7 +2,7 @@
 
 #include "nrs.hpp"
 #include "nekInterfaceAdapter.hpp"
-#include "SmartRedis.hpp"
+#include "smartRedis.hpp"
 #include "client.h"
 #include <string>
 #include <vector>
@@ -13,7 +13,7 @@ SmartRedis::Client *client_ptr;
 void smartredis::init_client()
 {
   // Replace this with variable in .par file
-  sr->ranks_per_db = 1;
+  //sr->ranks_per_db = 1;
   sr-> db_nodes = 1;
 
   // Initialize SR client
@@ -24,10 +24,9 @@ void smartredis::init_client()
     cluster_mode = true;
   else
     cluster_mode = false;
-  //SmartRedis::Client client(cluster_mode, logger_name); // allocates on stack, goes out of scope outside this function
-  //client_ptr = &client; // produces dangling reference
   std::string logger_name("Client");
   client_ptr = new SmartRedis::Client(cluster_mode, logger_name); // allocates on heap
+  MPI_Barrier(platform->comm.mpiComm);
   if(platform->comm.mpiRank == 0)
     printf("Done\n");
 }
@@ -41,11 +40,10 @@ void smartredis::put_vel_data(nrs_t *nrs, dfloat time, int tstep)
     printf("\nSending field with key %s \n",key.c_str());
   client_ptr->put_tensor(key, nrs->U, {nrs->fieldOffset,3},
                     SRTensorTypeDouble, SRMemLayoutContiguous);
+  MPI_Barrier(platform->comm.mpiComm);
   if(rank == 0)
     printf("Done\n\n");
 
-  if(rank == 0)
-    printf("Checking array ...\n");
   dfloat *u = new dfloat[nrs->fieldOffset * 3]();
   client_ptr->unpack_tensor(key, u, {nrs->fieldOffset * 3},
                        SRTensorTypeDouble, SRMemLayoutContiguous);
@@ -53,10 +51,8 @@ void smartredis::put_vel_data(nrs_t *nrs, dfloat time, int tstep)
   for (int n=0; n<nrs->fieldOffset*3; n++) {
     error = error + (u[n] - nrs->U[n])*(u[n] - nrs->U[n]);
   }
-  if(rank == 0)
-    printf("Error in fields = %f\n",error);
-    printf("Done\n\n");
-
+  printf("[%d]: Error in fields = %f\n",rank,error);
+  fflush(stdout);
 }
 
 #endif

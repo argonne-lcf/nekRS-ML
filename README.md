@@ -11,6 +11,12 @@ COPYRIGHT (c) 2019-2023 UCHICAGO ARGONNE, LLC
 [![License](https://img.shields.io/badge/License-BSD%203--Clause-orange.svg)](https://opensource.org/licenses/BSD-3-Clause)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.7984525.svg)](https://doi.org/10.5281/zenodo.7984525)
 
+This branch of NekRS-ML includes a plugin that enables communication with a SmartSim database through the use of the SmartRedis API. 
+[SmartSim](https://github.com/CrayLabs/SmartSim) and [SmartRedis](https://github.com/CrayLabs/SmartRedis) are open-source libraries developed by HPE that can be used for coupling traditional HPC applications with AI/ML functionality in situ. 
+#Examples of how these libraries can be used for in situ training and inferencing of models 
+
+Currently, this branch uses the `ktauChannel_smartredis` example to launch NekRS running in paralel on 4 GPU along with a co-located SmartSim database, and sends the velocity field to the database every 10 time steps of the simulation. The SmartRedis clients are initialized in the `UDF_Setup()` function and the data transfer is performed within `UDF_ExecuteStep()`.
+
 **nekRS** is a fast and scaleable computational fluid dynamics (CFD) solver targeting HPC applications. The code started as an early fork of [libParanumal](https://github.com/paranumal/libparanumal) in 2019.
 
 Capabilities:
@@ -40,13 +46,13 @@ Requirements:
 Download the latest release available under
 
 ```sh
-https://github.com/Nek5000/nekRS/archive/refs/tags/v23.0.tar.gz 
+https://github.com/argonne-lcf/nekRS-ML/archive/refs/heads/smartredis.zip
 ```
 
 or clone our GitHub repository:
 
 ```sh
-https://github.com/Nek5000/nekRS.git
+https://github.com/argonne-lcf/nekRS-ML.git
 ```
 The `master` branch always points to the latest stable release while `next`
 provides an early preview of the next upcoming release (do not use in a production environment).
@@ -80,6 +86,33 @@ cd $NEKRS_HOME/examples/turbPipePeriodic
 mpirun -np 2 nekrs --setup turbPipe.par
 ```
 For convenience we provide various launch scripts in the `bin` directory.
+
+## Polaris Instructions
+
+Set the envirnment with
+```sh
+module load conda/2022-09-08
+conda activate </path/to/ssim/env>
+module load cudatoolkit-standalone
+module load cmake
+export CRAY_ACCEL_TARGET=nvidia80
+```
+
+and build the code with
+```sh
+CC=cc CXX=CC FC=ftn ./nrsconfig -DCMAKE_INSTALL_PREFIX=</path/to/install/dir> -DENABLE_SMARTREDIS=1 -DSMARTREDIS_PATH=</path/to/SmartRedis>
+```
+where `</path/to/install/dir>` can be a user's home directory or a project space. 
+Note that this version of NekRS requires the path to the directory where SmartRedis was installed and the additional arguments `-DENABLE_SMARTREDIS=1 -DSMARTREDIS_PATH=</path/to/SmartRedis>` to the config script.
+
+Then run the examples with
+```sh
+export NEKRS_HOME=</path/to/install/dir>
+export PATH=$NEKRS_HOME/bin:$PATH
+export LD_LIBRARY_PATH=</path/to/SmartRedis>/install/lib:$LD_LIBRARY_PATH
+cd examples/ktauChannel_smartredis
+python ssim_driver_polaris.py sim.executable=$NEKRS_HOME/bin/nekrs
+```
 
 ## Documentation 
 For documentation, see our [readthedocs page](https://nekrs.readthedocs.io/en/latest/). For now it's just a dummy. We hope to improve it soon. 

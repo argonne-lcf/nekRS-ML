@@ -1,0 +1,31 @@
+# Database config
+database:
+    launch: True # True,False - determine whether to launch SmartSim database
+    backend: "redis" # redis,keydb - launch Redis of KeyDB database
+    deployment: "colocated" # colocated,clustered - deployment of database
+    port: 6780
+    network_interface: "lo" # lo,hsn0,uds - network used for data transfer
+    # On Polaris: lo hsn0 for clustered, lo and uds for co-located
+    exp_name: "nekRS-ML" # string
+    launcher: "pbs" # pbs, cobalt - job scheduler
+
+# Run config
+run_args:
+    nodes: 1 # integer - total number of nodes for job
+    db_nodes: 1 # integer - number of nodes for database
+    sim_nodes: 1 # integer - number of nodes for simulation
+    ml_nodes: 1 # integer - number of nodes for ML training
+    cores_pn: 1 # integer - number of CPU cores per node.
+    simprocs: 4 # integer - number of MPI processes for simulation
+    simprocs_pn: 4 # integer - number of MPI processes per node for simulation
+    dbprocs_pn: 4 # integer - number of threads for database
+    sim_cpu_bind: "numa" # none, core, list, numa - CPU binding for simulation
+
+# Simulation config
+sim:
+    executable: "" # string - path to simulation executable
+    arguments: "" # string - command line arguments to simulation
+    affinity: "" # string - GPU affinity script for simulation
+
+
+   
