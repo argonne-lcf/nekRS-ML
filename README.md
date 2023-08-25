@@ -13,7 +13,6 @@ COPYRIGHT (c) 2019-2023 UCHICAGO ARGONNE, LLC
 
 This branch of NekRS-ML includes a plugin that enables communication with a SmartSim database through the use of the SmartRedis API. 
 [SmartSim](https://github.com/CrayLabs/SmartSim) and [SmartRedis](https://github.com/CrayLabs/SmartRedis) are open-source libraries developed by HPE that can be used for coupling traditional HPC applications with AI/ML functionality in situ. 
-#Examples of how these libraries can be used for in situ training and inferencing of models 
 
 Currently, this branch uses the `ktauChannel_smartredis` example to launch NekRS running in paralel on 4 GPU along with a co-located SmartSim database, and sends the velocity field to the database every 10 time steps of the simulation. The SmartRedis clients are initialized in the `UDF_Setup()` function and the data transfer is performed within `UDF_ExecuteStep()`.
 
