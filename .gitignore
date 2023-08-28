@@ -19,4 +19,5 @@ examples/ktauChannel_smartredis/cmake.log
 *.err
 */outputs/
 *.colocated_launcher.sh
-
+*.pt
+*-db.log

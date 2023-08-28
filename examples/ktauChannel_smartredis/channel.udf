@@ -121,21 +121,17 @@ void UDF_Setup(nrs_t *nrs)
   RANSktau::setup(nrs, mueLam, rho, scalarFieldStart);
 
   // Initialize SmartRedis client
-  smartredis::init_client();
+  smartredis::init_client(nrs);
+  smartredis::init_train(nrs);
 }
 
 void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
 {
   // Send and retrieve tensor to DB every 10 steps
-  if (tstep%10==0) {
+  if (tstep%10==0 && tstep>0) {
     nek::ocopyToNek(time, tstep);
-    smartredis::put_vel_data(nrs, time, tstep);
-  }
-
-  if (ciMode) {
-    ciTestErrors(nrs, time, tstep);
-  }
-  if (nrs->isOutputStep) {
-    extractLine(nrs, time, tstep);
+    smartredis::put_velNpres_data(nrs, time, tstep);
+    MPI_Barrier(platform->comm.mpiComm);
+    smartredis::put_step_num(tstep);
   }
 }
