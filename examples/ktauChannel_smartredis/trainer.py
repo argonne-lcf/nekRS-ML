@@ -84,7 +84,7 @@ class RankDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, idx):
         tensor_num = idx+self.head_rank
-        return f"y.{tensor_num}.{self.step}"
+        return f"x.{tensor_num}.{self.step}"
 
 class MinibDataset(torch.utils.data.Dataset):
     #dataset of each ML rank in one epoch with the concatenated tensors
@@ -336,10 +336,11 @@ def main():
 
     # Save model to file before exiting
     if (rank == 0):
+        model.double()
         model_name = "model"
         torch.save(model.state_dict(), f"{model_name}.pt", _use_new_zipfile_serialization=False)
         # save jit traced model to be used for online inference with SmartSim
-        features = np.float32(np.random.uniform(low=0, high=10, size=(100,ndIn)))
+        features = np.double(np.random.uniform(low=0, high=10, size=(npts,ndIn)))
         features = torch.from_numpy(features).to(args.device)
         module = torch.jit.trace(model, features)
         torch.jit.save(module, f"{model_name}_jit.pt")

@@ -16,8 +16,9 @@ namespace smartredis
 {
   void init_client(nrs_t *nrs);
   void init_train(nrs_t *nrs);
-  void put_velNpres_data(nrs_t *nrs, dfloat time, int tstep);
+  void put_velNpres_data(nrs_t *nrs, int tstep);
   void put_step_num(int tstep);
+  void run_pressure_model(nrs_t *nrs, int tstep);
 }
 
 #endif

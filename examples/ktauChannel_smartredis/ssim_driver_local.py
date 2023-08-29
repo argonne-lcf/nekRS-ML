@@ -32,41 +32,59 @@ def launch_coDB(args):
                 limit_app_cpus=False,
                 ifname="lo",
                 )
+    
+    # Load a model for inference
+    if (args.inf_model):
+        colo_model.add_ml_model('model',
+                                'TORCH',
+                                model=None,
+                                model_path=args.inf_model,
+                                device='CPU',
+                                batch_size=0,
+                                min_batch_size=0,
+                                devices_per_node=1,
+                                inputs=None, outputs=None)
 
     # Start the co-located model
+    block=False if args.ml_exe else True
     print("Launching NekRS and SmartSim co-located DB ... ")
-    exp.start(colo_model, block=False, summary=False)
+    exp.start(colo_model, block=block, summary=False)
     print("Done\n")
 
     # Setup and launch the training script
-    ml_exe = args.ml_exe + ' ' + args.ml_args
-    ml_settings = RunSettings('python',
+    if (args.ml_exe):
+        ml_exe = args.ml_exe + ' ' + args.ml_args
+        ml_settings = RunSettings('python',
                    exe_args=ml_exe,
                    run_command='mpirun',
                    run_args={"-n" : args.ml_nprocs},
                    env_vars=colo_model.run_settings.env_vars
                    )
-    ml_model = exp.create_model("train_model", ml_settings)
-    print("Launching training script ... ")
-    exp.start(ml_model, block=True, summary=False)
-    print("Done\n")
+        ml_model = exp.create_model("train_model", ml_settings)
+        print("Launching training script ... ")
+        exp.start(ml_model, block=True, summary=False)
+        print("Done\n")
 
 
 ## Main function
 def main():
     # Parse arguments
     parser = argparse.ArgumentParser(description='')
-    parser.add_argument('--nrs_exe',default='/Users/rbalin/.local/nekrs/bin/nekrs',help='Executable path to NekRS')
+    parser.add_argument('--nrs_exe',default='',help='Executable path to NekRS')
     parser.add_argument('--nrs_nprocs',default=1,type=int,help='Number of processes for NekRS')
     parser.add_argument('--nrs_args',default='--setup channel.par',help='Arguments to NekRS executable')
-    parser.add_argument('--ml_exe',default='./trainer.py',help='Path to training script')
+    parser.add_argument('--ml_exe',default='',help='Path to training script')
     parser.add_argument('--ml_nprocs',default=1,type=int,help='Number of processes for ML training')
     parser.add_argument('--ml_args',default=' ',help='Arguments to ML training script')
+    parser.add_argument('--inf_model',default='',help='ML model path for inference')
     args = parser.parse_args()
 
     # Call co-located DB launcher
-    print(f"\nRunning with co-located DB\n")
-    launch_coDB(args)
+    if (args.nrs_exe):
+        print("\nRunning with co-located DB\n")
+        launch_coDB(args)
+    else:
+        print("\nPlease input path to NekRS executable\n")
 
     # Quit
     print("Quitting")

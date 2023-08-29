@@ -3,7 +3,7 @@ polynomialOrder = 7
 #startFrom = "r.fld"+time=0
 stopAt = endTime
 endTime = 10
-dt = 1e-02
+dt = 2e-02
 timeStepper = tombo2
 
 writeControl = simulationTime 

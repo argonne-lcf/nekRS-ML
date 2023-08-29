@@ -13,7 +13,7 @@ SmartRedis::Client *client_ptr;
 // Initialize the SmartRedis client and the smartredis struct
 void smartredis::init_client(nrs_t *nrs)
 {
-  // Initialize some local variables
+  // Initialize local variables
   int rank = platform->comm.mpiRank;
   int size = platform->comm.mpiCommSize;
 
@@ -42,7 +42,7 @@ void smartredis::init_client(nrs_t *nrs)
 // Initialize the training
 void smartredis::init_train(nrs_t *nrs)
 {
-  // Initialize some local variables
+  // Initialize local variables
   int rank = platform->comm.mpiRank;
   int size = platform->comm.mpiCommSize;
 
@@ -65,16 +65,21 @@ void smartredis::init_train(nrs_t *nrs)
     printf("Done\n\n");
 }
 
-// Put velocity data in DB
-void smartredis::put_velNpres_data(nrs_t *nrs, dfloat time, int tstep)
+// Put velocity and pressure data in DB
+void smartredis::put_velNpres_data(nrs_t *nrs, int tstep)
 {
+  // Initialize local variables
   int rank = platform->comm.mpiRank;
-  std::string key = "y." + std::to_string(rank) + "." + std::to_string(tstep);
+  std::string key = "x." + std::to_string(rank) + "." + std::to_string(tstep);
   dfloat *train_data = new dfloat[nrs->fieldOffset * 4]();
   int size_U = nrs->fieldOffset * 3;
   int size_P = nrs->fieldOffset;
+
+  // Concatenate velocity (inputs) and pressure (output)
   std::copy(nrs->U,nrs->U+size_U,train_data);
   std::copy(nrs->P,nrs->P+size_P,train_data);
+
+  // Send training data to DB
   if (rank == 0)
     printf("\nSending field with key %s \n",key.c_str());
   client_ptr->put_tensor(key, train_data, {nrs->fieldOffset,4},
@@ -82,27 +87,18 @@ void smartredis::put_velNpres_data(nrs_t *nrs, dfloat time, int tstep)
   MPI_Barrier(platform->comm.mpiComm);
   if (rank == 0)
     printf("Done\n\n");
-
-  /*
-  dfloat *u = new dfloat[nrs->fieldOffset * 3]();
-  client_ptr->unpack_tensor(key, u, {nrs->fieldOffset * 3},
-                       SRTensorTypeDouble, SRMemLayoutContiguous);
-  double error = 0.0;
-  for (int n=0; n<nrs->fieldOffset*3; n++) {
-    error = error + (u[n] - nrs->U[n])*(u[n] - nrs->U[n]);
-  }
-  printf("[%d]: Error in fields = %f\n",rank,error);
-  fflush(stdout);
-  */
 }
 
 // Put step number in DB
 void smartredis::put_step_num(int tstep)
 {
+  // Initialize local variables
   int rank = platform->comm.mpiRank;
   std::string key = "step";
   std::vector<double> step_num(1,0);
   step_num[0] = tstep;
+
+  // Send time step to DB
   if (rank == 0)
     printf("\nSending time step number ...\n");
   client_ptr->put_tensor(key, step_num.data(), {1},
@@ -110,6 +106,53 @@ void smartredis::put_step_num(int tstep)
   MPI_Barrier(platform->comm.mpiComm);
   if (rank == 0)
     printf("Done\n\n");
+}
+
+// Run a ML model for inference
+void smartredis::run_pressure_model(nrs_t *nrs, int tstep)
+{
+  // Initialize local variables
+  int rank = platform->comm.mpiRank;
+  int npts = nrs->fieldOffset;
+  std::string in_key = "x." + std::to_string(rank) + "." + std::to_string(tstep);
+  std::string out_key = "y." + std::to_string(rank) + "." + std::to_string(tstep);
+  dfloat *outputs = new dfloat[npts]();
+  
+  // Send input data
+  if (rank == 0)
+    printf("\nSending field with key %s \n",in_key.c_str());
+  client_ptr->put_tensor(in_key, nrs->U, {npts,3},
+                    SRTensorTypeDouble, SRMemLayoutContiguous);
+  MPI_Barrier(platform->comm.mpiComm);
+  if (rank == 0)
+    printf("Done\n\n");
+
+  // Run ML model on input data
+  if (rank == 0)
+    printf("\nRunning ML model ...\n");
+  client_ptr->run_model("model", {in_key}, {out_key});
+  MPI_Barrier(platform->comm.mpiComm);
+  if (rank == 0)
+    printf("Done\n\n");
+
+  // Retrieve model pedictions
+  if (rank == 0)
+    printf("\nRetrieving field with key %s \n",out_key.c_str());
+  client_ptr->unpack_tensor(out_key, outputs, {npts},
+                       SRTensorTypeDouble, SRMemLayoutContiguous);
+  MPI_Barrier(platform->comm.mpiComm);
+  if (rank == 0)
+    printf("Done\n\n");
+  
+  // Compute error in prediction
+  double error = 0.0;
+  for (int n=0; n<npts; n++) {
+    error = error + (outputs[n] - nrs->P[n])*(outputs[n] - nrs->P[n]);
+    //printf("True, Pred, Error: %f, %f, %f \n",nrs->P[n],outputs[n],error);
+  }
+  error = error / npts;
+  printf("[%d]: Mean Squared Error in pressure field = %f\n\n",rank,error);
+  fflush(stdout);
 }
 
 #endif
