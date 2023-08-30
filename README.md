@@ -115,9 +115,9 @@ cd examples/ktauChannel_smartredis
 Run the online training example
 ```sh
 ln -s channel_train.udf channel.udf
-python ssim_driver_polaris.py sim.executable=$NEKRS_HOME/bin/nekrs run_args.simprocs=4 run_args.simprocs_pn=4 train.executable=./trainer.py train.device=cpu
+python ssim_driver_polaris.py sim.executable=$NEKRS_HOME/bin/nekrs run_args.simprocs=2 run_args.simprocs_pn=2 train.executable=./trainer.py run_args.mlprocs=2 run_args.mlprocs_pn=2 train.device=cuda train.affinity=./affinity_ml.sh
 ```
-Currently, this example runs NekRS in parallel on the 4 GPU and the ML training on the CPU. Future iterations of this example will run the ML training on the GPU as well (waiting on a PR to add GPU affinity to SmartSim run settings). Note also that this sets up a co-located database on the node, but the  `ssim_driver_polaris.py` script is set for both co-located and clustered workflows. The example produces the log files `nekrs.out`, `nekrs.err`, `train_model.out`, and `train_model.err` for NekRS and the ML training, respectively, and saves the trained model to file in normal and jitted formats as `model.pt` and `model_jit.pt`, respectively. 
+Currently, this example runs NekRS in parallel on the 2 GPU of a Polaris node and the ML distributed training on the other 2 GPU of the node. Note also that this sets up a co-located database on the node, but the  `ssim_driver_polaris.py` script is set for both co-located and clustered workflows. The example produces the log files `nekrs.out`, `nekrs.err`, `train_model.out`, and `train_model.err` for NekRS and the ML training, respectively, and saves the trained model to file in normal and jitted formats as `model.pt` and `model_jit.pt`, respectively. 
 
 Run the online inference example using the oneline trained model
 ```sh
