@@ -122,22 +122,16 @@ void UDF_Setup(nrs_t *nrs)
 
   // Initialize SmartRedis client
   smartredis::init_client(nrs);
-  //smartredis::init_train(nrs);
+  smartredis::init_train(nrs);
 }
 
 void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
 {
   // Send training data for pressure model every 10 steps
-  /*if (tstep%10==0 && tstep>0) {
+  if (tstep%10==0 && tstep>0) {
     nek::ocopyToNek(time, tstep);
     smartredis::put_velNpres_data(nrs, tstep);
     MPI_Barrier(platform->comm.mpiComm);
     smartredis::put_step_num(tstep);
-  }*/
-
-  // Perform inference with pressure model every 10 steps
-  if (tstep%10==0 && tstep>0) {
-    nek::ocopyToNek(time, tstep);
-    smartredis::run_pressure_model(nrs, tstep);
   }
 }
