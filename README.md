@@ -14,7 +14,10 @@ COPYRIGHT (c) 2019-2023 UCHICAGO ARGONNE, LLC
 This branch of NekRS-ML includes a plugin that enables communication with a SmartSim database through the use of the SmartRedis API. 
 [SmartSim](https://github.com/CrayLabs/SmartSim) and [SmartRedis](https://github.com/CrayLabs/SmartRedis) are open-source libraries developed by HPE that can be used for coupling traditional HPC applications with AI/ML functionality in situ. 
 
-Currently, this branch uses the `ktauChannel_smartredis` example to launch NekRS running in paralel on 4 GPU along with a co-located SmartSim database, and sends the velocity field to the database every 10 time steps of the simulation. The SmartRedis clients are initialized in the `UDF_Setup()` function and the data transfer is performed within `UDF_ExecuteStep()`.
+Currently, this branch uses the `ktauChannel_smartredis` example to demonstrate online training and inference with SmartSim/SmartRedis and NekRS. 
+In particular, an MLP which takes the three velocity components at each discretization point as inputs is trained to predict the pressure at the same grid point. This can be thought of as a crude example of using ML to replace the pressure Poisson equation needed to solve the incompressible Navier-Stokes equations.
+The [instructions](https://github.com/argonne-lcf/nekRS-ML/tree/smartredis#polaris-instructions) below detail how to build the code, train the MLP model from a live NekRS simulation on the Polaris GPU, and then perform inference with the trained model from NekRS to compare the ML predicted pressure with the true values. 
+Note that the functions defined in the new plugin are called from `UDF_Setup()` and `UDF_ExecuteStep()` in the `.udf` file.
 
 **nekRS** is a fast and scaleable computational fluid dynamics (CFD) solver targeting HPC applications. The code started as an early fork of [libParanumal](https://github.com/paranumal/libparanumal) in 2019.
 
