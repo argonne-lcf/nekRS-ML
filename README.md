@@ -88,30 +88,46 @@ For convenience we provide various launch scripts in the `bin` directory.
 
 ## Polaris Instructions
 
-Set the envirnment with
+From an interactive session on a single node, set the build environment 
 ```sh
 module load conda/2022-09-08
-conda activate </path/to/ssim/env>
+conda activate /eagle/wall_turb_dd/SmartSim/Polaris/env/ssim
 module load cudatoolkit-standalone
 module load cmake
 export CRAY_ACCEL_TARGET=nvidia80
 ```
 
-and build the code with
+and build the code
 ```sh
-CC=cc CXX=CC FC=ftn ./nrsconfig -DCMAKE_INSTALL_PREFIX=</path/to/install/dir> -DENABLE_SMARTREDIS=1 -DSMARTREDIS_PATH=</path/to/SmartRedis>
+CC=cc CXX=CC FC=ftn ./nrsconfig -DCMAKE_INSTALL_PREFIX=</path/to/install/dir> -DENABLE_SMARTREDIS=1 -DSMARTREDIS_PATH=/eagle/wall_turb_dd/SmartSim/Polaris/env/SmartRedis
 ```
 where `</path/to/install/dir>` can be a user's home directory or a project space. 
-Note that this version of NekRS requires the path to the directory where SmartRedis was installed and the additional arguments `-DENABLE_SMARTREDIS=1 -DSMARTREDIS_PATH=</path/to/SmartRedis>` to the config script.
+Note that this version of NekRS requires the additional arguments `-DENABLE_SMARTREDIS=1 -DSMARTREDIS_PATH=</path/to/SmartRedis>` to the config script.
 
-Then run the examples with
+Set up the run environment
 ```sh
 export NEKRS_HOME=</path/to/install/dir>
 export PATH=$NEKRS_HOME/bin:$PATH
-export LD_LIBRARY_PATH=</path/to/SmartRedis>/install/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/eagle/wall_turb_dd/SmartSim/Polaris/env/SmartRedis/install/lib:$LD_LIBRARY_PATH
 cd examples/ktauChannel_smartredis
-python ssim_driver_polaris.py sim.executable=$NEKRS_HOME/bin/nekrs
 ```
+
+Run the online training example
+```sh
+ln -s channel_train.udf channel.udf
+python ssim_driver_polaris.py sim.executable=$NEKRS_HOME/bin/nekrs run_args.simprocs=4 run_args.simprocs_pn=4 train.executable=./trainer.py train.device=cpu
+```
+Currently, this example runs NekRS in parallel on the 4 GPU and the ML training on the CPU. Future iterations of this example will run the ML training on the GPU as well (waiting on a PR to add GPU affinity to SmartSim run settings). Note also that this sets up a co-located database on the node, but the  `ssim_driver_polaris.py` script is set for both co-located and clustered workflows. The example produces the log files `nekrs.out`, `nekrs.err`, `train_model.out`, and `train_model.err` for NekRS and the ML training, respectively, and saves the trained model to file in normal and jitted formats as `model.pt` and `model_jit.pt`, respectively. 
+
+Run the online inference example using the oneline trained model
+```sh
+rm channel.udf
+ln -s channel_inf.udf channel.udf
+python ssim_driver_polaris.py sim.executable=$NEKRS_HOME/bin/nekrs inference.model_path=./model_jit.pt inference.device=CPU
+```
+Currently, this example runs NekRS in parallel on the 4 GPU and performs ML inference on the CPU. Future iterations of this example will run ML inference on the GPU as well. Similarly to the training example above, this a co-located database is launched by default but both deployment options are available. The example produces the log files `nekrs.out` and `nekrs.err`.
+
+Finally, note that the full list of configuration options to set up the training and inference runs can be found in `conf/ssim_config.yaml`.
 
 ## Documentation 
 For documentation, see our [readthedocs page](https://nekrs.readthedocs.io/en/latest/). For now it's just a dummy. We hope to improve it soon. 
