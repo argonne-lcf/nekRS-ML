@@ -1,0 +1,41 @@
+@kernel void scalarScaledAdd(const dlong N,
+                             const dfloat a,
+                             const dfloat b,
+                             @ restrict const dfloat *X,
+                             @ restrict dfloat *Y)
+{
+  for (dlong n = 0; n < N; ++n; @tile(256, @outer, @inner)) {
+    if (n < N) {
+      Y[n] = a + b * X[n];
+    }
+  }
+}
+
+// Boundary conditions
+void velocityDirichletConditions(bcData *bc)
+{                                                                        
+  const dfloat AoA = 0.0; //.. angle of attack in degrees
+  const dfloat ONE = 1.0;
+  const dfloat PI  = 4.0*atan(ONE);
+  bc->u = cos(AoA*PI/180.0);
+  bc->v = sin(AoA*PI/180.0);
+  bc->w = 0.0;
+}
+
+// Stabilized outflow (Dong et al)
+void pressureDirichletConditions(bcData *bc)
+{
+  const dfloat iU0delta = 10.0;
+  const dfloat un = bc->u*bc->nx + bc->v*bc->ny + bc->w*bc->nz;
+  const dfloat s0 = 0.5 * (1.0 - tanh(un*iU0delta)); 
+  bc->p = -0.5 * (bc->u*bc->u + bc->v*bc->v + bc->w*bc->w) * s0;
+}
+
+void scalarDirichletConditions(bcData *bc)
+{
+  bc->s = 0;
+  if (bc->scalarId == 0) {
+    bc->s = 0;
+  }
+}
+

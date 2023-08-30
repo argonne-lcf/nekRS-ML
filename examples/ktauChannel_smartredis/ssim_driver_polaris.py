@@ -49,6 +49,9 @@ def launch_coDB(cfg, nodelist, nNodes):
         nrs_settings.set_tasks_per_node(cfg.run_args.simprocs_pn)
         nrs_settings.set_hostlist(hosts)
         nrs_settings.set_cpu_binding_type(cfg.run_args.sim_cpu_bind)
+        if (cfg.sim.affinity):
+            nrs_settings.set_gpu_affinity_script(cfg.sim.affinity,
+                                                 cfg.run_args.simprocs_pn)
 
     # Create the co-located database model
     colo_model = exp.create_model("nekrs", nrs_settings)
@@ -120,6 +123,10 @@ def launch_coDB(cfg, nodelist, nNodes):
             ml_settings.set_tasks_per_node(cfg.run_args.mlprocs_pn)
             ml_settings.set_hostlist(hosts)
             ml_settings.set_cpu_binding_type(cfg.run_args.ml_cpu_bind)
+            if (cfg.train.affinity):
+                ml_settings.set_gpu_affinity_script(cfg.train.affinity,
+                                                    cfg.run_args.mlprocs_pn,
+                                                    cfg.run_args.simprocs_pn)
         
         ml_model = exp.create_model("train_model", ml_settings)
         print("Launching training script ... ")

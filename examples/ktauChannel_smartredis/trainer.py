@@ -239,11 +239,12 @@ def main():
 
     # Set device to run on
     if (rank == 0):
-        print(f"Running on device: {args.device} \n")
+        print(f"\nRunning on device: {args.device} \n")
     device = torch.device(args.device)
     if (args.device == 'cuda'):
         if torch.cuda.is_available():
-            torch.cuda.set_device(hvd.local_rank())
+            device_id = hrankl if torch.cuda.device_count()>1 else 0
+            torch.cuda.set_device(device_id)
 
     # Instantiate the NN model and optimizer
     model = NeuralNetwork(inputDim=ndIn, outputDim=ndOut, numNeurons=nNeurons)
