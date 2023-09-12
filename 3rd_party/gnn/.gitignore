@@ -1,0 +1,23 @@
+# PBS outputs 
+*.e*
+*.o*
+main.sh
+
+# Postprocessing folders 
+figures/
+outputs/
+logs/
+datasets/
+ckpt/
+saved_models/
+
+*.swp
+.DS_Store
+
+# images
+*.png
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class

@@ -1,0 +1,45 @@
+# @package _global_
+verbose : True
+seed: 12
+epochs: 25
+backend: gloo
+lr_init: 0.00001
+# momentum: 0.5
+use_noise : True
+num_threads: 0
+logfreq: 1
+ckptfreq: 5
+batch_size: 1
+test_batch_size: 1
+fp16_allreduce: False
+restart: False
+
+# Number of training rollout steps
+rollout_steps: 1
+
+# plotting the connecivity (can take some time)
+plot_connectivity : False
+
+hydra:
+  job:
+    chdir: true
+
+    #defaults:
+    #  - override hydra/hydra_logging: colorlog
+    #  - override hydra/job_logging: colorlog
+
+# path to original working directory
+# hydra hijacks working directory by changing it to the new log directory
+# so its useful to have this path as a special variable
+# https://hydra.cc/docs/next/tutorials/basic/running_your_app/working_directory
+work_dir: ${hydra:runtime.cwd}
+# path to folder with data
+data_dir: ${work_dir}/datasets/
+# path to folder for checkpointing
+ckpt_dir: ${work_dir}/ckpt/ 
+# path to saved model directory
+model_dir: ${work_dir}/saved_models/ 
+
+
+# specify path to gnn_outputs here (case directory)  
+gnn_outputs_path: /Users/sbarwey/Files/nekrs_cases/examples_v23/tgv_gnn/gnn_outputs/ 
