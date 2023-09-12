@@ -17,6 +17,9 @@ typedef struct {
     int owned;        // owner node flag 
 } parallelNode_t;
 
+template <typename T> 
+void writeToFile(const std::string& filename, T* data, int nRows, int nCols); 
+
 int compareBaseId(const void *a, const void *b);
 int compareLocalId(const void *a, const void *b);  
 
@@ -63,6 +66,10 @@ private:
 
     // for prints 
     bool verbose = true; 
+
+    // for writing 
+    bool write = true;
+    std::string writePath;
 };
 
 #endif

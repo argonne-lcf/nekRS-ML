@@ -4,6 +4,7 @@
 #include "ogsInterface.h"
 #include "gnn.hpp"
 #include <cstdlib>
+#include <filesystem>
 
 template <typename T>
 void writeToFile(const std::string& filename, T* data, int nRows, int nCols)
@@ -66,18 +67,37 @@ void gnn_t::gnnSetup()
     get_graph_nodes();
     get_node_positions();
     get_node_masks();
+
+    // output directory 
+    if (write)
+    {
+        std::filesystem::path currentPath = std::filesystem::current_path();
+        currentPath /= "gnn_outputs";
+        writePath = currentPath.string();
+
+        if (rank == 0)
+        {
+            if (!std::filesystem::exists(writePath))
+            {
+                std::filesystem::create_directory(writePath);
+            }
+        }
+        MPI_Comm &comm = platform->comm.mpiComm;
+        MPI_Barrier(comm);
+    }
 }
 
 void gnn_t::gnnWrite()
 {
     if (verbose) printf("[RANK %d] -- in gnnWrite() \n", rank);
     dlong N = mesh->Nelements * mesh->Np; // total number of nodes 
-    std::string proc = "_proc_" + std::to_string(rank);
-    write_edge_index("edge_index" + proc);
-    writeToFile("pos_node" + proc, pos_node, N, 3);
-    writeToFile("local_unique_mask" + proc, local_unique_mask, N, 1); 
-    writeToFile("halo_unique_mask" + proc, halo_unique_mask, N, 1); 
-    writeToFile("global_ids" + proc, mesh->globalIds, N, 1);
+    std::string irank = "_rank_" + std::to_string(rank);
+    std::string nranks = "_size_" + std::to_string(size);
+    write_edge_index(writePath + "/edge_index" + irank + nranks);
+    writeToFile(writePath + "/pos_node" + irank + nranks, pos_node, N, 3);
+    writeToFile(writePath + "/local_unique_mask" + irank + nranks, local_unique_mask, N, 1); 
+    writeToFile(writePath + "/halo_unique_mask" + irank + nranks, halo_unique_mask, N, 1); 
+    writeToFile(writePath + "/global_ids" + irank + nranks, mesh->globalIds, N, 1);
 }
 
 void gnn_t::get_node_positions()
