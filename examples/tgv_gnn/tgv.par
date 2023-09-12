@@ -1,10 +1,14 @@
 [GENERAL]
-polynomialOrder = 3
-#cubaturePolynomialOrder = 9 
+polynomialOrder = 7
+cubaturePolynomialOrder = 9 
 
 #startFrom = "r.fld"
-stopAt = endTime
-endTime = 0
+
+#stopAt = endTime
+#endTime = 20
+
+stopAt = numSteps
+numSteps = 10
 
 timeStepper = tombo3
 dt = 3e-3
@@ -14,7 +18,7 @@ dt = 3e-3
 #subcyclingSteps = 1
 
 writeControl = simulationTime 
-writeInterval = 0
+writeInterval = 100
 
 regularization = hpfrt + nModes=1 + scalingCoeff=1
 
