@@ -1,0 +1,23 @@
+module restore
+module swap PrgEnv-nvhpc PrgEnv-gnu
+module load cudatoolkit-standalone/11.4.4
+module load cmake/3.23.2
+module unload cray-libsci
+export CRAY_ACCEL_TARGET=nvidia80
+
+echo $(cc --version)
+echo $(CC --version)
+echo $(ftn --version)
+echo $(gcc --version)
+echo $(g++ --version)
+echo $(gfortran --version)
+
+
+export NEKRS_HOME=/home/sbarwey/.local/nekrs
+export PATH=$NEKRS_HOME/bin:$PATH
+ 
+export NEK5000_HOME=/lus/grand/projects/wall_turb_dd/Polaris/bramesh/FlowSolvers/Nek5000
+export PATH=$NEK5000_HOME/bin:$PATH
+
+module load conda/2022-09-08
+conda activate /lus/eagle/projects/datascience/sbarwey/codes/conda_envs/base-clone
