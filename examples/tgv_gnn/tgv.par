@@ -56,3 +56,6 @@ W0 = 0
 #smootherType = 18
 iterations = 1
 chebyshevRelaxOrder = 1
+
+[OCCA]
+backend = CPU 
