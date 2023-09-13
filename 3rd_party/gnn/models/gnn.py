@@ -122,7 +122,7 @@ class mp_layer(torch.nn.Module):
         self.edge_updater = torch.nn.ModuleList()
         for j in range(self.n_mlp_layers_edge):
             if j == 0:
-                input_features = self.channels*3
+                input_features = self.channels*3 + 4 # extra 4 dims comes from edge_attr
                 output_features = self.channels 
             else:
                 input_features = self.channels
@@ -155,14 +155,14 @@ class mp_layer(torch.nn.Module):
         # ~~~~ Edge update 
         x_nei = x[edge_index[0,:], :] 
         x_own = x[edge_index[1,:], :] 
-        edge_attr = torch.cat((x_nei, x_own, x_nei - x_own), dim=1)
+        ea = torch.cat((edge_attr, x_nei, x_own, x_nei - x_own), dim=1)
         n_layers = self.n_mlp_layers_edge
         for j in range(n_layers):
-            edge_attr = self.edge_updater[j](edge_attr) 
+            ea = self.edge_updater[j](ea) 
             if j < n_layers - 1:
-                edge_attr = self.act(edge_attr)
+                ea = self.act(ea)
 
-        edge_agg = self.edge_aggregator(x, edge_index, edge_attr)
+        edge_agg = self.edge_aggregator(x, edge_index, ea)
 
         x = torch.cat((x, edge_agg), dim=1)
         n_layers = self.n_mlp_layers_node
