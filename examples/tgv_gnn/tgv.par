@@ -8,7 +8,7 @@ cubaturePolynomialOrder = 9
 #endTime = 20
 
 stopAt = numSteps
-numSteps = 10
+numSteps = 1000
 
 timeStepper = tombo3
 dt = 3e-3
@@ -58,4 +58,5 @@ iterations = 1
 chebyshevRelaxOrder = 1
 
 [OCCA]
-backend = CPU 
+backend = CUDA
+deviceNumber = LOCAL-RANK
