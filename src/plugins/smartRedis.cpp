@@ -39,6 +39,29 @@ void smartredis::init_client(nrs_t *nrs)
     printf("Done\n");
 }
 
+// Check value of check-run variable to know when to quit
+int smartredis::check_run()
+{
+  int rank = platform->comm.mpiRank;
+  int exit_val;
+  std::string run_key = "check-run";
+  int *check_run = new int[2]();
+
+  // Check value of check-run tensor in DB from head rank
+  if (rank%sr->num_db_tensors == 0) {
+    client_ptr->unpack_tensor(run_key, check_run, {2},
+                       SRTensorTypeInt32, SRMemLayoutContiguous);
+    exit_val = check_run[0];
+  }
+
+  // Broadcast exit value and return it
+  MPI_Bcast(&exit_val, 1, MPI_INT, 0, platform->comm.mpiComm);
+  printf("Rank %d received check-run=%d\n",platform->comm.mpiRank,exit_val);
+  if (exit_val==0 && platform->comm.mpiRank==0) {
+    printf("\nML training says time to quit ...\n");
+  }
+  return exit_val;
+}
 // Initialize the training
 void smartredis::init_train(nrs_t *nrs)
 {
@@ -46,7 +69,10 @@ void smartredis::init_train(nrs_t *nrs)
   int rank = platform->comm.mpiRank;
   int size = platform->comm.mpiCommSize;
 
-  // Create and send tensor metadata
+  if (rank == 0) 
+    printf("\nSending training metadata ...\n");
+
+  // Create and send metadata for training
   std::vector<int> tensor_info(6,0);
   tensor_info[0] = sr->npts_per_tensor;
   tensor_info[1] = sr->num_tot_tensors;
@@ -56,11 +82,21 @@ void smartredis::init_train(nrs_t *nrs)
   tensor_info[5] = 1; // number of model outputs
   std::string info_key = "tensorInfo";
   if (rank%sr->num_db_tensors == 0) {
-    printf("\nSending metadata from rank %d ...\n",rank);
     client_ptr->put_tensor(info_key, tensor_info.data(), {6},
                     SRTensorTypeInt32, SRMemLayoutContiguous);
   }
   MPI_Barrier(platform->comm.mpiComm);
+
+  // Send check-run tensor to DB
+  std::vector<int> check_run(2,0);
+  check_run[0] = 1; check_run[1] = 1;
+  std::string run_key = "check-run";
+  if (rank%sr->num_db_tensors == 0) {
+    client_ptr->put_tensor(run_key, check_run.data(), {2},
+                    SRTensorTypeInt32, SRMemLayoutContiguous);
+  }
+  MPI_Barrier(platform->comm.mpiComm);
+
   if (rank == 0)
     printf("Done\n\n");
 }

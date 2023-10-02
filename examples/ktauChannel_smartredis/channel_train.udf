@@ -134,4 +134,10 @@ void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
     MPI_Barrier(platform->comm.mpiComm);
     smartredis::put_step_num(tstep);
   }
+
+  // Every time step check to see if ML training says it's time to quit 
+  int exit_val = smartredis::check_run();
+  if (exit_val==0) {
+    exit(0);
+  }
 }

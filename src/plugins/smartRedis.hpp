@@ -19,6 +19,7 @@ namespace smartredis
   void put_velNpres_data(nrs_t *nrs, int tstep);
   void put_step_num(int tstep);
   void run_pressure_model(nrs_t *nrs, int tstep);
+  int check_run();
 }
 
 #endif

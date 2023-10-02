@@ -353,7 +353,7 @@ def main():
     comm.Barrier()
     if (rank%args.ppn == 0):
         print(f"[{hrank}]: Telling NekRS to quit ... \n")
-        arrMLrun = np.zeros(2)
+        arrMLrun = np.int32(np.zeros(2))
         client.put_tensor("check-run",arrMLrun)
 
     if (rank==0):
