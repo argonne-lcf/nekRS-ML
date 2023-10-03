@@ -5,6 +5,7 @@
 #include "plugins/RANSktau.hpp"
 #include "plugins/smartRedis.hpp"
 #include "ci.inc"
+#include "nrs.hpp"
 
 static dfloat rho, mueLam;
 
@@ -138,6 +139,6 @@ void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
   // Every time step check to see if ML training says it's time to quit 
   int exit_val = smartredis::check_run();
   if (exit_val==0) {
-    exit(0);
+    platform->options.setArgs("END TIME",to_string_f(-10.0));
   }
 }
