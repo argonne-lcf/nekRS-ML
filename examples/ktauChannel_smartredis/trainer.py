@@ -144,7 +144,7 @@ def train(model, train_sampler, train_tensor_loader, optimizer, epoch,
                       f'Loss: {loss.item():>8e}')
                 sys.stdout.flush()
 
-    running_loss = running_loss / len(train_loader) / batch
+    running_loss = running_loss / len(train_loader) / len(train_tensor_loader)
     loss_avg = metric_average(running_loss, 'running_loss')
 
     if hvd.rank() == 0:
