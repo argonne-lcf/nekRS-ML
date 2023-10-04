@@ -57,7 +57,6 @@ int smartredis::check_run()
 
   // Broadcast exit value and return it
   MPI_Bcast(&exit_val, 1, MPI_INT, 0, platform->comm.mpiComm);
-  printf("Rank %d received check-run=%d\n",platform->comm.mpiRank,exit_val);
   if (exit_val==0 && platform->comm.mpiRank==0) {
     printf("\nML training says time to quit ...\n");
   }
@@ -100,6 +99,9 @@ void smartredis::put_step_num(int tstep)
     printf("Done\n\n");
 }
 
+// --------------------------------------------------- //
+// ----- Wall-Shear Stress Model --------------------- //
+// --------------------------------------------------- //
 // Initialize training for the wall shear stress model
 void smartredis::init_wallModel_train(nrs_t *nrs)
 {
@@ -107,26 +109,18 @@ void smartredis::init_wallModel_train(nrs_t *nrs)
   int size = platform->comm.mpiCommSize;
   std::vector<int> tensor_info(6,0);
   auto mesh = nrs->meshV;
-  //dfloat eps = 1.0e-6;
-  //const dfloat wall_height=-1.0;
-  //const dfloat off_wall_height = -0.982609;
-  //wm->wall_height=-1.0;
-  //wm->off_wall_height = -0.982609;
 
   if (rank == 0) 
     printf("\nSending training metadata for wall shear stress model ...\n");
 
   // Loop over mesh coordinates to find wall and off-wall node indices
-  //std::vector<int> ind_wall_nodes;
   std::vector<int> ind_owall_nodes_raw;
   for (int i=0; i<mesh->Nlocal; i++) {
     const auto y = mesh->y[i];
     if (y <= wm->wall_height+wm->eps) {
-      //printf("y=%f\n",y);
       wm->ind_wall_nodes.push_back(i);
     }
     else if (y >= wm->off_wall_height-wm->eps && y <= wm->off_wall_height+wm->eps) {
-      //printf("y=%f\n",y);
       ind_owall_nodes_raw.push_back(i);
     }
   }
@@ -139,7 +133,6 @@ void smartredis::init_wallModel_train(nrs_t *nrs)
 
   // Pair the wall nodes with the off-wall nodes based on the x and z coordinate
   // to pair the inputs and outputs of the model
-  //std::vector<int> ind_owall_nodes_matched;
   std::vector<int> ind_owall_nodes_tmp(wall_node_ct,0);
   ind_owall_nodes_tmp = ind_owall_nodes_raw;
   int pairs = 0;
@@ -160,17 +153,14 @@ void smartredis::init_wallModel_train(nrs_t *nrs)
     }
   }
   printf("Found %d paris of wall nodes and off-wall nodes\n",pairs);
-  for (int i=0; i<wall_node_ct; i++) {
-    printf("Raw index: %d, paired index: %d\n",ind_owall_nodes_raw[i],wm->ind_owall_nodes_matched[i]);
-  }
 
   // Create and send metadata for training
   tensor_info[0] = sr->npts_per_tensor;
   tensor_info[1] = sr->num_tot_tensors;
   tensor_info[2] = sr->num_db_tensors;
   tensor_info[3] = sr->head_rank;
-  tensor_info[4] = 1; // number of model inputs
-  tensor_info[5] = 1; // number of model outputs
+  tensor_info[4] = wm->num_inputs;
+  tensor_info[5] = wm->num_outputs;
   std::string info_key = "tensorInfo";
   if (rank%sr->num_db_tensors == 0) {
     client_ptr->put_tensor(info_key, tensor_info.data(), {6},
@@ -182,13 +172,15 @@ void smartredis::init_wallModel_train(nrs_t *nrs)
     printf("Done\n\n");
 }
 
-// Put velocity and wall-shear data in DB
+// Put training data for wall shear stress model in DB
 void smartredis::put_wallModel_data(nrs_t *nrs, int tstep)
 {
   int rank = platform->comm.mpiRank;
   int num_samples = wm->num_samples;
+  int num_cols = wm->num_inputs+wm->num_outputs;
+  dfloat mue;
   std::string key = "x." + std::to_string(rank) + "." + std::to_string(tstep);
-  dfloat *train_data = new dfloat[num_samples*2]();
+  dfloat *train_data = new dfloat[num_samples*num_cols]();
   dfloat *vel_data = new dfloat[num_samples]();
   dfloat *shear_data = new dfloat[num_samples]();
 
@@ -199,29 +191,95 @@ void smartredis::put_wallModel_data(nrs_t *nrs, int tstep)
   }
 
   // Extract strain rate at wall and multiply by viscosity to obtain stress
+  platform->options.getArgs("VISCOSITY",mue);
   for (int i=0; i<num_samples; i++) {
     int ind = wm->ind_wall_nodes[i];
+    //shear_data[i] = mue * nrs->cds->S[ind+0*nrs->fieldOffset];
     shear_data[i] = 0.55;
   }
 
   // Concatenate inputs and outputs
   for (int i=0; i<num_samples; i++) {
-    //train_data[i+0*num_samples] = vel_data[i];
-    //train_data[i+1*num_samples] = shear_data[i];
-    train_data[i*2] = vel_data[i];
-    train_data[i*2+1] = shear_data[i];
+    train_data[i*num_cols] = vel_data[i];
+    train_data[i*num_cols+1] = shear_data[i];
   }
 
   // Send training data to DB
   if (rank == 0)
     printf("\nSending field with key %s \n",key.c_str());
-  client_ptr->put_tensor(key, train_data, {num_samples,2},
+  client_ptr->put_tensor(key, train_data, {num_samples,num_cols},
                     SRTensorTypeDouble, SRMemLayoutContiguous);
   MPI_Barrier(platform->comm.mpiComm);
   if (rank == 0)
     printf("Done\n\n");
 }
 
+// Run ML model for inference
+void smartredis::run_wallModel(nrs_t *nrs, int tstep)
+{
+  int rank = platform->comm.mpiRank;
+  int num_samples = wm->num_samples;
+  dfloat mue;
+  std::string in_key = "x." + std::to_string(rank);
+  std::string out_key = "y." + std::to_string(rank);
+  dfloat *outputs = new dfloat[num_samples]();
+  dfloat *inputs = new dfloat[num_samples]();
+  dfloat *targets = new dfloat[num_samples]();
+
+  // Extract velocity at off-wall nodes (inputs)
+  for (int i=0; i<num_samples; i++) {
+    int ind = wm->ind_owall_nodes_matched[i];
+    inputs[i] = nrs->U[ind+0*nrs->fieldOffset];
+  }
+
+  // Extract strain rate at wall and multiply by viscosity to obtain stress
+  platform->options.getArgs("VISCOSITY",mue);
+  for (int i=0; i<num_samples; i++) {
+    int ind = wm->ind_wall_nodes[i];
+    //targets[i] = mue * nrs->cds->S[ind+0*nrs->fieldOffset];
+    targets[i] = 0.55;
+  }
+  
+  // Send input data
+  if (rank == 0)
+    printf("\nSending field with key %s \n",in_key.c_str());
+  client_ptr->put_tensor(in_key, inputs, {num_samples,1},
+                    SRTensorTypeDouble, SRMemLayoutContiguous);
+  MPI_Barrier(platform->comm.mpiComm);
+  if (rank == 0)
+    printf("Done\n\n");
+
+  // Run ML model on input data
+  if (rank == 0)
+    printf("\nRunning ML model ...\n");
+  client_ptr->run_model("model", {in_key}, {out_key});
+  MPI_Barrier(platform->comm.mpiComm);
+  if (rank == 0)
+    printf("Done\n\n");
+
+  // Retrieve model pedictions
+  if (rank == 0)
+    printf("\nRetrieving field with key %s \n",out_key.c_str());
+  client_ptr->unpack_tensor(out_key, outputs, {num_samples},
+                       SRTensorTypeDouble, SRMemLayoutContiguous);
+  MPI_Barrier(platform->comm.mpiComm);
+  if (rank == 0)
+    printf("Done\n\n");
+  
+  // Compute error in prediction
+  double error = 0.0;
+  for (int i=0; i<num_samples; i++) {
+    error = error + (outputs[i] - targets[i])*(outputs[i] - targets[i]);
+    //printf("True, Pred, Error: %f, %f, %f \n",nrs->P[n],outputs[n],error);
+  }
+  error = error / num_samples;
+  printf("[%d]: Mean Squared Error in wall shear stress field = %E\n\n",rank,error);
+  fflush(stdout);
+}
+
+// --------------------------------------------------- //
+// ----- Pressure Model ------------------------------ //
+// --------------------------------------------------- //
 // Initialize training for the velocity-pressure model
 void smartredis::init_velNpres_train(nrs_t *nrs)
 {
