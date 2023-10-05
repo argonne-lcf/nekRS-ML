@@ -14,6 +14,11 @@ examples/ktauChannel_smartredis/channel0.f00001
 examples/ktauChannel_smartredis/profile.dat
 examples/ktauChannel_smartredis/cmake.log
 
+# Outputs of example cases
+*.f00*
+*/cmake.log
+*.nek5000
+
 # Related to SmartSim/SmartRedis devs
 *.out
 *.err
