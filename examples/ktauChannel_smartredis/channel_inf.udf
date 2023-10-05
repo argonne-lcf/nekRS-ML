@@ -5,6 +5,7 @@
 #include "plugins/RANSktau.hpp"
 #include "plugins/smartRedis.hpp"
 #include "ci.inc"
+#include "nrs.hpp"
 
 static dfloat rho, mueLam;
 
@@ -122,13 +123,15 @@ void UDF_Setup(nrs_t *nrs)
 
   // Initialize SmartRedis client
   smartredis::init_client(nrs);
+  smartredis::init_wallModel_train(nrs); // model for the wall shear stress
 }
 
 void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
 {
-  // Perform inference with pressure model every 10 steps
+  // Perform inference with wall model every 10 steps
   if (tstep%10==0 && tstep>0) {
+    //postProcessing::strainRate(nrs, false, nrs->cds->o_S);
     nek::ocopyToNek(time, tstep);
-    smartredis::run_pressure_model(nrs, tstep);
+    smartredis::run_wallModel(nrs, tstep); // model for the wall shear stress
   }
 }

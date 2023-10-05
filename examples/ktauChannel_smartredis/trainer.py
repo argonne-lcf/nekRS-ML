@@ -73,7 +73,8 @@ class NeuralNetwork(nn.Module):
 
 ## Define Datasets
 class RankDataset(torch.utils.data.Dataset):
-    # contains the keys of all tensors uploaded to db by phasta ranks
+    # Dataset that generates a key for DB tensor with varying rank ID
+    # but fixed time step number
     def __init__(self, num_tot_tensors, step_num, head_rank):
         self.total_data = num_tot_tensors
         self.step = step_num
@@ -85,6 +86,26 @@ class RankDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         tensor_num = idx+self.head_rank
         return f"x.{tensor_num}.{self.step}"
+    
+class RankStepDataset(torch.utils.data.Dataset):
+    # Dataset that generates a key for DB tensor with varying rank ID
+    # and varying time step number
+    def __init__(self, num_ranks, steps, head_rank):
+        self.ranks = num_ranks
+        self.steps = steps
+        self.num_steps = len(steps)
+        self.head_rank = head_rank
+        self.total_data = self.ranks*self.num_steps
+
+    def __len__(self):
+        return self.total_data
+
+    def __getitem__(self, idx):
+        rank_id = idx%self.ranks
+        rank_id = rank_id+self.head_rank
+        step_id = idx//self.ranks
+        step = self.steps[step_id]
+        return f"x.{rank_id}.{step}"
 
 class MinibDataset(torch.utils.data.Dataset):
     #dataset of each ML rank in one epoch with the concatenated tensors
@@ -144,7 +165,7 @@ def train(model, train_sampler, train_tensor_loader, optimizer, epoch,
                       f'Loss: {loss.item():>8e}')
                 sys.stdout.flush()
 
-    running_loss = running_loss / len(train_loader) / batch
+    running_loss = running_loss / len(train_loader) / len(train_tensor_loader)
     loss_avg = metric_average(running_loss, 'running_loss')
 
     if hvd.rank() == 0:
@@ -240,6 +261,7 @@ def main():
     # Set device to run on
     if (rank == 0):
         print(f"\nRunning on device: {args.device} \n")
+    torch.set_num_threads(1)
     device = torch.device(args.device)
     if (args.device == 'cuda'):
         if torch.cuda.is_available():
@@ -258,9 +280,9 @@ def main():
                                          op=Sum)
 
     # Training setup and variable initialization
-    istep = -1 # initialize the simulation step number to 0
+    istep = -1 # initialize the simulation step number to -1
+    step_list = [] # initialize an empty list containing all the steps sent
     iepoch = 1 # epoch number
-    torch.set_num_threads(1)
 
     # While loop that checks when training data is available on database
     if (rank == 0):
@@ -275,41 +297,44 @@ def main():
         else:
             continue
 
-        # new data is available in database so update it and train 1 epoch
+        # new data is available in database so update Dataset and DataLoader
         if (istep != tmp[0]): 
             istep = tmp[0]
+            step_list.append(istep)
+            batch =  int(num_db_tensors*len(step_list)/args.ppn)
             if (rank == 0):
                 print("\nGetting new training data from DB ...")
-                print(f"Working on time step {istep} \n")
+                print(f"Added time step {istep} to training data\n")
 
-            datasetTrain = RankDataset(num_db_tensors,istep,head_rank)
+            datasetTrain = RankStepDataset(num_db_tensors,step_list,head_rank)
             train_sampler = DistributedSampler(datasetTrain, num_replicas=args.ppn, 
                                                rank=hrankl, drop_last=False)
             train_tensor_loader = DataLoader(datasetTrain, batch_size=batch, 
                                              sampler=train_sampler)
         
-            if (rank == 0):
-                print(f"\n Epoch {iepoch}\n-------------------------------")
+        if (rank == 0):
+            print(f"\n Epoch {iepoch}\n-------------------------------")
         
-            model, global_loss = train(model, train_sampler, train_tensor_loader, optimizer,
-                                       iepoch, mini_batch, ndIn, client, args, logger_data)
+        model, global_loss = train(model, train_sampler, train_tensor_loader, optimizer,
+                                    iepoch, mini_batch, ndIn, client, args, logger_data)
             
-            # check if tolerance on loss is satisfied
-            if (global_loss <= tol):
-                if (rank == 0):
-                    print("Convergence tolerance met. Stopping training loop. \n")
-                break
+        # check if tolerance on loss is satisfied
+        if (global_loss <= tol):
+            if (rank == 0):
+                print("Convergence tolerance met. Stopping training loop. \n")
+            break
         
-            # check if max number of epochs is reached
-            if (iepoch >= Nepochs):
-                if (rank == 0):
-                    print("Max number of epochs reached. Stopping training loop. \n")
-                break
+        # check if max number of epochs is reached
+        if (iepoch >= Nepochs):
+            if (rank == 0):
+                print("Max number of epochs reached. Stopping training loop. \n")
+            break
 
-            iepoch = iepoch + 1        
-            sys.stdout.flush()
+        iepoch = iepoch + 1        
+        sys.stdout.flush()
         
         # new data is not avalable, so train another epoch on current data
+        """
         else:
             if (rank == 0):
                 print(f"\n Epoch {iepoch}\n-------------------------------")
@@ -331,6 +356,7 @@ def main():
 
             iepoch = iepoch + 1        
             sys.stdout.flush()
+        """
 
     if (args.logging=='verbose'):
         logger_meta.info('%.8e',time_meta)    
@@ -353,7 +379,7 @@ def main():
     comm.Barrier()
     if (rank%args.ppn == 0):
         print(f"[{hrank}]: Telling NekRS to quit ... \n")
-        arrMLrun = np.zeros(2)
+        arrMLrun = np.int32(np.zeros(2))
         client.put_tensor("check-run",arrMLrun)
 
     if (rank==0):
