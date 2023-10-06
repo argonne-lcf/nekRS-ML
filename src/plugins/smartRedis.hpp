@@ -17,7 +17,8 @@ struct wallModel_data {
   const int num_inputs = 1; // number of input features of model
   const int num_outputs = 1; // number of outputs of model
   const dfloat wall_height=-1.0; // y coordinate of the wall nodes
-  const dfloat off_wall_height = -0.982609; // y coordinate of the off-wall node
+  //const dfloat off_wall_height = -0.982609; // y coordinate of the off-wall node (ktauChannel)
+  const dfloat off_wall_height = -0.948726; // y coordinate of the off-wall node (turbChannel)
   const dfloat eps = 1.0e-6; // epsilon for finding and matching node coordinate
   int num_samples; // number of samples for training (i.e., node and off-node pairs)
   std::vector<int> ind_wall_nodes; // indices of the wall-nodes

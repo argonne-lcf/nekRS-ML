@@ -131,7 +131,7 @@ void UDF_Setup(nrs_t *nrs)
 void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
 {
   // Send training data for model every set number of steps
-  if (tstep%1==0 && tstep>0) {
+  if (tstep%10==0 && tstep>0) {
     //postProcessing::strainRate(nrs, false, nrs->cds->o_S);
     nek::ocopyToNek(time, tstep);
     //smartredis::put_velNpres_data(nrs, tstep); // model for pointwise pressure

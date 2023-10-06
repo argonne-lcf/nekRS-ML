@@ -126,8 +126,8 @@ void smartredis::init_wallModel_train(nrs_t *nrs)
   }
   int wall_node_ct = wm->ind_wall_nodes.size();
   int owall_node_ct = ind_owall_nodes_raw.size();
-  assert(wall_node_ct == owall_node_ct);
   printf("Found %d wall nodes and %d off-wall nodes\n",wall_node_ct, owall_node_ct);
+  assert(wall_node_ct == owall_node_ct);
   sr->npts_per_tensor = wall_node_ct;
   wm->num_samples = wall_node_ct;
 

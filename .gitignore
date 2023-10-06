@@ -13,10 +13,18 @@ examples/ktauChannel_smartredis/channel.nek5000
 examples/ktauChannel_smartredis/channel0.f00001
 examples/ktauChannel_smartredis/profile.dat
 examples/ktauChannel_smartredis/cmake.log
+examples/ktauChannel_smartredis/outputs/
+
+
+# Related to turbChannel example
+examples/turbChannel_smartredis/channel.nek5000
+examples/turbChannel_smartredis/channel0.f00*
+examples/turbChannel_smartredis/cmake.log
+examples/turbChannel_smartredis/outputs/
 
 # Outputs of example cases
 *.f00*
-*/cmake.log
+*cmake.log
 *.nek5000
 
 # Related to SmartSim/SmartRedis devs
