@@ -195,7 +195,7 @@ void smartredis::put_wallModel_data(nrs_t *nrs, int tstep)
   for (int i=0; i<num_samples; i++) {
     int ind = wm->ind_wall_nodes[i];
     //shear_data[i] = mue * nrs->cds->S[ind+0*nrs->fieldOffset];
-    shear_data[i] = 0.55;
+    shear_data[i] = 0.055;
   }
 
   // Concatenate inputs and outputs
@@ -237,7 +237,7 @@ void smartredis::run_wallModel(nrs_t *nrs, int tstep)
   for (int i=0; i<num_samples; i++) {
     int ind = wm->ind_wall_nodes[i];
     //targets[i] = mue * nrs->cds->S[ind+0*nrs->fieldOffset];
-    targets[i] = 0.55;
+    targets[i] = 0.055;
   }
   
   // Send input data
