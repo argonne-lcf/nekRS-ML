@@ -14,9 +14,9 @@ COPYRIGHT (c) 2019-2023 UCHICAGO ARGONNE, LLC
 This branch of NekRS-ML includes a plugin that enables communication with a SmartSim database through the use of the SmartRedis API. 
 [SmartSim](https://github.com/CrayLabs/SmartSim) and [SmartRedis](https://github.com/CrayLabs/SmartRedis) are open-source libraries developed by HPE that can be used for coupling traditional HPC applications with AI/ML functionality in situ. 
 
-Currently, this branch uses the `ktauChannel_smartredis` example to demonstrate online training and inference with SmartSim/SmartRedis and NekRS. 
-In particular, an MLP which takes the three velocity components at each discretization point as inputs is trained to predict the pressure at the same grid point. This can be thought of as a crude example of using ML to replace the pressure Poisson equation needed to solve the incompressible Navier-Stokes equations.
-The [instructions](https://github.com/argonne-lcf/nekRS-ML/tree/smartredis#polaris-instructions) below detail how to build the code, train the MLP model from a live NekRS simulation on the Polaris GPU, and then perform inference with the trained model from NekRS to compare the ML predicted pressure with the true values. 
+Currently, this branch uses the `turbChannel_smartredis` example to demonstrate online training and inference with SmartSim/SmartRedis and NekRS. 
+In particular, an MLP which takes the streamwise velocity component at some prescribed locatio off the wall as inputs is trained to predict the wall-shear stress at the corresponding wall node. This can be thought of as a crude example of using ML to train a wall-shear stress model valuable for wall-modeled LES.
+The [instructions](https://github.com/argonne-lcf/nekRS-ML/tree/smartredis#polaris-instructions) below detail how to build the code, train the MLP model from a live NekRS simulation on the Polaris GPU, and then perform inference with the trained model from NekRS to compare the ML predictions with the true values. 
 Note that the functions defined in the new plugin are called from `UDF_Setup()` and `UDF_ExecuteStep()` in the `.udf` file.
 
 **nekRS** is a fast and scaleable computational fluid dynamics (CFD) solver targeting HPC applications. The code started as an early fork of [libParanumal](https://github.com/paranumal/libparanumal) in 2019.
@@ -94,7 +94,7 @@ For convenience we provide various launch scripts in the `bin` directory.
 From an interactive session on a single node, set the build environment 
 ```sh
 module load conda/2022-09-08
-conda activate /eagle/wall_turb_dd/SmartSim/Polaris/env/ssim
+conda activate /eagle/projects/fallwkshp23/SmartSim/ssim
 module load cudatoolkit-standalone
 module load cmake
 export CRAY_ACCEL_TARGET=nvidia80
@@ -102,7 +102,7 @@ export CRAY_ACCEL_TARGET=nvidia80
 
 and build the code
 ```sh
-CC=cc CXX=CC FC=ftn ./nrsconfig -DCMAKE_INSTALL_PREFIX=</path/to/install/dir> -DENABLE_SMARTREDIS=1 -DSMARTREDIS_PATH=/eagle/wall_turb_dd/SmartSim/Polaris/env/SmartRedis
+CC=cc CXX=CC FC=ftn ./nrsconfig -DCMAKE_INSTALL_PREFIX=</path/to/install/dir> -DENABLE_SMARTREDIS=1 -DSMARTREDIS_PATH=/eagle/projects/fallwkshp23/SmartSim/SmartRedis
 ```
 where `</path/to/install/dir>` can be a user's home directory or a project space. 
 Note that this version of NekRS requires the additional arguments `-DENABLE_SMARTREDIS=1 -DSMARTREDIS_PATH=</path/to/SmartRedis>` to the config script.
@@ -111,24 +111,24 @@ Set up the run environment
 ```sh
 export NEKRS_HOME=</path/to/install/dir>
 export PATH=$NEKRS_HOME/bin:$PATH
-export LD_LIBRARY_PATH=/eagle/wall_turb_dd/SmartSim/Polaris/env/SmartRedis/install/lib:$LD_LIBRARY_PATH
-cd examples/ktauChannel_smartredis
+export LD_LIBRARY_PATH=/eagle/projects/fallwkshp23/SmartSim/SmartRedis/install/lib:$LD_LIBRARY_PATH
+cd examples/turbChannel_smartredis
 ```
 
 Run the online training example
 ```sh
-ln -s channel_train.udf channel.udf
+ln -s turbChannel_train.udf turbChannel.udf
 python ssim_driver_polaris.py sim.executable=$NEKRS_HOME/bin/nekrs run_args.simprocs=2 run_args.simprocs_pn=2 train.executable=./trainer.py run_args.mlprocs=2 run_args.mlprocs_pn=2 train.device=cuda train.affinity=./affinity_ml.sh
 ```
 Currently, this example runs NekRS in parallel on the 2 GPU of a Polaris node and the ML distributed training on the other 2 GPU of the node. Note also that this sets up a co-located database on the node, but the  `ssim_driver_polaris.py` script is set for both co-located and clustered workflows. The example produces the log files `nekrs.out`, `nekrs.err`, `train_model.out`, and `train_model.err` for NekRS and the ML training, respectively, and saves the trained model to file in normal and jitted formats as `model.pt` and `model_jit.pt`, respectively. 
 
-Run the online inference example using the oneline trained model
+Run the online inference example using the online trained model
 ```sh
-rm channel.udf
-ln -s channel_inf.udf channel.udf
-python ssim_driver_polaris.py sim.executable=$NEKRS_HOME/bin/nekrs inference.model_path=./model_jit.pt inference.device=CPU
+rm turbChannel.udf
+ln -s turbChannel_inference.udf turbChannel.udf
+python ssim_driver_polaris.py sim.executable=$NEKRS_HOME/bin/nekrs run_args.simprocs=3 run_args.simprocs_pn=3 inference.model_path=./model_jit.pt inference.device=GPU:3
 ```
-Currently, this example runs NekRS in parallel on the 4 GPU and performs ML inference on the CPU. Future iterations of this example will run ML inference on the GPU as well. Similarly to the training example above, this a co-located database is launched by default but both deployment options are available. The example produces the log files `nekrs.out` and `nekrs.err`.
+Currently, this example runs NekRS in parallel on the first 3 GPU and performs ML inference on the fourth GPU. Similarly to the training example above, this a co-located database is launched by default but both deployment options are available. The example produces the log files `nekrs.out` and `nekrs.err`.
 
 Finally, note that the full list of configuration options to set up the training and inference runs can be found in `conf/ssim_config.yaml`.
 
