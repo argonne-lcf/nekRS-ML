@@ -1,0 +1,1 @@
+mpiexec -np 4 $NEKRS_HOME/bin/nekrs --setup tgv.par
