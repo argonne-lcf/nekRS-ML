@@ -11,13 +11,8 @@ COPYRIGHT (c) 2019-2023 UCHICAGO ARGONNE, LLC
 [![License](https://img.shields.io/badge/License-BSD%203--Clause-orange.svg)](https://opensource.org/licenses/BSD-3-Clause)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.7984525.svg)](https://doi.org/10.5281/zenodo.7984525)
 
-This branch of NekRS-ML includes a plugin that enables communication with a SmartSim database through the use of the SmartRedis API. 
-[SmartSim](https://github.com/CrayLabs/SmartSim) and [SmartRedis](https://github.com/CrayLabs/SmartRedis) are open-source libraries developed by HPE that can be used for coupling traditional HPC applications with AI/ML functionality in situ. 
-
-Currently, this branch uses the `turbChannel_smartredis` example to demonstrate online training and inference with SmartSim/SmartRedis and NekRS. 
-In particular, an MLP which takes the streamwise velocity component at some prescribed locatio off the wall as inputs is trained to predict the wall-shear stress at the corresponding wall node. This can be thought of as a crude example of using ML to train a wall-shear stress model valuable for wall-modeled LES.
-The [instructions](#polaris-build-and-run-instructions) below detail how to build the code, train the MLP model from a live NekRS simulation on the Polaris GPU, and then perform inference with the trained model from NekRS to compare the ML predictions with the true values. 
-Note that the functions defined in the new plugin are called from `UDF_Setup()` and `UDF_ExecuteStep()` in the `.udf` file.
+This branch of NekRS-ML combines the GNN and smartredis branches for online (in situ) training of GNN with a direct coupling of the nekRS mesh to the graph being used for the ML model. 
+It therefore includes both the gnn and the smartredis plugins, as well as more developments to integrate the two. For more information on the respective features please see the `GNN` and `smartredis` branches of this repo. 
 
 **nekRS** is a fast and scaleable computational fluid dynamics (CFD) solver targeting HPC applications. The code started as an early fork of [libParanumal](https://github.com/paranumal/libparanumal) in 2019.
 
@@ -43,7 +38,7 @@ Clone the repository and switch to the current `smartredis` branch
 ```sh
 git clone https://github.com/argonne-lcf/nekRS-ML.git
 cd nekRS-ML
-git checkout smartredis
+git checkout onlineGNN
 ```
 
 From an interactive session on a single node, set the build environment 
@@ -69,22 +64,6 @@ export PATH=$NEKRS_HOME/bin:$PATH
 export LD_LIBRARY_PATH=/eagle/projects/fallwkshp23/SmartSim/SmartRedis/install/lib:$LD_LIBRARY_PATH
 cd examples/turbChannel_smartredis
 ```
-
-Run the online training example
-```sh
-./run_train.sh
-```
-Currently, this example runs NekRS in parallel on the first 2 GPU of a Polaris node and the ML distributed training on the other 2 GPU of the node. Note also that this sets up a co-located database on the node, but the  `ssim_driver_polaris.py` script is set for both co-located and clustered workflows. The example produces the log files `nekrs.out`, `nekrs.err`, `train_model.out`, and `train_model.err` for NekRS and the ML training, respectively, and saves the trained model to file in normal and jitted formats as `model.pt` and `model_jit.pt`, respectively. 
-
-Run the online inference example using the online trained model
-```sh
- ./run_inference.sh
-```
-Currently, this example runs NekRS in parallel on the first 3 GPU and performs ML inference on the fourth GPU. Similarly to the training example above, this a co-located database is launched by default but both deployment options are available. The example produces the log files `nekrs.out` and `nekrs.err`.
-
-Finally, note that the full list of configuration options to set up the training and inference runs can be found in `conf/ssim_config.yaml`.
-
-This example was also a demo for the [2023 ALCF Hands-On HPC Workshop](https://github.com/argonne-lcf/ALCF_Hands_on_HPC_Workshop/tree/master/couplingSimulationML), and more information on coupling simulation and AI/ML and this example can be dound there.
 
 ## Documentation 
 For documentation, see our [readthedocs page](https://nekrs.readthedocs.io/en/latest/). For now it's just a dummy. We hope to improve it soon. 
