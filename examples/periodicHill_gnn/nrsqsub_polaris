@@ -2,7 +2,7 @@
 : ${PROJ_ID:=""}
 
 : ${QUEUE:="debug"} # debug, debug-scaling, prod https://docs.alcf.anl.gov/running-jobs/job-and-queue-scheduling/
-: ${NEKRS_HOME:=""}
+: ${NEKRS_HOME:="$PWD/../../install_dir/nekrs"}
 : ${NEKRS_CACHE_BCAST:=1}
 : ${NEKRS_SKIP_BUILD_ONLY:=0}
 

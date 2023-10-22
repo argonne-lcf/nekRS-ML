@@ -63,9 +63,8 @@ The UDF file, `periodicHill.udf`, invokes the GNN plugin. More specifically, a G
 
 To run this example execute the following command **on a login node**:
 ```sh
-PROJ_ID=[YOUR_PROJECT_ID] QUEUE=debug NEKRS_HOME=$NEKRS_HOME ./nrsqsub_polaris periodicHill 1 00:30:00
+PROJ_ID=[YOUR_PROJECT_ID] QUEUE=debug ./nrsqsub_polaris periodicHill 1 00:30:00
 ```
-Note that the `$NEKRS_HOME` environment variable points to the NekRS installation directory. Source the `module_config_polaris` file on the login node to populate this variable. 
 
 The above commmand will queue a job on a single Polaris node and use 4 GPUs to run the periodicHill example. Note the initial execution may take some time, as the case will be JIT-compiled before actually running the solver. Compiled kernels are stored in the `.cache` directory, such that subsequent runs will skip the JIT-compilation step unless modifications are made in the `.par` file or `.udf` file. 
 
