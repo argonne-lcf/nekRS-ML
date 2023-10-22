@@ -3,13 +3,13 @@ polynomialOrder = 7
 #startFrom = r.fld
 
 stopAt = endTime
-endTime = 200
+endTime = 30
 
 dt = targetCFL=2 + max=1e-2 + initial=1e-3
 timeStepper = tombo2
 
 writeControl = simulationTime
-writeInterval = 20 
+writeInterval = 1000
 
 regularization = hpfrt + nModes=1 + scalingCoeff=10
 

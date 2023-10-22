@@ -1,0 +1,1 @@
+CC=cc CXX=CC FC=ftn ./nrsconfig -DCMAKE_INSTALL_PREFIX=$PWD/install_dir/nekrs

@@ -1,6 +1,7 @@
 """
 Create halo swap info.
 """
+import argparse 
 import numpy as np
 import torch
 
@@ -8,10 +9,16 @@ from torch_geometric.data import Data
 import torch_geometric.utils as utils
 import torch_geometric.nn as tgnn
 
-# NEW FORMAT 
-SIZE = 4
-poly = 7
-Np = (poly+1)**3
+
+parser = argparse.ArgumentParser(description='Process command line arguments.')
+parser.add_argument('--SIZE', type=int, required=True, help='Specify the mpi world size corresponding to files in gnn_outputs directory.')
+parser.add_argument('--POLY', type=int, required=True, help='Specify the polynomial order.')
+args = parser.parse_args()
+
+SIZE = args.SIZE
+POLY = args.POLY
+DIM = 3
+Np = (POLY+1)**DIM
 main_path = './gnn_outputs/' 
 
 Ne_list = []
@@ -64,10 +71,10 @@ for RANK in range(SIZE):
     # ~~~~ Reduce size of graph 
     print('[RANK %d]: Reduced size of edge_index based on unique node ids' %(RANK))
     # X: [First isolate local nodes] 
-    idx_local_unique = torch.nonzero(data.local_unique_mask).squeeze()
+    idx_local_unique = torch.nonzero(data.local_unique_mask).squeeze(-1)
     idx_halo_unique = torch.tensor([], dtype=idx_local_unique.dtype)
     if SIZE > 1:
-        idx_halo_unique = torch.nonzero(data.halo_unique_mask).squeeze()
+        idx_halo_unique = torch.nonzero(data.halo_unique_mask).squeeze(-1)
     idx_keep = torch.cat((idx_local_unique, idx_halo_unique))   
     
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -264,8 +271,119 @@ if SIZE > 1:
         idx+=count
 
 
-# ~~~~ Write halo_info
+# ~~~~ Get node degree from halo_info
+node_degree = []
+if SIZE == 1:
+    node_degree = [torch.ones( graph_reduced_list[0].pos.shape[0] )]
+else:
+    for RANK in range(SIZE):
+        sample = graph_reduced_list[RANK]
+        n_nodes_local = sample.pos.shape[0]
+        node_degree_rank = torch.ones(n_nodes_local)
+        halo_info_rank = halo_info[RANK]
+        unique_local_indices, counts = torch.unique(halo_info_rank[:,0], return_counts=True)
+        node_degree_rank[unique_local_indices] += counts
+        node_degree.append(node_degree_rank)
+
+
+# ~~~~ Get edge weights to account for duplicate edges 
+edge_weights = []
+if SIZE == 1:
+    edge_weights = [torch.ones( graph_reduced_list[0].edge_index.shape[1] )]
+else: 
+    for RANK in range(SIZE):
+        sample = graph_reduced_list[RANK]
+        halo_info_rank = halo_info[RANK]
+
+        # Get neighboring procs for this rank 
+        neighboring_procs = np.unique(halo_info_rank[:,3])
+        
+        # Initialize edge weights 
+        num_edges_own = sample.edge_index.shape[1]
+        ew_own = torch.ones(num_edges_own)
+
+        for j in neighboring_procs:
+            rank_own = RANK
+            rank_nei = j 
+
+            halo_info_own = halo_info_rank
+            halo_info_nei = halo_info[rank_nei]
+
+            halo_info_own = halo_info_own[halo_info_own[:,3] == rank_nei, :] 
+            halo_info_nei = halo_info_nei[halo_info_nei[:,3] == rank_own, :] 
+
+            # check the global id ordering 
+            if not torch.equal(halo_info_own[:,2], halo_info_nei[:,2]):
+                raise AssertionError("halo_info tensors are not properly ordered by global id")
+            
+            # Get connectivities 
+            edge_index_own = graph_reduced_list[rank_own].edge_index
+            edge_index_nei = graph_reduced_list[rank_nei].edge_index
+
+            #num_edges_nei = edge_index_nei.shape[1]
+            #ew_nei = torch.ones(num_edges_nei)
+            #edge_id_own = torch.arange(num_edges_own, dtype=torch.int64) 
+            #edge_id_nei = torch.arange(num_edges_nei, dtype=torch.int64) 
+
+            # Get the edges of owner rank nodes 
+            local_id_own = halo_info_own[:,0]
+            mask_own = torch.isin(edge_index_own[1], local_id_own)
+            edge_index_own_subset = edge_index_own[:, mask_own]
+
+            # Get the edges of neighbor rank nodes 
+            local_id_nei = halo_info_nei[:,0]
+            mask_nei = torch.isin(edge_index_nei[1], local_id_nei)
+            edge_index_nei_subset = edge_index_nei[:, mask_nei]
+
+            # Convert to global ids
+            gli_own = graph_reduced_list[rank_own].global_ids
+            send, recv = edge_index_own_subset
+            send_global = gli_own[send]
+            recv_global = gli_own[recv]
+            edge_index_own_subset_global = torch.stack((send_global, recv_global))  
+
+            gli_nei = graph_reduced_list[rank_nei].global_ids
+            send, recv = edge_index_nei_subset
+            send_global = gli_nei[send]
+            recv_global = gli_nei[recv]
+            edge_index_nei_subset_global = torch.stack((send_global, recv_global))  
+
+            # Compute pairing functions: Cantor pair = 0.5 * (k1 + k2) * (k1 + k2 + 1) + k2 
+            k1, k2 = edge_index_own_subset_global
+            cpair_own = (0.5 * (k1 + k2) * (k1 + k2 + 1) + k2).to(torch.int64)
+
+            k1, k2 = edge_index_nei_subset_global
+            cpair_nei = (0.5 * (k1 + k2) * (k1 + k2 + 1) + k2).to(torch.int64)
+
+            # Find which owner edges are duplicated in neighbor edges 
+            duplicates_count = torch.zeros_like(cpair_own)
+            for eid in range(len(cpair_own)):
+                edge = cpair_own[eid]
+                duplicates_count[eid] = (cpair_nei == edge).sum().item()
+
+            # place in edge weighst 
+            ew_own[mask_own] += duplicates_count 
+
+        edge_weights.append(ew_own)
+
+
+# ~~~~ Write halo_info, edge_weights, and node degree
 for RANK in range(SIZE):
     halo_info_rank = halo_info[RANK]
-    print('Writing %s' %(main_path + 'halo_info_rank_%d_size_%d' %(RANK,SIZE)))
+    print('Writing %s' %(main_path + 'halo_info_rank_%d_size_%d.npy' %(RANK,SIZE)))
     np.save(main_path + 'halo_info_rank_%d_size_%d.npy' %(RANK,SIZE), halo_info_rank.numpy())
+
+    edge_weights_rank = edge_weights[RANK]
+    print('Writing %s' %(main_path + 'edge_weights_rank_%d_size_%d.npy' %(RANK,SIZE)))
+    np.save(main_path + 'edge_weights_rank_%d_size_%d.npy' %(RANK,SIZE), edge_weights_rank.numpy())
+
+    node_degree_rank = node_degree[RANK]
+    print('Writing %s' %(main_path + 'node_degree_rank_%d_size_%d.npy' %(RANK,SIZE)))
+    np.save(main_path + 'node_degree_rank_%d_size_%d.npy' %(RANK,SIZE), node_degree_rank.numpy())
+
+
+
+
+
+
+
