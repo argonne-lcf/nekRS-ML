@@ -374,7 +374,7 @@ class Trainer:
         """
         Load in the local graph
         """
-        main_path = self.cfg.gnn_outputs_path 
+        main_path = self.cfg.gnn_outputs_path
 
         path_to_pos_full = main_path + 'pos_node_rank_%d_size_%d' %(RANK,SIZE)
         path_to_ei = main_path + 'edge_index_rank_%d_size_%d' %(RANK,SIZE)

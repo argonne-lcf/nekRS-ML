@@ -16,6 +16,8 @@ It therefore includes both the gnn and the smartredis plugins, as well as more d
 
 **nekRS** is a fast and scaleable computational fluid dynamics (CFD) solver targeting HPC applications. The code started as an early fork of [libParanumal](https://github.com/paranumal/libparanumal) in 2019.
 
+**Graph neural networks** are a branch of the [geometric deep learning](https://geometricdeeplearning.com/) paradigm, and are considered state-of-the-art for developing accelerated data-based models (e.g., surrogates, sub-grid models, etc.) in mesh-based scientific applications. A recent review can be found [here](https://www.sciencedirect.com/science/article/pii/S2666651021000012).
+
 Capabilities:
 
 * Incompressible and low Mach-number Navier-Stokes + scalar transport 
@@ -31,9 +33,7 @@ Capabilities:
 * VisIt & Paraview support for data analysis and visualization
 * Legacy interface to [Nek5000](https://github.com/Nek5000/Nek5000) 
 
-
 ## Polaris Build and Run Instructions
-
 Clone the repository and switch to the current `smartredis` branch
 ```sh
 git clone https://github.com/argonne-lcf/nekRS-ML.git
