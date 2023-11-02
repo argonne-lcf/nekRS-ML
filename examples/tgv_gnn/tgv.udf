@@ -1,5 +1,7 @@
 #include "udf.hpp"
 #include "plugins/gnn.hpp"
+#include "plugins/smartRedis.hpp"
+#include "nrs.hpp"
 
 #ifdef __okl__
 
@@ -90,10 +92,15 @@ void UDF_Setup0(MPI_Comm comm, setupAide &options)
 
 void UDF_Setup(nrs_t *nrs)
 {
-    // gnn plugin
+    // Set up GNN and fill data structures
     graph = new gnn_t(nrs);
     graph->gnnSetup();
-    graph->gnnWrite();
+    //graph->gnnWrite();
+
+    // Initialize SmartRedis client
+    smartredis::init_client(nrs);
+    smartredis::init_check_run();
+    smartredis::init_train_gnn(graph);
 
     // set IC
     mesh_t *mesh = nrs->meshV;
@@ -130,24 +137,18 @@ void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
 {
     printDiagnostics(nrs, time, tstep);
 
-    if (nrs->isOutputStep) 
-    {
+    // Send training data for model every set number of steps
+    if (tstep%10==0 && tstep>0) {
         nek::ocopyToNek(time, tstep);
-        nek::userchk();
+        MPI_Barrier(platform->comm.mpiComm);
+        smartredis::put_step_num(tstep);
     }
 
-    if (nrs->lastStep)
-    {
-        // write flowfield 
-        int rank, size; 
-        MPI_Comm_rank(platform->comm.mpiComm, &rank);
-        MPI_Comm_size(platform->comm.mpiComm, &size);
-
-        dlong n_nodes = nrs->meshV->Np * nrs->meshV->Nelements; 
-        std::string irank = "_rank_" + std::to_string(rank);
-        std::string nranks = "_size_" + std::to_string(size); 
-        writeToFile("gnn_outputs/x" + irank + nranks, nrs->U, n_nodes, 3);
-        writeToFile("gnn_outputs/y" + irank + nranks, nrs->P, n_nodes, 1);
+    // Every time step check if ML training says it is time to quit 
+    int exit_val = smartredis::check_run();
+    MPI_Allreduce(MPI_IN_PLACE, &exit_val, 1, MPI_INT, MPI_MIN, platform->comm.mpiComm);
+    if (exit_val==0) {
+        platform->options.setArgs("END TIME",to_string_f(-10.0));
         delete graph;
     }
 }

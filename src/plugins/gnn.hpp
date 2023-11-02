@@ -27,11 +27,18 @@ class gnn_t
 {
 public:
     gnn_t(nrs_t *nrs);
+    gnn_t(nrs_t *nrs, bool online);
     ~gnn_t(); 
 
     // member functions 
     void gnnSetup();
     void gnnWrite();
+
+    // accessor functions
+    const dfloat& get_pos() const;
+    const dlong& get_edges() const;
+    int get_num_edges();
+    int get_num_nodes();
 
 private:
     // nekrs objects 
@@ -41,6 +48,7 @@ private:
 
     // allocated in constructor 
     dfloat *pos_node; 
+    dlong *edge_index;
     dlong *local_unique_mask;
     dlong *halo_unique_mask;
 
@@ -54,7 +62,8 @@ private:
     int size;
 
     // Graph attributes
-    dlong num_edges; 
+    dlong num_edges;
+    dlong N; 
 
     // member functions 
     void get_graph_nodes();

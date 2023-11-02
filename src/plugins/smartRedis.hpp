@@ -37,6 +37,7 @@ namespace smartredis
   void init_velNpres_train(nrs_t *nrs);
   void put_velNpres_data(nrs_t *nrs, int tstep);
   void run_pressure_model(nrs_t *nrs, int tstep);
+  void init_train_gnn(gnn_t *graph);
 }
 
 #endif

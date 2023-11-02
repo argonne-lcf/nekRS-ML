@@ -30,6 +30,11 @@ void writeToFile(const std::string& filename, T* data, int nRows, int nCols)
 
 gnn_t::gnn_t(nrs_t *nrs_)
 {
+    gnn_t(nrs_, false);
+}
+
+gnn_t::gnn_t(nrs_t *nrs_, bool online)
+{
     nrs = nrs_; // set nekrs object
     mesh = nrs->meshV; // set mesh object
     ogs = mesh->ogs; // set ogs object
@@ -40,11 +45,14 @@ gnn_t::gnn_t(nrs_t *nrs_)
     MPI_Comm_size(comm, &size);
 
     // allocate memory 
-    dlong N = mesh->Nelements * mesh->Np; // total number of nodes
+    N = mesh->Nelements * mesh->Np; // total number of nodes
     pos_node = new dfloat[N * 3](); 
     local_unique_mask = new dlong[N](); 
     halo_unique_mask = new dlong[N]();
     graphNodes = (graphNode_t*) calloc(N, sizeof(graphNode_t));
+
+    // turn writing to file off if online
+    if (online) write = false
 
     if (verbose) printf("\n[RANK %d] -- Finished instantiating gnn_t object\n", rank);
     if (verbose) printf("[RANK %d] -- The number of elements is %d \n", rank, mesh->Nelements);
@@ -67,6 +75,7 @@ void gnn_t::gnnSetup()
     get_graph_nodes();
     get_node_positions();
     get_node_masks();
+    get_edge_index();
 
     // output directory 
     if (write)
@@ -90,7 +99,7 @@ void gnn_t::gnnSetup()
 void gnn_t::gnnWrite()
 {
     if (verbose) printf("[RANK %d] -- in gnnWrite() \n", rank);
-    dlong N = mesh->Nelements * mesh->Np; // total number of nodes 
+    //dlong N = mesh->Nelements * mesh->Np; // total number of nodes 
     std::string irank = "_rank_" + std::to_string(rank);
     std::string nranks = "_size_" + std::to_string(size);
     write_edge_index(writePath + "/edge_index" + irank + nranks);
@@ -100,17 +109,26 @@ void gnn_t::gnnWrite()
     writeToFile(writePath + "/global_ids" + irank + nranks, mesh->globalIds, N, 1);
 }
 
+const dfloat& gnn_t::get_pos() const { return pos_node; }
+const dlong& gnn_t::get_edges() const { return edge_index; }
+int gnn_t::get_num_edges() { return num_edges; }
+int gnn_t::get_num_nodes() { return N; }
+
 void gnn_t::get_node_positions()
 {
     if (verbose) printf("[RANK %d] -- in get_node_positions() \n", rank);
-    for (int n=0; n < mesh->Np * mesh->Nelements; n++)
+    //for (int n=0; n < mesh->Np * mesh->Nelements; n++)
+    or (int n=0; n < N; n++)
     {
         dfloat x = mesh->x[n]; // location of x GLL point
         dfloat y = mesh->y[n]; // location of y GLL point
         dfloat z = mesh->z[n]; // location of z GLL point
-        pos_node[n + 0*(mesh->Np * mesh->Nelements)] = x;
-        pos_node[n + 1*(mesh->Np * mesh->Nelements)] = y;
-        pos_node[n + 2*(mesh->Np * mesh->Nelements)] = z;
+        //pos_node[n + 0*(mesh->Np * mesh->Nelements)] = x;
+        //pos_node[n + 1*(mesh->Np * mesh->Nelements)] = y;
+        //pos_node[n + 2*(mesh->Np * mesh->Nelements)] = z;
+        pos_node[n + 0*N] = x;
+        pos_node[n + 1*N] = y;
+        pos_node[n + 2*N] = z;
     }
 }
 
@@ -118,7 +136,7 @@ void gnn_t::get_node_masks()
 {
 	if (verbose) printf("[RANK %d] -- in get_node_masks() \n", rank);
 
-    dlong N = mesh->Nelements * mesh->Np; // total number of nodes 
+    //dlong N = mesh->Nelements * mesh->Np; // total number of nodes 
     hlong *ids =  mesh->globalIds; // global node ids 
     MPI_Comm &comm = platform->comm.mpiComm; // mpi comm 
     occa::device device = platform->device.occaDevice(); // occa device 
@@ -452,8 +470,35 @@ void gnn_t::write_edge_index(const std::string& filename)
         exit(1);
     }
 
-    dlong N = mesh->Nelements * mesh->Np; // total number of nodes
+    //dlong N = mesh->Nelements * mesh->Np; // total number of nodes
                     
+    // loop through graph nodes
+    //for (int i = 0; i < N; i++)
+    //{               
+    //    int num_nbr = graphNodes[i].nbrIds.size();
+    //    dlong idx_own = graphNodes[i].localId; 
+    //                
+    //    for (int j = 0; j < num_nbr; j++)
+    //    {           
+    //        dlong idx_nei = graphNodes[i].nbrIds[j];  
+    //        file_cpu << idx_nei << '\t' << idx_own << '\n'; 
+    //    }
+    //}
+
+    // loop through num_edges
+    for (int i = 0; i < num_edges; i++)
+    {
+        file_cpu << edge_index[i*2] << '\t' << edge_index[i*2+1] << '\n'; 
+    }           
+}
+
+void gnn_t::get_edge_index()
+{
+    if (verbose) printf("[RANK %d] -- in get_edge_index() \n", rank);
+
+    edge_index = new dlong[num_edges * 2]();
+    //dlong N = mesh->Nelements * mesh->Np; // total number of nodes
+
     // loop through graph nodes
     for (int i = 0; i < N; i++)
     {               
@@ -463,7 +508,9 @@ void gnn_t::write_edge_index(const std::string& filename)
         for (int j = 0; j < num_nbr; j++)
         {           
             dlong idx_nei = graphNodes[i].nbrIds[j];  
-            file_cpu << idx_nei << '\t' << idx_own << '\n'; 
+            edge_index[i*2] = idx_nei;
+            edge_index[i*2+1] = idx_own;
         }
-    }           
+    }    
+
 }

@@ -41,6 +41,9 @@ import models.gnn as gnn
 import graph_connectivity as gcon
 import graph_plotting as gplot
 
+# SmartRedis
+from smartredis import Client
+
 log = logging.getLogger(__name__)
 
 # Get MPI:

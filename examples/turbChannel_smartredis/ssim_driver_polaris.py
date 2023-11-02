@@ -68,7 +68,6 @@ def launch_coDB(cfg, nodelist, nNodes):
         colo_model.colocate_db_uds(
                 db_cpus=cfg.run_args.dbprocs_pn,
                 debug=False,
-                limit_app_cpus=True,
                 **kwargs
                 )
     else:
@@ -76,7 +75,6 @@ def launch_coDB(cfg, nodelist, nNodes):
                 port=PORT,
                 db_cpus=cfg.run_args.dbprocs_pn,
                 debug=False,
-                limit_app_cpus=True,
                 ifname=cfg.database.network_interface,
                 **kwargs
                 )

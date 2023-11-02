@@ -4,11 +4,6 @@
 #include "gnn.hpp"
 
 
-void gnn_t::get_edge_index()
-{
-    if (verbose) printf("[RANK %d] -- in get_edge_index() \n", rank);
-}
-
 void gnn_t::get_graph_nodes()
 {
 	if (verbose) printf("[RANK %d] -- in get_graph_nodes() \n", rank);

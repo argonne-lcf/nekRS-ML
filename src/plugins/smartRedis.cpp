@@ -4,6 +4,7 @@
 #include "nekInterfaceAdapter.hpp"
 #include "smartRedis.hpp"
 #include "client.h"
+#include "gnn.hpp"
 #include <string>
 #include <vector>
 
@@ -98,6 +99,40 @@ void smartredis::put_step_num(int tstep)
   if (rank == 0)
     printf("Done\n\n");
 }
+
+// --------------------------------------------------- //
+// ----- Online GNN ---------------------------------- //
+// --------------------------------------------------- //
+// Initialize training with a GNN
+void smartredis::init_train_gnn(gnn_t *graph)
+{
+  int rank = platform->comm.mpiRank;
+  int size = platform->comm.mpiCommSize;
+  int num_nodes = graph->get_num_nodes();
+  int num_edges = graph->get_num_edges();
+
+  if (rank == 0) 
+    printf("\nSending mesh data for GNN setup ...\n");
+
+  std::string irank = "_rank_" + std::to_string(rank);
+  std::string nranks = "_size_" + std::to_string(size);
+  std::string pos_key = "pos_node" + irank + nranks;
+  dlong *pos = graph->get_pos();
+  client_ptr->put_tensor(pos_key, pos, {num_nodes,3},
+                    SRTensorTypeDouble, SRMemLayoutContiguous);
+  std::string edge_key = "edge_index" + irank + nranks;
+  dlong *edge_index = graph->get_edges();
+  client_ptr->put_tensor(edge_key, edge_index, {num_edges,2},
+                    SRTensorTypeInt64, SRMemLayoutContiguous);
+
+
+   MPI_Barrier(platform->comm.mpiComm);
+  if (rank == 0)
+    printf("Done\n\n");
+
+}
+
+
 
 // --------------------------------------------------- //
 // ----- Wall-Shear Stress Model --------------------- //
