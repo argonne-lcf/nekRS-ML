@@ -117,14 +117,13 @@ void smartredis::init_train_gnn(gnn_t *graph)
   std::string irank = "_rank_" + std::to_string(rank);
   std::string nranks = "_size_" + std::to_string(size);
   std::string pos_key = "pos_node" + irank + nranks;
-  dlong *pos = graph->get_pos();
+  dfloat *pos = graph->get_pos();
   client_ptr->put_tensor(pos_key, pos, {num_nodes,3},
                     SRTensorTypeDouble, SRMemLayoutContiguous);
   std::string edge_key = "edge_index" + irank + nranks;
   dlong *edge_index = graph->get_edges();
   client_ptr->put_tensor(edge_key, edge_index, {num_edges,2},
                     SRTensorTypeInt64, SRMemLayoutContiguous);
-
 
    MPI_Barrier(platform->comm.mpiComm);
   if (rank == 0)

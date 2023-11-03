@@ -51,8 +51,8 @@ gnn_t::gnn_t(nrs_t *nrs_, bool online)
     halo_unique_mask = new dlong[N]();
     graphNodes = (graphNode_t*) calloc(N, sizeof(graphNode_t));
 
-    // turn writing to file off if online
-    if (online) write = false
+    // turn off writing to file if online
+    if (online) write = false;
 
     if (verbose) printf("\n[RANK %d] -- Finished instantiating gnn_t object\n", rank);
     if (verbose) printf("[RANK %d] -- The number of elements is %d \n", rank, mesh->Nelements);
@@ -109,8 +109,8 @@ void gnn_t::gnnWrite()
     writeToFile(writePath + "/global_ids" + irank + nranks, mesh->globalIds, N, 1);
 }
 
-const dfloat& gnn_t::get_pos() const { return pos_node; }
-const dlong& gnn_t::get_edges() const { return edge_index; }
+dfloat* gnn_t::get_pos() { return pos_node; }
+dlong* gnn_t::get_edges() { return edge_index; }
 int gnn_t::get_num_edges() { return num_edges; }
 int gnn_t::get_num_nodes() { return N; }
 
@@ -118,7 +118,7 @@ void gnn_t::get_node_positions()
 {
     if (verbose) printf("[RANK %d] -- in get_node_positions() \n", rank);
     //for (int n=0; n < mesh->Np * mesh->Nelements; n++)
-    or (int n=0; n < N; n++)
+    for (int n=0; n < N; n++)
     {
         dfloat x = mesh->x[n]; // location of x GLL point
         dfloat y = mesh->y[n]; // location of y GLL point

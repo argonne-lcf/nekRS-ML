@@ -17,18 +17,22 @@ void UDF_Setup0(MPI_Comm comm, setupAide &options) {}
 
 void UDF_Setup(nrs_t *nrs)
 {
+  printf("Before tavg Setup\n");
   tavg::setup(nrs);
+  printf("Past tavg Setup\n");
 
   // gnn plugin
-  graph = new gnn_t(nrs);
-  graph->gnnSetup();
+  bool online = true;
+  //graph = new gnn_t(nrs, online);
+  //graph->gnnSetup();
+  //printf("Past GNN Setup\n");
   //graph->gnnWrite();
   //delete graph;
 
   // Initialize SmartRedis client
-  smartredis::init_client(nrs);
-  smartredis::init_check_run();
-  smartredis::init_train_gnn(graph);
+  //smartredis::init_client(nrs);
+  //smartredis::init_check_run();
+  //smartredis::init_train_gnn(graph);
 
 }
 
@@ -37,19 +41,19 @@ void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
   tavg::run(time);
 
   // Send training data for model every set number of steps
-  if (tstep%10==0 && tstep>0) {
-    nek::ocopyToNek(time, tstep);
-    MPI_Barrier(platform->comm.mpiComm);
-    smartredis::put_step_num(tstep);
-  }
+  //if (tstep%10==0 && tstep>0) {
+  //  nek::ocopyToNek(time, tstep);
+  //  MPI_Barrier(platform->comm.mpiComm);
+  //  smartredis::put_step_num(tstep);
+  //}
 
   // Every time step check if ML training says it is time to quit 
-  int exit_val = smartredis::check_run();
-  MPI_Allreduce(MPI_IN_PLACE, &exit_val, 1, MPI_INT, MPI_MIN, platform->comm.mpiComm);
-  if (exit_val==0) {
-    platform->options.setArgs("END TIME",to_string_f(-10.0));
-    delete graph;
-  }
+  //int exit_val = smartredis::check_run();
+  //MPI_Allreduce(MPI_IN_PLACE, &exit_val, 1, MPI_INT, MPI_MIN, platform->comm.mpiComm);
+  //if (exit_val==0) {
+  //  platform->options.setArgs("END TIME",to_string_f(-10.0));
+  //  delete graph;
+  //}
 
   if (nrs->isOutputStep) {
     nek::ocopyToNek(time, tstep);

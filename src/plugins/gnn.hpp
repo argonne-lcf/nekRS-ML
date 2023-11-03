@@ -35,8 +35,8 @@ public:
     void gnnWrite();
 
     // accessor functions
-    const dfloat& get_pos() const;
-    const dlong& get_edges() const;
+    dfloat* get_pos();
+    dlong* get_edges();
     int get_num_edges();
     int get_num_nodes();
 

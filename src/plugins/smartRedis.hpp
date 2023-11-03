@@ -3,6 +3,7 @@
 
 #include "nrs.hpp"
 #include "nekInterfaceAdapter.hpp"
+#include "gnn.hpp"
 #include <vector>
 
 struct smartredis_data {
