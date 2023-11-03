@@ -104,31 +104,88 @@ void smartredis::put_step_num(int tstep)
 // ----- Online GNN ---------------------------------- //
 // --------------------------------------------------- //
 // Initialize training with a GNN
-void smartredis::init_train_gnn(gnn_t *graph)
+void smartredis::init_train_gnn(nrs_t *nrs, gnn_t *graph)
 {
+  mesh_t *mesh = nrs->meshV;
   int rank = platform->comm.mpiRank;
   int size = platform->comm.mpiCommSize;
-  int num_nodes = graph->get_num_nodes();
-  int num_edges = graph->get_num_edges();
+  long unsigned int num_nodes = graph->get_num_nodes();
+  long unsigned int num_edges = graph->get_num_edges();
+  dfloat *pos = new dfloat[num_nodes*3]();
+  dlong *edge_index = new dlong[num_edges*2]();
+  dlong *local_mask = new dlong[num_nodes*1]();
+  dlong *halo_mask = new dlong[num_nodes*1]();
 
   if (rank == 0) 
     printf("\nSending mesh data for GNN setup ...\n");
 
+  // Send to DB arrays for graph construction
   std::string irank = "_rank_" + std::to_string(rank);
   std::string nranks = "_size_" + std::to_string(size);
+
   std::string pos_key = "pos_node" + irank + nranks;
-  dfloat *pos = graph->get_pos();
+  pos = graph->get_pos();
+  std::cout << "Sending pos with key " << pos_key << " and size " << num_nodes << "x3" << std::endl;
   client_ptr->put_tensor(pos_key, pos, {num_nodes,3},
                     SRTensorTypeDouble, SRMemLayoutContiguous);
+
   std::string edge_key = "edge_index" + irank + nranks;
-  dlong *edge_index = graph->get_edges();
+  edge_index = graph->get_edges();
+  std::cout << "Sending edge_index with key " << edge_key << " and size " << num_edges << "x2" << std::endl;
   client_ptr->put_tensor(edge_key, edge_index, {num_edges,2},
+                    SRTensorTypeInt64, SRMemLayoutContiguous);
+
+  std::string local_mask_key = "local_unique_mask" + irank + nranks;
+  local_mask = graph->get_local_mask();
+  std::cout << "Sending local_mask with key " << local_mask_key << " and size " << num_nodes << "x1" << std::endl;
+  client_ptr->put_tensor(local_mask_key, local_mask, {num_nodes,1},
+                    SRTensorTypeInt64, SRMemLayoutContiguous);
+
+  std::string halo_mask_key = "halo_unique_mask" + irank + nranks;
+  halo_mask = graph->get_halo_mask();
+  std::cout << "Sending halo_mask with key " << halo_mask_key << " and size " << num_nodes << "x1" << std::endl;
+  client_ptr->put_tensor(halo_mask_key, halo_mask, {num_nodes,1},
+                    SRTensorTypeInt64, SRMemLayoutContiguous);
+
+  std::string glob_id_key = "global_ids" + irank + nranks;
+  std::cout << "Sending globalIds with key " << glob_id_key << " and size " << num_nodes << "x1" << std::endl;
+  client_ptr->put_tensor(glob_id_key, mesh->globalIds, {num_nodes,1},
                     SRTensorTypeInt64, SRMemLayoutContiguous);
 
    MPI_Barrier(platform->comm.mpiComm);
   if (rank == 0)
     printf("Done\n\n");
+}
 
+// Put velocity and pressure data in DB
+void smartredis::put_velNpres_data(nrs_t *nrs, int tstep)
+{
+  // Initialize local variables
+  int rank = platform->comm.mpiRank;
+  int size = platform->comm.mpiCommSize;
+  int num_cols = 4;
+  dlong num_samples = nrs->fieldOffset;
+  dfloat *train_data = new dfloat[num_samples * num_cols]();
+  std::string irank = "_rank_" + std::to_string(rank);
+  std::string nranks = "_size_" + std::to_string(size);
+
+  // Concatenate velocity (inputs) and pressure (output)
+  for (dlong i=0; i<num_samples; i++) {
+    train_data[i*num_cols+0] = nrs->U[i+0*nrs->fieldOffset];
+    train_data[i*num_cols+1] = nrs->U[i+1*nrs->fieldOffset];
+    train_data[i*num_cols+2] = nrs->U[i+2*nrs->fieldOffset];
+    train_data[i*num_cols+3] = nrs->P[i];
+  }
+
+  // Send training data to DB
+  std::string key = "x" + irank + nranks;
+  if (rank == 0)
+    printf("\nSending field with key %s \n",key.c_str());
+  client_ptr->put_tensor(key, train_data, {num_samples,num_cols},
+                    SRTensorTypeDouble, SRMemLayoutContiguous);
+  MPI_Barrier(platform->comm.mpiComm);
+  if (rank == 0)
+    printf("Done\n\n");
 }
 
 
@@ -210,8 +267,8 @@ void smartredis::init_wallModel_train(nrs_t *nrs)
 void smartredis::put_wallModel_data(nrs_t *nrs, int tstep)
 {
   int rank = platform->comm.mpiRank;
-  int num_samples = wm->num_samples;
-  int num_cols = wm->num_inputs+wm->num_outputs;
+  long unsigned int num_samples = wm->num_samples;
+  long unsigned int num_cols = wm->num_inputs+wm->num_outputs;
   dfloat mue;
   std::string key = "x." + std::to_string(rank) + "." + std::to_string(tstep);
   dfloat *train_data = new dfloat[num_samples*num_cols]();
@@ -252,7 +309,7 @@ void smartredis::put_wallModel_data(nrs_t *nrs, int tstep)
 void smartredis::run_wallModel(nrs_t *nrs, int tstep)
 {
   int rank = platform->comm.mpiRank;
-  int num_samples = wm->num_samples;
+  long unsigned int num_samples = wm->num_samples;
   dfloat mue;
   std::string in_key = "x." + std::to_string(rank);
   std::string out_key = "y." + std::to_string(rank);
@@ -308,109 +365,6 @@ void smartredis::run_wallModel(nrs_t *nrs, int tstep)
   }
   error = error / num_samples;
   printf("[%d]: Mean Squared Error in wall shear stress field = %E\n\n",rank,error);
-  fflush(stdout);
-}
-
-// --------------------------------------------------- //
-// ----- Pressure Model ------------------------------ //
-// --------------------------------------------------- //
-// Initialize training for the velocity-pressure model
-void smartredis::init_velNpres_train(nrs_t *nrs)
-{
-  // Initialize local variables
-  int rank = platform->comm.mpiRank;
-  int size = platform->comm.mpiCommSize;
-
-  if (rank == 0) 
-    printf("\nSending training metadata for velocity-pressure model ...\n");
-
-  // Create and send metadata for training
-  std::vector<int> tensor_info(6,0);
-  tensor_info[0] = sr->npts_per_tensor;
-  tensor_info[1] = sr->num_tot_tensors;
-  tensor_info[2] = sr->num_db_tensors;
-  tensor_info[3] = sr->head_rank;
-  tensor_info[4] = 3; // number of model inputs
-  tensor_info[5] = 1; // number of model outputs
-  std::string info_key = "tensorInfo";
-  if (rank%sr->num_db_tensors == 0) {
-    client_ptr->put_tensor(info_key, tensor_info.data(), {6},
-                    SRTensorTypeInt32, SRMemLayoutContiguous);
-  }
-  MPI_Barrier(platform->comm.mpiComm);
-
-  if (rank == 0)
-    printf("Done\n\n");
-}
-
-// Put velocity and pressure data in DB
-void smartredis::put_velNpres_data(nrs_t *nrs, int tstep)
-{
-  // Initialize local variables
-  int rank = platform->comm.mpiRank;
-  std::string key = "x." + std::to_string(rank) + "." + std::to_string(tstep);
-  dfloat *train_data = new dfloat[nrs->fieldOffset * 4]();
-  int size_U = nrs->fieldOffset * 3;
-  int size_P = nrs->fieldOffset;
-
-  // Concatenate velocity (inputs) and pressure (output)
-  std::copy(nrs->U,nrs->U+size_U,train_data);
-  std::copy(nrs->P,nrs->P+size_P,train_data+size_U);
-
-  // Send training data to DB
-  if (rank == 0)
-    printf("\nSending field with key %s \n",key.c_str());
-  client_ptr->put_tensor(key, train_data, {nrs->fieldOffset,4},
-                    SRTensorTypeDouble, SRMemLayoutContiguous);
-  MPI_Barrier(platform->comm.mpiComm);
-  if (rank == 0)
-    printf("Done\n\n");
-}
-
-// Run a ML model for inference
-void smartredis::run_pressure_model(nrs_t *nrs, int tstep)
-{
-  // Initialize local variables
-  int rank = platform->comm.mpiRank;
-  int npts = nrs->fieldOffset;
-  std::string in_key = "x." + std::to_string(rank) + "." + std::to_string(tstep);
-  std::string out_key = "y." + std::to_string(rank) + "." + std::to_string(tstep);
-  dfloat *outputs = new dfloat[npts]();
-  
-  // Send input data
-  if (rank == 0)
-    printf("\nSending field with key %s \n",in_key.c_str());
-  client_ptr->put_tensor(in_key, nrs->U, {npts,3},
-                    SRTensorTypeDouble, SRMemLayoutContiguous);
-  MPI_Barrier(platform->comm.mpiComm);
-  if (rank == 0)
-    printf("Done\n\n");
-
-  // Run ML model on input data
-  if (rank == 0)
-    printf("\nRunning ML model ...\n");
-  client_ptr->run_model("model", {in_key}, {out_key});
-  MPI_Barrier(platform->comm.mpiComm);
-  if (rank == 0)
-    printf("Done\n\n");
-
-  // Retrieve model pedictions
-  if (rank == 0)
-    printf("\nRetrieving field with key %s \n",out_key.c_str());
-  client_ptr->unpack_tensor(out_key, outputs, {npts},
-                       SRTensorTypeDouble, SRMemLayoutContiguous);
-  MPI_Barrier(platform->comm.mpiComm);
-  if (rank == 0)
-    printf("Done\n\n");
-  
-  // Compute error in prediction
-  double error = 0.0;
-  for (int n=0; n<npts; n++) {
-    error = error + (outputs[n] - nrs->P[n])*(outputs[n] - nrs->P[n]);
-    //printf("True, Pred, Error: %f, %f, %f \n",nrs->P[n],outputs[n],error);
-  }
-  error = error / npts;
-  printf("[%d]: Mean Squared Error in pressure field = %f\n\n",rank,error);
   fflush(stdout);
 }
 

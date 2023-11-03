@@ -28,10 +28,11 @@ void writeToFile(const std::string& filename, T* data, int nRows, int nCols)
     }
 }
 
-gnn_t::gnn_t(nrs_t *nrs_)
-{
-    gnn_t(nrs_, false);
-}
+//gnn_t::gnn_t(nrs_t *nrs_)
+//{
+    //bool online = false;
+    //gnn_t(nrs_, online);
+//}
 
 gnn_t::gnn_t(nrs_t *nrs_, bool online)
 {
@@ -52,9 +53,15 @@ gnn_t::gnn_t(nrs_t *nrs_, bool online)
     graphNodes = (graphNode_t*) calloc(N, sizeof(graphNode_t));
 
     // turn off writing to file if online
-    if (online) write = false;
+    if (online) {
+        write = false;
+        if (verbose and rank==0) printf("\nPerforming online training\n", rank);
+    } else {
+        if (verbose) printf("\nWriting graph info to the disk\n", rank);
+    }
 
     if (verbose) printf("\n[RANK %d] -- Finished instantiating gnn_t object\n", rank);
+    if (verbose) printf("[RANK %d] -- The number of nodes is %d \n", rank, N);
     if (verbose) printf("[RANK %d] -- The number of elements is %d \n", rank, mesh->Nelements);
 }
 
@@ -62,6 +69,7 @@ gnn_t::~gnn_t()
 {
     if (verbose) printf("[RANK %d] -- gnn_t destructor\n", rank);
     delete[] pos_node;
+    delete[] edge_index;
     delete[] local_unique_mask;
     delete[] halo_unique_mask;
     free(localNodes);
@@ -111,6 +119,8 @@ void gnn_t::gnnWrite()
 
 dfloat* gnn_t::get_pos() { return pos_node; }
 dlong* gnn_t::get_edges() { return edge_index; }
+dlong* gnn_t::get_local_mask() { return local_unique_mask; }
+dlong* gnn_t::get_halo_mask() { return halo_unique_mask; }
 int gnn_t::get_num_edges() { return num_edges; }
 int gnn_t::get_num_nodes() { return N; }
 
@@ -486,7 +496,7 @@ void gnn_t::write_edge_index(const std::string& filename)
     //}
 
     // loop through num_edges
-    for (int i = 0; i < num_edges; i++)
+    for (dlong i = 0; i < num_edges; i++)
     {
         file_cpu << edge_index[i*2] << '\t' << edge_index[i*2+1] << '\n'; 
     }           
@@ -500,7 +510,7 @@ void gnn_t::get_edge_index()
     //dlong N = mesh->Nelements * mesh->Np; // total number of nodes
 
     // loop through graph nodes
-    for (int i = 0; i < N; i++)
+    for (dlong i = 0; i < N; i++)
     {               
         int num_nbr = graphNodes[i].nbrIds.size();
         dlong idx_own = graphNodes[i].localId; 

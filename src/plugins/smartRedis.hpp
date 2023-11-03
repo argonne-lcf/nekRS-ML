@@ -35,10 +35,8 @@ namespace smartredis
   void init_wallModel_train(nrs_t *nrs);
   void put_wallModel_data(nrs_t *nrs, int tstep);
   void run_wallModel(nrs_t *nrs, int tstep);
-  void init_velNpres_train(nrs_t *nrs);
+  void init_train_gnn(nrs_t *nrs, gnn_t *graph);
   void put_velNpres_data(nrs_t *nrs, int tstep);
-  void run_pressure_model(nrs_t *nrs, int tstep);
-  void init_train_gnn(gnn_t *graph);
 }
 
 #endif

@@ -11,6 +11,8 @@ COPYRIGHT (c) 2019-2023 UCHICAGO ARGONNE, LLC
 [![License](https://img.shields.io/badge/License-BSD%203--Clause-orange.svg)](https://opensource.org/licenses/BSD-3-Clause)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.7984525.svg)](https://doi.org/10.5281/zenodo.7984525)
 
+WARNING: This branch is a work in progress.
+
 This branch of NekRS-ML combines the GNN and smartredis branches for online (in situ) training of GNN with a direct coupling of the nekRS mesh to the graph being used for the ML model. 
 It therefore includes both the gnn and the smartredis plugins, as well as more developments to integrate the two. For more information on the respective features please see the `GNN` and `smartredis` branches of this repo. 
 

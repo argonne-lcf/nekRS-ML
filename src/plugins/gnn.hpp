@@ -26,7 +26,6 @@ int compareLocalId(const void *a, const void *b);
 class gnn_t 
 {
 public:
-    gnn_t(nrs_t *nrs);
     gnn_t(nrs_t *nrs, bool online);
     ~gnn_t(); 
 
@@ -37,6 +36,8 @@ public:
     // accessor functions
     dfloat* get_pos();
     dlong* get_edges();
+    dlong* get_local_mask();
+    dlong* get_halo_mask();
     int get_num_edges();
     int get_num_nodes();
 

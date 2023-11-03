@@ -16,6 +16,10 @@ examples/turbChannel_smartredis/channel0.f00*
 examples/turbChannel_smartredis/cmake.log
 examples/turbChannel_smartredis/outputs/
 
+# Related to periodic hill example
+examples/periodicHill_gnn/gnn_outputs/
+examples/periodicHill_gnn/outputs/
+
 # Outputs of example cases
 *.f00*
 *cmake.log

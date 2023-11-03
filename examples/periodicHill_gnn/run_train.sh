@@ -26,7 +26,7 @@ export FI_OFI_RXM_RX_SIZE=32768
 # Run the driver script
 sim_arguments="--setup periodicHill.par --backend CUDA --device-id 0"
 python ssim_driver_polaris.py \
-  sim.executable=$NEKRS_HOME/bin/nekrs run_args.simprocs=1 run_args.simprocs_pn=1 \
+  sim.executable=$NEKRS_HOME/bin/nekrs run_args.simprocs=2 run_args.simprocs_pn=2 \
   sim.arguments="${sim_arguments}" sim.affinity=./affinity_nrs.sh
 
 #  train.executable=./trainer.py run_args.mlprocs=2 run_args.mlprocs_pn=2 \

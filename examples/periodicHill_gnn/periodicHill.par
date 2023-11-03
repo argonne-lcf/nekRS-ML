@@ -1,5 +1,5 @@
 [GENERAL]
-polynomialOrder = 7
+polynomialOrder = 3
 #startFrom = r.fld
 
 stopAt = endTime

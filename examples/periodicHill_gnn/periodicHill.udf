@@ -17,23 +17,21 @@ void UDF_Setup0(MPI_Comm comm, setupAide &options) {}
 
 void UDF_Setup(nrs_t *nrs)
 {
-  printf("Before tavg Setup\n");
   tavg::setup(nrs);
-  printf("Past tavg Setup\n");
 
   // gnn plugin
   bool online = true;
-  //graph = new gnn_t(nrs, online);
-  //graph->gnnSetup();
-  //printf("Past GNN Setup\n");
+  graph = new gnn_t(nrs, online);
+  graph->gnnSetup();
   //graph->gnnWrite();
-  //delete graph;
 
   // Initialize SmartRedis client
-  //smartredis::init_client(nrs);
-  //smartredis::init_check_run();
-  //smartredis::init_train_gnn(graph);
+  smartredis::init_client(nrs);
+  smartredis::init_check_run();
+  smartredis::init_train_gnn(nrs, graph);
 
+  // Delete graph info, no longer needed
+  delete graph;
 }
 
 void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
@@ -41,25 +39,24 @@ void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
   tavg::run(time);
 
   // Send training data for model every set number of steps
-  //if (tstep%10==0 && tstep>0) {
-  //  nek::ocopyToNek(time, tstep);
-  //  MPI_Barrier(platform->comm.mpiComm);
-  //  smartredis::put_step_num(tstep);
-  //}
+  if (tstep%10==0 && tstep>0) {
+    nek::ocopyToNek(time, tstep);
+    smartredis::put_velNpres_data(nrs, tstep);
+    MPI_Barrier(platform->comm.mpiComm);
+    smartredis::put_step_num(tstep);
+  }
 
   // Every time step check if ML training says it is time to quit 
-  //int exit_val = smartredis::check_run();
-  //MPI_Allreduce(MPI_IN_PLACE, &exit_val, 1, MPI_INT, MPI_MIN, platform->comm.mpiComm);
-  //if (exit_val==0) {
-  //  platform->options.setArgs("END TIME",to_string_f(-10.0));
-  //  delete graph;
-  //}
+  int exit_val = smartredis::check_run();
+  MPI_Allreduce(MPI_IN_PLACE, &exit_val, 1, MPI_INT, MPI_MIN, platform->comm.mpiComm);
+  if (exit_val==0) {
+    platform->options.setArgs("END TIME",to_string_f(-10.0));
+  }
 
   if (nrs->isOutputStep) {
     nek::ocopyToNek(time, tstep);
     nek::userchk(); // compute lambda2
     nek::ocopyFromNek(time);
-
     tavg::outfld();
   }
 
@@ -71,12 +68,6 @@ void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
     int rank, size;
     MPI_Comm_rank(platform->comm.mpiComm, &rank);
     MPI_Comm_size(platform->comm.mpiComm, &size);
-
-    //dlong n_nodes = nrs->meshV->Np * nrs->meshV->Nelements;
-    //std::string irank = "_rank_" + std::to_string(rank);
-    //std::string nranks = "_size_" + std::to_string(size);
-    //writeToFile("gnn_outputs/x" + irank + nranks, nrs->U, n_nodes, 3);
-    //writeToFile("gnn_outputs/y" + irank + nranks, nrs->P, n_nodes, 1);
   }
 
 }

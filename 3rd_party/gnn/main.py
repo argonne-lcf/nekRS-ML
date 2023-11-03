@@ -378,7 +378,7 @@ class Trainer:
 
         path_to_pos_full = main_path + 'pos_node_rank_%d_size_%d' %(RANK,SIZE)
         path_to_ei = main_path + 'edge_index_rank_%d_size_%d' %(RANK,SIZE)
-        path_to_overlap = main_path + 'overlap_ids_rank_%d_size_%d' %(RANK,SIZE)
+        #path_to_overlap = main_path + 'overlap_ids_rank_%d_size_%d' %(RANK,SIZE)
         path_to_glob_ids = main_path + 'global_ids_rank_%d_size_%d' %(RANK,SIZE)
         path_to_unique_local = main_path + 'local_unique_mask_rank_%d_size_%d' %(RANK,SIZE)
         path_to_unique_halo = main_path + 'halo_unique_mask_rank_%d_size_%d' %(RANK,SIZE)
