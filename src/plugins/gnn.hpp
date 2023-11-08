@@ -35,7 +35,7 @@ public:
 
     // accessor functions
     dfloat* get_pos();
-    dlong* get_edges();
+    dfloat* get_edges();
     dlong* get_local_mask();
     dlong* get_halo_mask();
     int get_num_edges();
@@ -49,7 +49,7 @@ private:
 
     // allocated in constructor 
     dfloat *pos_node; 
-    dlong *edge_index;
+    dfloat *edge_index;
     dlong *local_unique_mask;
     dlong *halo_unique_mask;
 

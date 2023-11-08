@@ -117,7 +117,7 @@ void gnn_t::gnnWrite()
 }
 
 dfloat* gnn_t::get_pos() { return pos_node; }
-dlong* gnn_t::get_edges() { return edge_index; }
+dfloat* gnn_t::get_edges() { return edge_index; }
 dlong* gnn_t::get_local_mask() { return local_unique_mask; }
 dlong* gnn_t::get_halo_mask() { return halo_unique_mask; }
 int gnn_t::get_num_edges() { return num_edges; }
@@ -485,7 +485,7 @@ void gnn_t::get_edge_index()
 {
     if (verbose) printf("[RANK %d] -- in get_edge_index() \n", rank);
 
-    edge_index = new dlong[num_edges * 2]();
+    edge_index = new dfloat[num_edges * 2]();
 
     // loop through graph nodes
     dlong c = 0;
@@ -497,8 +497,8 @@ void gnn_t::get_edge_index()
         for (int j = 0; j < num_nbr; j++)
         {           
             dlong idx_nei = graphNodes[i].nbrIds[j];  
-            edge_index[c*2] = idx_nei;
-            edge_index[c*2+1] = idx_own;
+            edge_index[c*2] = 1.0*idx_nei;
+            edge_index[c*2+1] = 1.0*idx_own;
             c++;
         }
     }    

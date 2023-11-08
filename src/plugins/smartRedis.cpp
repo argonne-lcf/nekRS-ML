@@ -112,7 +112,7 @@ void smartredis::init_train_gnn(nrs_t *nrs, gnn_t *graph)
   long unsigned int num_nodes = graph->get_num_nodes();
   long unsigned int num_edges = graph->get_num_edges();
   dfloat *pos = new dfloat[num_nodes*3]();
-  dlong *edge_index = new dlong[num_edges*2]();
+  dfloat *edge_index = new dfloat[num_edges*2]();
   dlong *local_mask = new dlong[num_nodes*1]();
   dlong *halo_mask = new dlong[num_nodes*1]();
 
@@ -133,7 +133,7 @@ void smartredis::init_train_gnn(nrs_t *nrs, gnn_t *graph)
   edge_index = graph->get_edges();
   std::cout << "Sending edge_index with key " << edge_key << " and size " << num_edges << "x2" << std::endl;
   client_ptr->put_tensor(edge_key, edge_index, {num_edges,2},
-                    SRTensorTypeInt64, SRMemLayoutContiguous);
+                    SRTensorTypeDouble, SRMemLayoutContiguous);
 
   std::string local_mask_key = "local_unique_mask" + irank + nranks;
   local_mask = graph->get_local_mask();
