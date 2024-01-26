@@ -350,9 +350,13 @@ else:
 
             # Compute pairing functions: Cantor pair = 0.5 * (k1 + k2) * (k1 + k2 + 1) + k2 
             k1, k2 = edge_index_own_subset_global
+            k1 = k1.to(torch.float64)
+            k2 = k2.to(torch.float64)
             cpair_own = (0.5 * (k1 + k2) * (k1 + k2 + 1) + k2).to(torch.int64)
 
             k1, k2 = edge_index_nei_subset_global
+            k1 = k1.to(torch.float64)
+            k2 = k2.to(torch.float64)
             cpair_nei = (0.5 * (k1 + k2) * (k1 + k2 + 1) + k2).to(torch.int64)
 
             # Find which owner edges are duplicated in neighbor edges 
