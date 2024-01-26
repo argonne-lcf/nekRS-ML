@@ -49,8 +49,8 @@ void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
         dlong n_nodes = nrs->meshV->Np * nrs->meshV->Nelements;
         std::string irank = "_rank_" + std::to_string(rank);
         std::string nranks = "_size_" + std::to_string(size);
-        writeToFile("gnn_outputs/x" + irank + nranks, nrs->U, n_nodes, 3);
-        writeToFile("gnn_outputs/y" + irank + nranks, nrs->P, n_nodes, 1);
+        writeToFile("gnn_outputs/x" + irank + nranks, nrs->U, nrs->fieldOffset, 3);
+        writeToFile("gnn_outputs/y" + irank + nranks, nrs->P, nrs->fieldOffset, 1);
     }
 
 }
