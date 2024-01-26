@@ -103,9 +103,16 @@ def init_process_group(
         init_method='env://',
     )
 
-
 def cleanup():
     dist.destroy_process_group()
+
+def init_client(cfg):
+    SSDB = os.environ['SSDB']
+    if (cfg.database.nodes==1):
+        client = Client(address=SSDB,cluster=False)
+    else:
+        client = Client(address=SSDB,cluster=True)
+    return client
 
 def metric_average(val: Tensor):
     if (WITH_DDP):
@@ -114,11 +121,12 @@ def metric_average(val: Tensor):
     return val
 
 class Trainer:
-    def __init__(self, cfg: DictConfig, scaler: Optional[GradScaler] = None):
+    def __init__(self, cfg: DictConfig, scaler: Optional[GradScaler] = None, client: Optional[Client] = None):
         self.cfg = cfg
         self.rank = RANK
         if scaler is None:
             self.scaler = None
+        self.client = client
         self.device = 'gpu' if torch.cuda.is_available() else 'cpu'
         self.backend = self.cfg.backend
         if WITH_DDP:
@@ -133,7 +141,7 @@ class Trainer:
 
         # ~~~~ Setup halo nodes 
         self.neighboring_procs = {}
-        self.setup_halo()
+        #self.setup_halo()
 
         # ~~~~ Setup data 
         self.data = self.setup_data()
@@ -374,32 +382,67 @@ class Trainer:
         """
         Load in the local graph
         """
-        main_path = self.cfg.gnn_outputs_path
+        pos_key = 'pos_node_rank_%d_size_%d' %(RANK,SIZE)
+        edge_key = 'edge_index_rank_%d_size_%d' %(RANK,SIZE)
+        gid_key = 'global_ids_rank_%d_size_%d' %(RANK,SIZE)
+        lmask_key = 'local_unique_mask_rank_%d_size_%d' %(RANK,SIZE)
+        hmask_key = 'halo_unique_mask_rank_%d_size_%d' %(RANK,SIZE)
 
-        path_to_pos_full = main_path + 'pos_node_rank_%d_size_%d' %(RANK,SIZE)
-        path_to_ei = main_path + 'edge_index_rank_%d_size_%d' %(RANK,SIZE)
-        #path_to_overlap = main_path + 'overlap_ids_rank_%d_size_%d' %(RANK,SIZE)
-        path_to_glob_ids = main_path + 'global_ids_rank_%d_size_%d' %(RANK,SIZE)
-        path_to_unique_local = main_path + 'local_unique_mask_rank_%d_size_%d' %(RANK,SIZE)
-        path_to_unique_halo = main_path + 'halo_unique_mask_rank_%d_size_%d' %(RANK,SIZE)
+        if not self.cfg.online:
+            main_path = self.cfg.gnn_outputs_path
+            path_to_pos_full = main_path + pos_key
+            path_to_ei = main_path + edge_key
+            #path_to_overlap = main_path + 'overlap_ids_rank_%d_size_%d' %(RANK,SIZE)
+            path_to_glob_ids = main_path + gid_key
+            path_to_unique_local = main_path + lmask_key
+            path_to_unique_halo = main_path + hmask_key
         
-        # ~~~~ Get positions and global node index
-        if self.cfg.verbose: print('[RANK %d]: Loading positions and global node index' %(RANK))
-        pos = np.loadtxt(path_to_pos_full, dtype=np.float32)
-        gli = np.loadtxt(path_to_glob_ids, dtype=np.int64).reshape((-1,1))
+            # ~~~~ Get positions and global node index
+            if self.cfg.verbose: print('[RANK %d]: Loading positions and global node index' %(RANK))
+            pos = np.loadtxt(path_to_pos_full, dtype=np.float32)
+            gli = np.loadtxt(path_to_glob_ids, dtype=np.int64).reshape((-1,1))
 
-        # ~~~~ Get edge index
-        if self.cfg.verbose: print('[RANK %d]: Loading edge index' %(RANK))
-        ei = np.loadtxt(path_to_ei, dtype=np.int64).T
+            # ~~~~ Get edge index
+            if self.cfg.verbose: print('[RANK %d]: Loading edge index' %(RANK))
+            ei = np.loadtxt(path_to_ei, dtype=np.int64).T
         
-        # ~~~~ Get local unique mask
-        if self.cfg.verbose: print('[RANK %d]: Loading local unique mask' %(RANK))
-        local_unique_mask = np.loadtxt(path_to_unique_local, dtype=np.int64)
+            # ~~~~ Get local unique mask
+            if self.cfg.verbose: print('[RANK %d]: Loading local unique mask' %(RANK))
+            local_unique_mask = np.loadtxt(path_to_unique_local, dtype=np.int64)
 
-        # ~~~~ Get halo unique mask
-        halo_unique_mask = np.array([])
-        if SIZE > 1:
-            halo_unique_mask = np.loadtxt(path_to_unique_halo, dtype=np.int64)
+            # ~~~~ Get halo unique mask
+            halo_unique_mask = np.array([])
+            if SIZE > 1:
+                halo_unique_mask = np.loadtxt(path_to_unique_halo, dtype=np.int64)
+        else:
+            while True:
+                if (self.client.poll_tensor(hmask_key,0,1)):
+                    break
+            COMM.Barrier()
+            if self.cfg.verbose: print('[RANK %d]: Loading positions and global node index' %(RANK))
+            pos = self.client.get_tensor(pos_key).astype('float32').T
+            gli = self.client.get_tensor(gid_key).astype('int64').reshape((-1,1))
+            
+            if self.cfg.verbose: print('[RANK %d]: Loading edge index' %(RANK))
+            ei = self.client.get_tensor(edge_key).astype('int64').T
+        
+            if self.cfg.verbose: print('[RANK %d]: Loading local unique mask' %(RANK))
+            local_unique_mask = np.squeeze(self.client.get_tensor(lmask_key).astype('int64'))
+
+            halo_unique_mask = np.array([])
+            if SIZE > 1:
+                halo_unique_mask = np.squeeze(self.client.get_tensor(hmask_key).astype('int64'))
+
+            print(f'[{RANK}]: pos shape {pos.shape}')
+            np.savetxt(f"/eagle/datascience/balin/Nek/nekRS-ML/examples/periodicHill_gnn/pos_node_{RANK}",pos)
+            print(f'[{RANK}]: gli shape {gli.shape}')
+            np.savetxt(f"/eagle/datascience/balin/Nek/nekRS-ML/examples/periodicHill_gnn/global_ids_node_{RANK}",gli,fmt='%d')
+            print(f'[{RANK}]: ei shape {ei.shape}')
+            np.savetxt("/eagle/datascience/balin/Nek/nekRS-ML/examples/periodicHill_gnn/edge_index_{RANK}",ei.T,fmt='%d')
+            print(f'[{RANK}]: local_unique_mask shape {local_unique_mask.shape}')
+            np.savetxt(f"/eagle/datascience/balin/Nek/nekRS-ML/examples/periodicHill_gnn/local_unique_mask_{RANK}",local_unique_mask,fmt='%d')
+            print(f'[{RANK}]: halo_unique_mask shape {halo_unique_mask.shape}')
+            np.savetxt(f"/eagle/datascience/balin/Nek/nekRS-ML/examples/periodicHill_gnn/halo_unique_mask_{RANK}",halo_unique_mask,fmt='%d')
 
         # ~~~~ Make the full graph: 
         if self.cfg.verbose: print('[RANK %d]: Making the FULL GLL-based graph with overlapping nodes' %(RANK))
@@ -450,12 +493,28 @@ class Trainer:
         """
         Generate the PyTorch Geometric Dataset 
         """
-        # Load data 
-        main_path = self.cfg.gnn_outputs_path
-        path_to_x = main_path + 'x_rank_%d_size_%d' %(RANK,SIZE)
-        path_to_y = main_path + 'y_rank_%d_size_%d' %(RANK,SIZE)
-        data_x = np.loadtxt(path_to_x, ndmin=2, dtype=np.float32)
-        data_y = np.loadtxt(path_to_y, ndmin=2, dtype=np.float32)
+        x_key = 'x_rank_%d_size_%d' %(RANK,SIZE)
+        y_key = 'y_rank_%d_size_%d' %(RANK,SIZE)
+
+        if not self.cfg.online:
+            # Load data 
+            main_path = self.cfg.gnn_outputs_path
+            path_to_x = main_path + x_key
+            path_to_y = main_path + y_key
+            data_x = np.loadtxt(path_to_x, ndmin=2, dtype=np.float32)
+            data_y = np.loadtxt(path_to_y, ndmin=2, dtype=np.float32)
+        else:
+            # Read data from DB
+            while True:
+                if (self.client.poll_tensor("step",0,1)):
+                    break
+            COMM.Barrier()
+            data = self.client.get_tensor(x_key).astype('float32').T
+            print(f"training data shape: {data.shape}")
+            data_x = data[:,:3]
+            data_y = np.expand_dims(data[:,3],axis=1)
+            print(f"input data shape: {data_x.shape}")
+            print(f"output data shape: {data_y.shape}")
 
         # Get data in reduced format (non-overlapping)
         data_x_reduced = data_x[self.idx_full2reduced, :]
@@ -613,7 +672,7 @@ class Trainer:
         
         self.optimizer.zero_grad()
 
-        # Prediction 
+        # Prediction
         out_gnn = self.model(data.x, data.edge_index, data.edge_attr, data.pos, data.batch)
 
         # Accumulate loss
@@ -720,9 +779,9 @@ class Trainer:
         return {'loss': loss_avg}
 
 
-def train(cfg: DictConfig) -> None:
+def train(cfg: DictConfig, client: Optional[Client] = None) -> None:
     start = time.time()
-    trainer = Trainer(cfg)
+    trainer = Trainer(cfg,client=client)
     epoch_times = []
 
     for epoch in range(trainer.epoch_start, cfg.epochs+1):
@@ -821,10 +880,16 @@ def train(cfg: DictConfig) -> None:
 
 @hydra.main(version_base=None, config_path='./conf', config_name='config')
 def main(cfg: DictConfig) -> None:
-    print('Rank %d, local rank %d, which has device %s. Sees %d devices.' %(RANK,int(LOCAL_RANK),DEVICE,torch.cuda.device_count()))
-    train(cfg)
-    
-
+    print('Rank %d, local rank %d, which has device %s. Sees %d devices.\n' %(RANK,int(LOCAL_RANK),DEVICE,torch.cuda.device_count()))
+    if cfg.online:
+        print('Performing online training!\n')
+        client = init_client(cfg)
+        COMM.Barrier()
+        if (RANK == 0):
+            print("All Python clients initialized\n")
+        train(cfg,client=client)
+    else:
+        train(cfg)
     cleanup()
 
 if __name__ == '__main__':

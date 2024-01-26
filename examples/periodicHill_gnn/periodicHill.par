@@ -1,9 +1,9 @@
 [GENERAL]
-polynomialOrder = 7
+polynomialOrder = 3
 #startFrom = r.fld
 
 stopAt = endTime
-endTime = 3
+endTime = 30
 
 dt = targetCFL=2 + max=1e-2 + initial=1e-3
 timeStepper = tombo2

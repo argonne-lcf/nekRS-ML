@@ -126,7 +126,7 @@ void smartredis::init_train_gnn(nrs_t *nrs, gnn_t *graph)
   std::string pos_key = "pos_node" + irank + nranks;
   pos = graph->get_pos();
   std::cout << "Sending pos with key " << pos_key << " and size " << num_nodes << "x3" << std::endl;
-  client_ptr->put_tensor(pos_key, pos, {num_nodes,3},
+  client_ptr->put_tensor(pos_key, pos, {3,num_nodes},
                     SRTensorTypeDouble, SRMemLayoutContiguous);
 
   std::string edge_key = "edge_index" + irank + nranks;
@@ -139,13 +139,13 @@ void smartredis::init_train_gnn(nrs_t *nrs, gnn_t *graph)
   local_mask = graph->get_local_mask();
   std::cout << "Sending local_mask with key " << local_mask_key << " and size " << num_nodes << "x1" << std::endl;
   client_ptr->put_tensor(local_mask_key, local_mask, {num_nodes,1},
-                    SRTensorTypeInt64, SRMemLayoutContiguous);
+                    SRTensorTypeInt32, SRMemLayoutContiguous); // local_mask is type dlong, which is int32 I think
 
   std::string halo_mask_key = "halo_unique_mask" + irank + nranks;
   halo_mask = graph->get_halo_mask();
   std::cout << "Sending halo_mask with key " << halo_mask_key << " and size " << num_nodes << "x1" << std::endl;
   client_ptr->put_tensor(halo_mask_key, halo_mask, {num_nodes,1},
-                    SRTensorTypeInt64, SRMemLayoutContiguous);
+                    SRTensorTypeInt32, SRMemLayoutContiguous); // halo_mask is type dlong, which is int32 I think
 
   std::string glob_id_key = "global_ids" + irank + nranks;
   std::cout << "Sending globalIds with key " << glob_id_key << " and size " << num_nodes << "x1" << std::endl;
@@ -171,17 +171,21 @@ void smartredis::put_velNpres_data(nrs_t *nrs, int tstep)
 
   // Concatenate velocity (inputs) and pressure (output)
   for (dlong i=0; i<num_samples; i++) {
-    train_data[i*num_cols+0] = nrs->U[i+0*nrs->fieldOffset];
-    train_data[i*num_cols+1] = nrs->U[i+1*nrs->fieldOffset];
-    train_data[i*num_cols+2] = nrs->U[i+2*nrs->fieldOffset];
-    train_data[i*num_cols+3] = nrs->P[i];
+    //train_data[i*num_cols+0] = nrs->U[i+0*nrs->fieldOffset];
+    //train_data[i*num_cols+1] = nrs->U[i+1*nrs->fieldOffset];
+    //train_data[i*num_cols+2] = nrs->U[i+2*nrs->fieldOffset];
+    //train_data[i*num_cols+3] = nrs->P[i];
+    train_data[i+0*num_samples] = nrs->U[i+0*num_samples];
+    train_data[i+1*num_samples] = nrs->U[i+1*num_samples];
+    train_data[i+2*num_samples] = nrs->U[i+2*num_samples];
+    train_data[i+3*num_samples] = nrs->P[i];
   }
 
   // Send training data to DB
   std::string key = "x" + irank + nranks;
   if (rank == 0)
     printf("\nSending field with key %s \n",key.c_str());
-  client_ptr->put_tensor(key, train_data, {num_samples,num_cols},
+  client_ptr->put_tensor(key, train_data, {num_cols,num_samples},
                     SRTensorTypeDouble, SRMemLayoutContiguous);
   MPI_Barrier(platform->comm.mpiComm);
   if (rank == 0)

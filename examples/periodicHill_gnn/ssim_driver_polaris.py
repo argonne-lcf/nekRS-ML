@@ -44,7 +44,7 @@ def launch_coDB(cfg, nodelist, nNodes):
                            client_exe,
                            exe_args=cfg.sim.arguments,
                            run_args=None,
-                           env_vars=None)
+                           env_vars={'MPICH_OFI_CXI_PID_BASE':str(0)})
         nrs_settings.set_tasks(cfg.run_args.simprocs)
         nrs_settings.set_tasks_per_node(cfg.run_args.simprocs_pn)
         nrs_settings.set_hostlist(hosts)
@@ -100,10 +100,6 @@ def launch_coDB(cfg, nodelist, nNodes):
     # Setup and launch the training script
     if (cfg.train.executable):
         ml_exe = cfg.train.executable
-        ml_exe = ml_exe + f' --dbnodes={cfg.run_args.db_nodes}' \
-                        + f' --device={cfg.train.device}' \
-                        + f' --ppn={cfg.run_args.mlprocs_pn}' \
-                        + f' --logging={cfg.train.logging}'
         if (cfg.database.launcher=='local'):
             ml_settings = RunSettings(
                            'python',
@@ -112,11 +108,12 @@ def launch_coDB(cfg, nodelist, nNodes):
                            run_args={"-n" : cfg.run_args.mlprocs},
                            env_vars=colo_model.run_settings.env_vars)
         elif (cfg.database.launcher=='pbs'):
+            SSDB = colo_model.run_settings.env_vars['SSDB']
             ml_settings = PalsMpiexecSettings(
                            'python',
                            exe_args=ml_exe,
                            run_args=None,
-                           env_vars=colo_model.run_settings.env_vars)
+                           env_vars={'SSDB':SSDB, 'MPICH_OFI_CXI_PID_BASE':str(1)})
             ml_settings.set_tasks(cfg.run_args.mlprocs)
             ml_settings.set_tasks_per_node(cfg.run_args.mlprocs_pn)
             ml_settings.set_hostlist(hosts)

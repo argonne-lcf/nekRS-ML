@@ -22,6 +22,8 @@ export NEKRS_LOCAL_TMP_DIR=/local/scratch
 export MPICH_GPU_SUPPORT_ENABLED=1
 #export MPICH_OFI_NIC_POLICY=NUMA
 export FI_OFI_RXM_RX_SIZE=32768
+export SR_LOG_FILE=smartredis.out
+export SR_LOG_LEVEL=QUIET
 
 # Set the correct .udf file
 cp turbChannel_inference.udf turbChannel.udf
