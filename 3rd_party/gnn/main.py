@@ -128,9 +128,9 @@ class Trainer:
         # ~~~~ Setup local graph 
         self.data_reduced, self.data_full, self.idx_full2reduced, self.idx_reduced2full = self.setup_local_graph()
 
-        # ~~~~ Setup halo nodes 
+        # ~~~~ Setup halo nodes (not used here)  
         self.neighboring_procs = {}
-        self.setup_halo()
+        # self.setup_halo()
 
         # ~~~~ Setup data 
         self.data = self.setup_data()
