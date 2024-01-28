@@ -106,6 +106,8 @@ echo "export NEKRS_LOCAL_TMP_DIR=/local/scratch" >>$SFILE
 echo "export MPICH_GPU_SUPPORT_ENABLED=1" >> $SFILE
 echo "export MPICH_OFI_NIC_POLICY=NUMA" >> $SFILE
 
+echo "export LD_PRELOAD=/opt/cray/pe/gcc/11.2.0/snos/lib64/libstdc++.so.6" >> $SFILE
+echo "export FI_CXI_RX_MATCH_MODE=hybrid" >> $SFILE
 
 # https://github.com/Nek5000/Nek5000/issues/759
 echo "export FI_OFI_RXM_RX_SIZE=32768" >> $SFILE # >=lelt, large mpi-messsage for restart
@@ -124,7 +126,7 @@ chmod 755 $CMD
 
 echo "mpiexec -n $nn -ppn $gpu_per_node -d $cores_per_numa --cpu-bind depth ./$CMD" >>$SFILE
 
-qsub -q $QUEUE $SFILE
+#qsub -q $QUEUE $SFILE
 
 # clean-up
 #rm -rf $SFILE $ROMIO_HINTS .lhelper
