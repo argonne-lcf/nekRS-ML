@@ -454,6 +454,11 @@ class Trainer:
         data_x = np.loadtxt(path_to_x, ndmin=2, dtype=np.float32)
         data_y = np.loadtxt(path_to_y, ndmin=2, dtype=np.float32)
 
+        # Retain only N_gll = Np*Ne elements
+        N_gll = self.data_full.pos.shape[0] 
+        data_x = data_x[:N_gll, :]
+        data_y = data_y[:N_gll, :]
+
         # Get data in reduced format (non-overlapping)
         data_x_reduced = data_x[self.idx_full2reduced, :]
         data_y_reduced = data_y[self.idx_full2reduced, :]
