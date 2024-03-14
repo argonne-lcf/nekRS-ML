@@ -1,0 +1,12 @@
+#!/bin/bash
+
+# Load modules: 
+module load conda/2022-09-08
+module load cudatoolkit-standalone/11.4.4
+conda activate /lus/eagle/projects/datascience/sbarwey/codes/conda_envs/base-clone
+
+# all-to-all 
+# mpiexec -n 4 -ppn 4 -d 8 --cpu-bind depth ./set_affinity_gpu_polaris.sh python3 main.py halo_swap_mode=all_to_all
+
+# none
+# mpiexec -n 4 -ppn 4 -d 8 --cpu-bind depth ./set_affinity_gpu_polaris.sh python3 main.py halo_swap_mode=none 

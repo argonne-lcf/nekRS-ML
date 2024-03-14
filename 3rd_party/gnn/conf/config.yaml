@@ -1,33 +1,16 @@
 # @package _global_
-profile: False
 verbose: True
 seed: 12
-epochs: 20
-backend: gloo
+backend: nccl
 lr_init: 0.00001
-# momentum: 0.5
-use_noise : True
-num_threads: 0
-logfreq: 1
-ckptfreq: 5
-batch_size: 1
-test_batch_size: 1
-fp16_allreduce: False
-restart: False
 
 # arch properties 
 hidden_channels: 32 
 n_mlp_hidden_layers: 2 
 n_messagePassing_layers: 4
 
-# Number of training rollout steps
-rollout_steps: 1
-
 # Halo swap mode 
 halo_swap_mode : none
-
-# plotting the connecivity (can take some time)
-plot_connectivity : False
 
 hydra:
   job:
@@ -51,5 +34,4 @@ model_dir: ${work_dir}/saved_models/
 
 
 # specify path to gnn_outputs here (case directory)  
-gnn_outputs_path: /Users/sbarwey/Files/solvers/nekRS-GNN-devel/examples/tgv/gnn_outputs_poly_1/
-
+gnn_outputs_path: /lus/eagle/projects/datascience/sbarwey/codes/nek/nekrs_cases/examples_v23_gnn/tgv/gnn_outputs_poly_1/

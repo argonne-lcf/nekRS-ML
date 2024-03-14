@@ -160,13 +160,13 @@ class Trainer:
         if WITH_DDP and SIZE > 1:
             self.model = DDP(self.model)
         
+        # ~~~~ Set loss function
+        self.loss_fn = nn.MSELoss()
+
         # ~~~~ Set optimizer
         self.optimizer = self.build_optimizer(self.model)
 
     def build_model(self) -> nn.Module:
-        if RANK == 0:
-            log.info('In build_model...')
-        
         sample = self.data['train']['example']
 
         # Get the polynomial order -- for naming the model
@@ -506,23 +506,13 @@ class Trainer:
         n_train = len(data_train_list) # should be 1
 
         train_dataset = data_train_list
-        test_dataset = data_train_list # no test dataset right now
-
-        # No need for distributed sampler -- create standard dataset loader
-        train_loader = torch_geometric.loader.DataLoader(train_dataset, batch_size=self.cfg.batch_size, shuffle=False)
-        test_loader = torch_geometric.loader.DataLoader(test_dataset, batch_size=self.cfg.test_batch_size, shuffle=False)
 
         if (RANK == 0):
             print(data_train_list[0])
 
         return {
             'train': {
-                'loader': train_loader,
                 'example': train_dataset[0],
-            },
-            'test': {
-                'loader': test_loader,
-                'example': test_dataset[0],
             }
         }
 
