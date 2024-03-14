@@ -13,8 +13,8 @@ def get_reduced_graph(data_full: Data) -> Tuple[Data, Tensor]:
     and edges in the input graph such that the output graph has no coincident local nodes. 
     """
     # X: [First isolate local nodes]
-    idx_local_unique = torch.nonzero(data_full.local_unique_mask).squeeze()
-    idx_halo_unique = torch.nonzero(data_full.halo_unique_mask).squeeze()
+    idx_local_unique = torch.nonzero(data_full.local_unique_mask).squeeze(-1)
+    idx_halo_unique = torch.nonzero(data_full.halo_unique_mask).squeeze(-1)
     idx_keep = torch.cat((idx_local_unique, idx_halo_unique))
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
