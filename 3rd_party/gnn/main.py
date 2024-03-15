@@ -165,6 +165,7 @@ class Trainer:
 
         # ~~~~ Set optimizer
         self.optimizer = self.build_optimizer(self.model)
+        
 
     def build_model(self) -> nn.Module:
         sample = self.data['train']['example']
@@ -324,7 +325,7 @@ class Trainer:
             dist.all_reduce(n_max, op=dist.ReduceOp.MAX)
             n_max = int(n_max)
 
-            # fill the buffers 
+            # fill the buffers -- make all buffer sizes the same (required for all_to_all) 
             for i in range(SIZE): 
                 buff_send[i] = torch.empty([n_max, n_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE_ID) 
                 buff_recv[i] = torch.empty([n_max, n_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE_ID)
@@ -516,13 +517,107 @@ class Trainer:
             }
         }
 
-
 def gnn_test(cfg: DictConfig) -> None:
     t_start = time.time()
     trainer = Trainer(cfg)
     trainer.train_step()
     t_end = time.time()
     return
+
+def halo_test(cfg: DictConfig) -> None:
+    t_start = time.time()
+    trainer = Trainer(cfg)
+    log.info(f"[RANK {RANK}] -- neighboring procs: {trainer.neighboring_procs}")
+    t_end = time.time()
+
+    data = trainer.data['train']['example']
+    n_nodes_local = data.n_nodes_local
+    n_nodes_halo = data.n_nodes_halo
+    input_tensor = data.x
+
+    # get the buffers 
+    mask_send, mask_recv = trainer.mask_send, trainer.mask_recv 
+    buff_send, buff_recv, n_buffer_rows = trainer.build_buffers(input_tensor.shape[1])
+
+    # re-initialize the buffers (this goes before forward pass, doing it here for completeness)
+    for i in range(SIZE):
+        buff_send[i] = torch.zeros_like(buff_send[i])
+    for i in range(SIZE):
+        buff_recv[i] = torch.zeros_like(buff_recv[i])
+
+    # step 1: populate the send buffers 
+    for i in trainer.neighboring_procs:
+        n_send = len(mask_send[i])
+        buff_send[i][:n_send,:] = input_tensor[mask_send[i]]
+        if RANK == 0: log.info(f"buff_send shape for nei {i}: {buff_send[i].shape}")
+
+    # step 2: swap  
+    #mode = "all_to_all"
+    mode = "send_recv_async"
+    #mode = "send_recv_sync"
+
+    if mode == "all_to_all":
+        distnn.all_to_all(buff_recv, buff_send)
+        dist.barrier()
+    elif mode == "send_recv_async":
+        send_req = []
+        for dst in trainer.neighboring_procs:
+            tmp = dist.isend(buff_send[dst], dst)
+            send_req.append(tmp)
+        recv_req = []
+        for src in trainer.neighboring_procs:
+            tmp = dist.irecv(buff_recv[src], src)
+            recv_req.append(tmp)
+
+        for req in send_req:
+            req.wait()
+        for req in recv_req:
+            req.wait()
+        dist.barrier()
+    elif mode == "send_recv_sync":
+
+        # # SB: this hangs 
+        # log.info(f"[RANK {RANK}] send")
+        # for dst in trainer.neighboring_procs:
+        #     log.info(f"[RANK {RANK}] \t dst={dst}")
+        #     dist.send(buff_send[dst], dst)
+        # log.info(f"[RANK {RANK}] recv")
+        # for src in trainer.neighboring_procs:
+        #     log.info(f"[RANK {RANK}] \t src={src}")
+        #     dist.recv(buff_recv[src], src)
+
+        # SB: doing it manually like this does not hang 
+        # 0 to 1 
+        if RANK == 0:
+            # send to rank 1 
+            dst = 1
+            dist.send(buff_send[dst], dst) 
+        if RANK == 1:
+            # recv from rank 0 
+            src = 0 
+            dist.recv(buff_recv[src], src)
+        
+        # 1 to 0 
+        if RANK == 1:
+            # send to rank 0 
+            dst = 0
+            dist.send(buff_send[dst], dst)
+        if RANK == 0:
+            # recv from rank 1 
+            src = 1
+            dist.recv(buff_recv[src], src)
+
+    else:
+        pass
+
+    # step 3: copy receive buffers back in to data  
+    if RANK == 0: log.info(f"halo nodes before: {input_tensor[n_nodes_local:]}")
+    for i in trainer.neighboring_procs:
+        n_recv = len(mask_recv[i])
+        input_tensor[mask_recv[i]] = buff_recv[i][:n_recv,:]
+    if RANK == 0: log.info(f"halo nodes after: {input_tensor[n_nodes_local:]}")
+    return
+
 
 @hydra.main(version_base=None, config_path='./conf', config_name='config')
 def main(cfg: DictConfig) -> None:
@@ -532,7 +627,8 @@ def main(cfg: DictConfig) -> None:
         print(OmegaConf.to_yaml(cfg)) 
         print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
 
-    gnn_test(cfg)
+    #gnn_test(cfg)
+    halo_test(cfg)
     
     cleanup()
 
