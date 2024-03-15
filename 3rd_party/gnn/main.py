@@ -59,8 +59,8 @@ try:
 
     WITH_CUDA = torch.cuda.is_available()
 
-    # # Override gpu utilization
-    # WITH_CUDA = False
+    # Override gpu utilization
+    WITH_CUDA = False
 
     DEVICE = 'gpu' if WITH_CUDA else 'cpu'
     if DEVICE == 'gpu':
@@ -226,7 +226,7 @@ class Trainer:
         self.optimizer.zero_grad()
 
         # re-allocate buffers
-        if self.cfg.halo_swap_mode == 'all_to_all':
+        if self.cfg.halo_swap_mode != 'none':
             for i in range(SIZE):
                 self.buffer_send[i] = torch.zeros_like(self.buffer_send[i])
             for i in range(SIZE):
@@ -326,13 +326,14 @@ class Trainer:
             n_max = int(n_max)
 
             # fill the buffers -- make all buffer sizes the same (required for all_to_all) 
-            for i in range(SIZE): 
-                buff_send[i] = torch.empty([n_max, n_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE_ID) 
-                buff_recv[i] = torch.empty([n_max, n_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE_ID)
-
-            #for i in self.neighboring_procs:
-            #    buff_send[i] = torch.empty([len(self.mask_send[i]), n_features], dtype=torch.float32, device=DEVICE_ID) 
-            #    buff_recv[i] = torch.empty([len(self.mask_recv[i]), n_features], dtype=torch.float32, device=DEVICE_ID)
+            if self.cfg.halo_swap_mode == "all_to_all":
+                for i in range(SIZE): 
+                    buff_send[i] = torch.empty([n_max, n_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE_ID) 
+                    buff_recv[i] = torch.empty([n_max, n_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE_ID)
+            elif self.cfg.halo_swap_mode == "send_recv":
+                for i in self.neighboring_procs:
+                    buff_send[i] = torch.empty([int(n_nodes_to_exchange[i]), n_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE_ID) 
+                    buff_recv[i] = torch.empty([int(n_nodes_to_exchange[i]), n_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE_ID)
 
         return buff_send, buff_recv, n_max 
 
@@ -527,13 +528,17 @@ def gnn_test(cfg: DictConfig) -> None:
 def halo_test(cfg: DictConfig) -> None:
     t_start = time.time()
     trainer = Trainer(cfg)
-    log.info(f"[RANK {RANK}] -- neighboring procs: {trainer.neighboring_procs}")
+    log.info(f"[RANK {RANK}] -- num neighboring procs: {len(trainer.neighboring_procs)}")
     t_end = time.time()
 
+    mode = trainer.cfg.halo_swap_mode 
     data = trainer.data['train']['example']
     n_nodes_local = data.n_nodes_local
     n_nodes_halo = data.n_nodes_halo
     input_tensor = data.x
+
+    if WITH_CUDA:
+        input_tensor = input_tensor.cuda()
 
     # get the buffers 
     mask_send, mask_recv = trainer.mask_send, trainer.mask_recv 
@@ -552,14 +557,10 @@ def halo_test(cfg: DictConfig) -> None:
         if RANK == 0: log.info(f"buff_send shape for nei {i}: {buff_send[i].shape}")
 
     # step 2: swap  
-    #mode = "all_to_all"
-    mode = "send_recv_async"
-    #mode = "send_recv_sync"
-
-    if mode == "all_to_all":
+    if mode == "all_to_all": 
         distnn.all_to_all(buff_recv, buff_send)
         dist.barrier()
-    elif mode == "send_recv_async":
+    elif mode == "send_recv": # asynchronous 
         send_req = []
         for dst in trainer.neighboring_procs:
             tmp = dist.isend(buff_send[dst], dst)
@@ -574,7 +575,7 @@ def halo_test(cfg: DictConfig) -> None:
         for req in recv_req:
             req.wait()
         dist.barrier()
-    elif mode == "send_recv_sync":
+    elif mode == "sendrecv_sync":
 
         # # SB: this hangs 
         # log.info(f"[RANK {RANK}] send")
