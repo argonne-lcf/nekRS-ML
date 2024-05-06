@@ -39,9 +39,6 @@ import models.gnn as gnn
 # Graph connectivity
 import graph_connectivity as gcon
 
-# Clean printing
-from prettytable import PrettyTable 
-
 log = logging.getLogger(__name__)
 
 TORCH_FLOAT_DTYPE = torch.float32
@@ -59,7 +56,7 @@ try:
 
     WITH_CUDA = torch.cuda.is_available()
 
-    # Override gpu utilization
+    # Override gpu utilization -- uncomment if cpu-only run is desired
     WITH_CUDA = False
 
     DEVICE = 'gpu' if WITH_CUDA else 'cpu'
@@ -309,8 +306,8 @@ class Trainer:
         return mask_send, mask_recv 
 
     def build_buffers(self, n_features):
-        buff_send = [torch.tensor([])] * SIZE
-        buff_recv = [torch.tensor([])] * SIZE
+        buff_send = [torch.tensor([], device=DEVICE_ID)] * SIZE
+        buff_recv = [torch.tensor([], device=DEVICE_ID)] * SIZE
         n_max = 0
         
         if SIZE > 1: 
@@ -500,8 +497,8 @@ class Trainer:
         # Populate edge_attrs
         cart = torch_geometric.transforms.Cartesian(norm=False, max_value = None, cat = False)
         dist = torch_geometric.transforms.Distance(norm = False, max_value = None, cat = True)
-        cart(data_temp) # adds cartesian/component-wise distance
-        dist(data_temp) # adds euclidean distance
+        data_temp = cart(data_temp) # adds cartesian/component-wise distance
+        data_temp = dist(data_temp) # adds euclidean distance
 
         data_temp = data_temp.to(device_for_loading)
         data_train_list.append(data_temp)
@@ -528,7 +525,6 @@ def gnn_test(cfg: DictConfig) -> None:
 def halo_test(cfg: DictConfig) -> None:
     t_start = time.time()
     trainer = Trainer(cfg)
-    log.info(f"[RANK {RANK}] -- num neighboring procs: {len(trainer.neighboring_procs)}")
     t_end = time.time()
 
     mode = trainer.cfg.halo_swap_mode 
@@ -550,17 +546,21 @@ def halo_test(cfg: DictConfig) -> None:
     for i in range(SIZE):
         buff_recv[i] = torch.zeros_like(buff_recv[i])
 
+    t_swap = time.time()
+
     # step 1: populate the send buffers 
     for i in trainer.neighboring_procs:
         n_send = len(mask_send[i])
         buff_send[i][:n_send,:] = input_tensor[mask_send[i]]
-        if RANK == 0: log.info(f"buff_send shape for nei {i}: {buff_send[i].shape}")
 
     # step 2: swap  
     if mode == "all_to_all": 
+        log.info(f"[RANK {RANK}] -- starting all_to_all")
         distnn.all_to_all(buff_recv, buff_send)
         dist.barrier()
-    elif mode == "send_recv": # asynchronous 
+        log.info(f"[RANK {RANK}] -- finished all_to_all")
+    elif mode == "send_recv":
+        log.info(f"[RANK {RANK}] -- starting send_recv")
         send_req = []
         for dst in trainer.neighboring_procs:
             tmp = dist.isend(buff_send[dst], dst)
@@ -575,48 +575,21 @@ def halo_test(cfg: DictConfig) -> None:
         for req in recv_req:
             req.wait()
         dist.barrier()
-    elif mode == "sendrecv_sync":
-
-        # # SB: this hangs 
-        # log.info(f"[RANK {RANK}] send")
-        # for dst in trainer.neighboring_procs:
-        #     log.info(f"[RANK {RANK}] \t dst={dst}")
-        #     dist.send(buff_send[dst], dst)
-        # log.info(f"[RANK {RANK}] recv")
-        # for src in trainer.neighboring_procs:
-        #     log.info(f"[RANK {RANK}] \t src={src}")
-        #     dist.recv(buff_recv[src], src)
-
-        # SB: doing it manually like this does not hang 
-        # 0 to 1 
-        if RANK == 0:
-            # send to rank 1 
-            dst = 1
-            dist.send(buff_send[dst], dst) 
-        if RANK == 1:
-            # recv from rank 0 
-            src = 0 
-            dist.recv(buff_recv[src], src)
-        
-        # 1 to 0 
-        if RANK == 1:
-            # send to rank 0 
-            dst = 0
-            dist.send(buff_send[dst], dst)
-        if RANK == 0:
-            # recv from rank 1 
-            src = 1
-            dist.recv(buff_recv[src], src)
-
+        log.info(f"[RANK {RANK}] -- finished send_recv")
     else:
         pass
 
     # step 3: copy receive buffers back in to data  
-    if RANK == 0: log.info(f"halo nodes before: {input_tensor[n_nodes_local:]}")
+    #if RANK == 0: log.info(f"halo nodes before: {input_tensor[n_nodes_local:]}")
     for i in trainer.neighboring_procs:
         n_recv = len(mask_recv[i])
         input_tensor[mask_recv[i]] = buff_recv[i][:n_recv,:]
-    if RANK == 0: log.info(f"halo nodes after: {input_tensor[n_nodes_local:]}")
+    #if RANK == 0: log.info(f"halo nodes after: {input_tensor[n_nodes_local:]}")
+
+    t_swap = time.time() - t_swap
+
+    log.info(f"[RANK {RANK}] -- took {t_swap} sec")
+
     return
 
 

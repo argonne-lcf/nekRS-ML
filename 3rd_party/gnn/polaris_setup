@@ -1,12 +1,27 @@
 #!/bin/bash
+module restore
 
-# Load modules: 
-module load conda/2022-09-08
-module load cudatoolkit-standalone/11.4.4
-conda activate /lus/eagle/projects/datascience/sbarwey/codes/conda_envs/base-clone
+# # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# # Load modules -- pre-update : 
+# module load conda/2022-09-08
+# module load cudatoolkit-standalone/11.4.4
+# conda activate /lus/eagle/projects/datascience/sbarwey/codes/conda_envs/base-clone
+# # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# all-to-all 
-# mpiexec -n 4 -ppn 4 -d 8 --cpu-bind depth ./set_affinity_gpu_polaris.sh python3 main.py halo_swap_mode=all_to_all
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Load modules -- post-update : 
+module use /soft/modulefiles
+module load conda/2024-04-29
 
-# none
-# mpiexec -n 4 -ppn 4 -d 8 --cpu-bind depth ./set_affinity_gpu_polaris.sh python3 main.py halo_swap_mode=none 
+# # base -- cuda 12.4 
+# conda activate base 
+# export MPICH_GPU_SUPPORT_ENABLED=0
+
+# # custom -- cuda 11.8
+# module load cudatoolkit-standalone/11.8.0
+# conda activate /lus/eagle/projects/datascience/sbarwey/codes/conda_envs/base-clone-2024-04-29
+
+# custom -- cuda 12.1
+module load cudatoolkit-standalone/12.2.2
+conda activate /lus/eagle/projects/datascience/sbarwey/codes/conda_envs/base-clone-2024-04-29-v2
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
