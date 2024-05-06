@@ -56,8 +56,8 @@ try:
 
     WITH_CUDA = torch.cuda.is_available()
 
-    # Override gpu utilization -- uncomment if cpu-only run is desired
-    WITH_CUDA = False
+    # # Override gpu utilization -- uncomment if cpu-only run is desired
+    # WITH_CUDA = False
 
     DEVICE = 'gpu' if WITH_CUDA else 'cpu'
     if DEVICE == 'gpu':
