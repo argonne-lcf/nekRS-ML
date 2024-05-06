@@ -569,7 +569,6 @@ def halo_test(cfg: DictConfig) -> None:
         for src in trainer.neighboring_procs:
             tmp = dist.irecv(buff_recv[src], src)
             recv_req.append(tmp)
-
         for req in send_req:
             req.wait()
         for req in recv_req:
