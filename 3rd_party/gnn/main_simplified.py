@@ -197,6 +197,7 @@ def halo_test(cfg: DictConfig) -> None:
 
 @hydra.main(version_base=None, config_path='./conf', config_name='config')
 def main(cfg: DictConfig) -> None:
+    print(f"[RANK {RANK}] Cuda support:", torch.cuda.is_available(),":", torch.cuda.device_count(), "devices")
     if RANK == 0:
         log.info(f"halo_swap_mode: {cfg.halo_swap_mode} \t backend: {cfg.backend}")
     halo_test(cfg)
