@@ -21,7 +21,7 @@ Note that the functions defined in the new plugin are called from `UDF_Setup()` 
 
 **nekRS** is a fast and scaleable computational fluid dynamics (CFD) solver targeting HPC applications. The code started as an early fork of [libParanumal](https://github.com/paranumal/libparanumal) in 2019.
 
-Capabilities:
+Capabilities of **nekRS**:
 
 * Incompressible and low Mach-number Navier-Stokes + scalar transport 
 * High-order curvilinear conformal spectral elements in space 
@@ -37,7 +37,15 @@ Capabilities:
 * Legacy interface to [Nek5000](https://github.com/Nek5000/Nek5000) 
 
 
-## Polaris Build and Run Instructions
+## ALCF Polaris Build and Run Instructions
+
+### SmartSim and SmartRedis
+
+To install SmartSim and SmartRedis on Polaris, follow the instructions on the [ALCF documentation page.](https://docs.alcf.anl.gov/polaris/workflows/smartsim/) 
+SmartSim is needed to run the Python workflow driver, while the SmartRedis headers and library are needed by NekRS-ML to use the smartredis plugin.
+
+
+### NekRS-ML
 
 Clone the repository and switch to the current `smartredis` branch
 ```sh
