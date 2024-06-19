@@ -54,18 +54,19 @@ cd nekRS-ML
 git checkout smartredis
 ```
 
-From an interactive session on a single node, set the build environment 
+From an interactive session on a compute node, set the build environment (this follows from the [ALCF documentation](https://docs.alcf.anl.gov/polaris/workflows/smartsim/) for building SmartSim and SmartRedis).
 ```sh
-module load conda/2022-09-08
-conda activate /eagle/projects/fallwkshp23/SmartSim/ssim
-module load cudatoolkit-standalone
-module load cmake
-export CRAY_ACCEL_TARGET=nvidia80
+module use /soft/modulefiles
+module load conda/2024-04-29
+conda activate base
+source /path/to/venv/_ssim_env/_bin/activate
+export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
+export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
 ```
 
 and build the code
 ```sh
-CC=cc CXX=CC FC=ftn ./nrsconfig -DCMAKE_INSTALL_PREFIX=</path/to/install/dir> -DENABLE_SMARTREDIS=1 -DSMARTREDIS_PATH=/eagle/projects/fallwkshp23/SmartSim/SmartRedis
+CC=cc CXX=CC FC=ftn ./nrsconfig -DCMAKE_INSTALL_PREFIX=</path/to/install/dir> -DENABLE_SMARTREDIS=1 -DSMARTREDIS_PATH=/path/to/venv/SmartRedis
 ```
 where `</path/to/install/dir>` can be a user's home directory or a project space. 
 Note that this version of NekRS requires the additional arguments `-DENABLE_SMARTREDIS=1 -DSMARTREDIS_PATH=</path/to/SmartRedis>` to the config script.
@@ -74,7 +75,7 @@ Set up the run environment
 ```sh
 export NEKRS_HOME=</path/to/install/dir>
 export PATH=$NEKRS_HOME/bin:$PATH
-export LD_LIBRARY_PATH=/eagle/projects/fallwkshp23/SmartSim/SmartRedis/install/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/path/to/venv/SmartRedis/install/lib:$LD_LIBRARY_PATH
 cd examples/turbChannel_smartredis
 ```
 
