@@ -39,16 +39,17 @@ def launch_coDB(cfg, nodelist, nNodes):
                            run_command='mpirun',
                            run_args={"-n" : cfg.run_args.simprocs},
                            env_vars=None)
-    elif (cfg.database.launcher=='pbs'):
+    elif (cfg.database.launcher=='pals'):
         nrs_settings = PalsMpiexecSettings(
                            client_exe,
-                           exe_args=cfg.sim.arguments,
+                           exe_args=None,
                            run_args=None,
-                           env_vars=None)
+                           env_vars={'MPICH_OFI_CXI_PID_BASE':str(0)})
         nrs_settings.set_tasks(cfg.run_args.simprocs)
         nrs_settings.set_tasks_per_node(cfg.run_args.simprocs_pn)
         nrs_settings.set_hostlist(hosts)
         nrs_settings.set_cpu_binding_type(cfg.run_args.sim_cpu_bind)
+        nrs_settings.add_exe_args(cfg.sim.arguments)
         if (cfg.sim.affinity):
             nrs_settings.set_gpu_affinity_script(cfg.sim.affinity,
                                                  cfg.run_args.simprocs_pn)
@@ -62,22 +63,21 @@ def launch_coDB(cfg, nodelist, nNodes):
         'intra_op_parallelism': 1,
         'cluster-node-timeout': 30000,
         }
-    if (cfg.database.backend == "keydb"):
-        kwargs['server_threads'] = 2 # keydb only
+    db_bind = None if cfg.run_args.db_cpu_bind=='None' else cfg.run_args.db_cpu_bind
     if (cfg.database.network_interface=='uds'):
         colo_model.colocate_db_uds(
                 db_cpus=cfg.run_args.dbprocs_pn,
+                custom_pinning=db_bind,
                 debug=False,
-                limit_app_cpus=True,
                 **kwargs
                 )
     else:
-        colo_model.colocate_db(
+        colo_model.colocate_db_tcp(
                 port=PORT,
-                db_cpus=cfg.run_args.dbprocs_pn,
-                debug=False,
-                limit_app_cpus=True,
                 ifname=cfg.database.network_interface,
+                db_cpus=cfg.run_args.dbprocs_pn,
+                custom_pinning=db_bind,
+                debug=False,
                 **kwargs
                 )
     
@@ -96,6 +96,9 @@ def launch_coDB(cfg, nodelist, nNodes):
     # Start the co-located model
     block = False if cfg.train.executable else True
     print("Launching NekRS and SmartSim co-located DB ... ")
+    if len(cfg.sim.copy_files)>0 or len(cfg.sim.link_files)>0:
+        colo_model.attach_generator_files(to_copy=list(cfg.sim.copy_files), to_symlink=list(cfg.sim.link_files))
+    exp.generate(colo_model, overwrite=True)
     exp.start(colo_model, block=block, summary=False)
     print("Done\n")
 
@@ -106,19 +109,20 @@ def launch_coDB(cfg, nodelist, nNodes):
                         + f' --device={cfg.train.device}' \
                         + f' --ppn={cfg.run_args.mlprocs_pn}' \
                         + f' --logging={cfg.train.logging}'
+        SSDB = colo_model.run_settings.env_vars['SSDB']
         if (cfg.database.launcher=='local'):
             ml_settings = RunSettings(
                            'python',
                            exe_args=ml_exe,
                            run_command='mpirun',
                            run_args={"-n" : cfg.run_args.mlprocs},
-                           env_vars=colo_model.run_settings.env_vars)
-        elif (cfg.database.launcher=='pbs'):
+                           env_vars={'SSDB' : SSDB})
+        elif (cfg.database.launcher=='pals'):
             ml_settings = PalsMpiexecSettings(
                            'python',
                            exe_args=ml_exe,
                            run_args=None,
-                           env_vars=colo_model.run_settings.env_vars)
+                           env_vars={'SSDB':SSDB, 'MPICH_OFI_CXI_PID_BASE':str(1)})
             ml_settings.set_tasks(cfg.run_args.mlprocs)
             ml_settings.set_tasks_per_node(cfg.run_args.mlprocs_pn)
             ml_settings.set_hostlist(hosts)
@@ -128,8 +132,11 @@ def launch_coDB(cfg, nodelist, nNodes):
                                                     cfg.run_args.mlprocs_pn,
                                                     cfg.run_args.simprocs_pn)
         
-        ml_model = exp.create_model("train_model", ml_settings)
         print("Launching training script ... ")
+        ml_model = exp.create_model("train", ml_settings)
+        if len(cfg.train.copy_files)>0 or len(cfg.train.link_files)>0:
+            ml_model.attach_generator_files(to_copy=list(cfg.train.copy_files), to_symlink=list(cfg.train.link_files))
+        exp.generate(ml_model, overwrite=True)
         exp.start(ml_model, block=True, summary=False)
         print("Done\n")
 
@@ -249,7 +256,7 @@ def launch_clDB(cfg, nodelist, nNodes):
 def main(cfg: DictConfig):
     # Get nodes of this allocation (job)
     nodelist = nNodes = None
-    if (cfg.database.launcher=='pbs'):
+    if (cfg.database.launcher=='pals'):
         hostfile = os.getenv('PBS_NODEFILE')
         nodelist, nNodes = parseNodeList(hostfile)
 

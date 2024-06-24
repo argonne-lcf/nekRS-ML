@@ -6,19 +6,20 @@ import logging
 import numpy as np
 from time import sleep, perf_counter
 from os.path import exists
+import socket
+import datetime
+
+# MPI
+from mpi4py import MPI
 
 # ML imports
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
-from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
-
-# Distributed training imports
-from mpi4py import MPI
-import horovod.torch as hvd
-from horovod.torch.mpi_ops import Sum
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 # SmartRedis imports
 from smartredis import Client
@@ -120,20 +121,20 @@ class MinibDataset(torch.utils.data.Dataset):
 
 
 ## Training subroutine
-def train(model, train_sampler, train_tensor_loader, optimizer, epoch, 
+def train(comm, model, train_sampler, train_tensor_loader, optimizer, epoch, 
           batch, ndIn, client, args, logger_data):
+    rank = comm.Get_rank()
+    size = comm.Get_size()
+
     model.train()
     running_loss = 0.0
-    # Horovod: set epoch to sampler for shuffling.
     train_sampler.set_epoch(epoch)
 
     loss_fn = nn.functional.mse_loss
 
     for tensor_idx, tensor_keys in enumerate(train_tensor_loader):
         # grab data from database
-        print(f'[{hvd.rank()}]: Grabbing tensors with key {tensor_keys}')
-        hvd.allreduce(torch.tensor(0), name='barrier')
-        sys.stdout.flush()
+        print(f'[{rank}]: Grabbing tensors with key {tensor_keys}', flush=True)
         tic = perf_counter()
         concat_tensor = torch.cat([torch.from_numpy(client.get_tensor(key)) \
                       for key in tensor_keys], dim=0)
@@ -145,6 +146,9 @@ def train(model, train_sampler, train_tensor_loader, optimizer, epoch,
         mbdata = MinibDataset(concat_tensor)
         train_loader = DataLoader(mbdata, shuffle=True, batch_size=batch)
         for batch_idx, dbdata in enumerate(train_loader):
+            # with this a small model, slow down training a little for purpses of example problem
+            sleep(0.01)
+
             # split inputs and outputs
             if (args.device != 'cpu'):
                dbdata = dbdata.to(args.device)
@@ -162,23 +166,22 @@ def train(model, train_sampler, train_tensor_loader, optimizer, epoch,
                 print(f'Train Epoch: {epoch} | ' + \
                       f'[{tensor_idx+1}/{len(train_tensor_loader)}] | ' + \
                       f'[{batch_idx+1}/{len(train_loader)}] | ' + \
-                      f'Loss: {loss.item():>8e}')
-                sys.stdout.flush()
+                      f'Loss: {loss.item():>8e}', flush=True)
 
     running_loss = running_loss / len(train_loader) / len(train_tensor_loader)
-    loss_avg = metric_average(running_loss, 'running_loss')
+    loss_avg = metric_average(comm, size, running_loss)
 
-    if hvd.rank() == 0:
-        print(f"Training set: Average loss: {loss_avg:>8e}")
+    if rank == 0:
+        print(f"Training set: Average loss: {loss_avg:>8e}", flush=True)
 
     return model, loss_avg
 
 
 ## Average across hvd ranks
-def metric_average(val, name):
-    tensor = torch.tensor(val)
-    avg_tensor = hvd.allreduce(tensor, name=name)
-    return avg_tensor.item()
+def metric_average(comm, size, val):
+    avg_val = comm.allreduce(val, op=MPI.SUM)
+    avg_val = avg_val / size
+    return avg_val
 
 
 ## Main
@@ -188,18 +191,9 @@ def main():
     size = comm.Get_size()
     rank = comm.Get_rank()
     name = MPI.Get_processor_name()
-    print(f'Rank {rank}/{size} says hello from {name}')
+    rankl = int(os.getenv("PALS_LOCAL_RANKID"))
+    print(f'Rank {rank}/{size}, local rank {rankl} says hello from {name}', flush=True)
     comm.Barrier()
-    sys.stdout.flush()
-
-    # Horovod import and initialization
-    hvd.init()
-    hrank = hvd.rank()
-    hrankl = hvd.local_rank()
-    hsize = hvd.size()
-    print(f'HVD rank {hrank}/{hsize} and local rank {hrankl} says hello')
-    comm.Barrier()
-    sys.stdout.flush()
 
     # Parse arguments
     parser = argparse.ArgumentParser(description='')
@@ -219,13 +213,27 @@ def main():
         logger_init = None
         logger_data = None
 
+    # Initialize Torch Distributed
+    os.environ['RANK'] = str(rank)
+    os.environ['WORLD_SIZE'] = str(size)
+    master_addr = socket.gethostname() if rank == 0 else None
+    master_addr = comm.bcast(master_addr, root=0)
+    os.environ['MASTER_ADDR'] = master_addr
+    os.environ['MASTER_PORT'] = str(2345)
+    if (args.device=='cpu'): backend = 'gloo'
+    elif (args.device=='cuda'): backend = 'nccl'
+    dist.init_process_group(backend,
+                            rank=int(rank),
+                            world_size=int(size),
+                            init_method='env://',
+                            timeout=datetime.timedelta(seconds=120))
+
     # Initialize Redis clients on each rank
-    address = os.environ['SSDB']
+    address = os.getenv('SSDB')
     client = init_client(address, args, logger_init)
     comm.Barrier()
     if (rank == 0):
-        print("All Python clients initialized\n")
-        sys.stdout.flush()
+        print("All Python clients initialized\n", flush=True)
 
     # Pull metadata from database
     while True:
@@ -247,8 +255,7 @@ def main():
         print(f"Number of samples per tensor: {npts}")
         print(f"Number of total tensors in all DB: {num_tot_tensors}")
         print(f"Number of tensors in local DB: {num_db_tensors}")
-        print(f"Number of inputs and outputs to model: {ndIn},{ndOut}")
-    sys.stdout.flush()
+        print(f"Number of inputs and outputs to model: {ndIn},{ndOut}", flush=True)
 
     # NN Training Hyper-Parameters
     Nepochs = 100 # number of epochs
@@ -265,7 +272,7 @@ def main():
     device = torch.device(args.device)
     if (args.device == 'cuda'):
         if torch.cuda.is_available():
-            device_id = hrankl if torch.cuda.device_count()>1 else 0
+            device_id = rankl if torch.cuda.device_count()>1 else 0
             torch.cuda.set_device(device_id)
 
     # Instantiate the NN model and optimizer
@@ -273,11 +280,9 @@ def main():
     if (args.device != 'cpu'):
         model.to(args.device)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate*size)
-    hvd.broadcast_parameters(model.state_dict(), root_rank=0)
-    hvd.broadcast_optimizer_state(optimizer, root_rank=0)
-    optimizer = hvd.DistributedOptimizer(optimizer,
-                                         named_parameters=model.named_parameters(),
-                                         op=Sum)
+    
+    # Wrap model with DDP
+    model = DDP(model) 
 
     # Training setup and variable initialization
     istep = -1 # initialize the simulation step number to -1
@@ -304,34 +309,33 @@ def main():
             batch =  int(num_db_tensors*len(step_list)/args.ppn)
             if (rank == 0):
                 print("\nGetting new training data from DB ...")
-                print(f"Added time step {istep} to training data\n")
+                print(f"Added time step {istep} to training data\n", flush=True)
 
             datasetTrain = RankStepDataset(num_db_tensors,step_list,head_rank)
             train_sampler = DistributedSampler(datasetTrain, num_replicas=args.ppn, 
-                                               rank=hrankl, drop_last=False)
+                                               rank=rankl, drop_last=False)
             train_tensor_loader = DataLoader(datasetTrain, batch_size=batch, 
                                              sampler=train_sampler)
         
         if (rank == 0):
-            print(f"\n Epoch {iepoch}\n-------------------------------")
+            print(f"\n Epoch {iepoch}\n-------------------------------", flush=True)
         
-        model, global_loss = train(model, train_sampler, train_tensor_loader, optimizer,
+        model, global_loss = train(comm, model, train_sampler, train_tensor_loader, optimizer,
                                     iepoch, mini_batch, ndIn, client, args, logger_data)
             
         # check if tolerance on loss is satisfied
         if (global_loss <= tol):
             if (rank == 0):
-                print("Convergence tolerance met. Stopping training loop. \n")
+                print("Convergence tolerance met. Stopping training loop. \n", flush=True)
             break
         
         # check if max number of epochs is reached
         if (iepoch >= Nepochs):
             if (rank == 0):
-                print("Max number of epochs reached. Stopping training loop. \n")
+                print("Max number of epochs reached. Stopping training loop. \n", flush=True)
             break
 
         iepoch = iepoch + 1        
-        sys.stdout.flush()
         
         # new data is not avalable, so train another epoch on current data
         """
@@ -362,6 +366,8 @@ def main():
         logger_meta.info('%.8e',time_meta)    
 
     # Save model to file before exiting
+    model = model.module
+    model.eval()
     if (rank == 0):
         model.double()
         model_name = "model"
@@ -371,16 +377,17 @@ def main():
         features = torch.from_numpy(features).to(args.device)
         module = torch.jit.trace(model, features)
         torch.jit.save(module, f"{model_name}_jit.pt")
-        print("Saved model to disk\n")
-        sys.stdout.flush()
+        print("Saved model to disk\n", flush=True)
 
 
     # Exit and tell data loader to exit too
     comm.Barrier()
     if (rank%args.ppn == 0):
-        print(f"[{hrank}]: Telling NekRS to quit ... \n")
+        print(f"[{rank}]: Telling NekRS to quit ... \n")
         arrMLrun = np.int32(np.zeros(2))
         client.put_tensor("check-run",arrMLrun)
+
+    dist.destroy_process_group()
 
     if (rank==0):
         print("Exiting ...")
