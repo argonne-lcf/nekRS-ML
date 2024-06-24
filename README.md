@@ -39,13 +39,13 @@ Capabilities of **nekRS**:
 
 ## ALCF Polaris Build and Run Instructions
 
-### SmartSim and SmartRedis
+### Installing SmartSim and SmartRedis
 
 To install SmartSim and SmartRedis on Polaris, follow the instructions on the [ALCF documentation page.](https://docs.alcf.anl.gov/polaris/workflows/smartsim/) 
 SmartSim is needed to run the Python workflow driver, while the SmartRedis headers and library are needed by NekRS-ML to use the smartredis plugin.
 
 
-### NekRS-ML
+### Building NekRS-ML
 
 Clone the repository and switch to the current `smartredis` branch
 ```sh
@@ -76,21 +76,29 @@ CC=cc CXX=CC FC=ftn ./nrsconfig -DCMAKE_INSTALL_PREFIX=$NEKRS_HOME -DENABLE_SMAR
 ``` 
 Note that this version of NekRS requires the additional arguments `-DENABLE_SMARTREDIS=1 -DSMARTREDIS_PATH=</path/to/SmartRedis>` to the config script.
 
-Run the online training example
+## Running Example with Colocated Database
+
+Run the online training example with the colocated database deployment with 
 ```sh
-./run_train.sh
+./run_train_colocated.sh
 ```
-Currently, this example runs NekRS in parallel on the first 2 GPU of a Polaris node and the ML distributed training on the other 2 GPU of the node. Note also that this sets up a co-located database on the node, but the  `ssim_driver_polaris.py` script is set for both co-located and clustered workflows. The example produces the log files `nekrs.out`, `nekrs.err`, `train.out`, and `train.err` for NekRS and the ML training, respectively, and saves the trained model to file in normal and jitted formats as `model.pt` and `model_jit.pt`, respectively. Note that the output and error files will be located in the `nekRS-ML` directory, created by SmartSim in the working directory where the script is launched. 
+This script runs NekRS in parallel on the first 2 GPU of a Polaris node, the ML distributed training on the other 2 GPU of the node, and a colocated SmartSim Orchestrator (the database) on the CPU of the same node. 
+The example produces the log files `nekrs.out`, `nekrs.err`, `train.out`, and `train.err` for NekRS and the ML training, respectively, and saves the trained model to file in normal and jitted formats as `model.pt` and `model_jit.pt`, respectively. Note that the output and error files will be located in the `nekRS-ML` directory, created by SmartSim in the working directory where the script is launched. 
 
-Run the online inference example using the online trained model
+The, run the online inference example with
 ```sh
- ./run_inference.sh
+ ./run_inference_colocated.sh
 ```
-Currently, this example runs NekRS in parallel on the first 3 GPU and performs ML inference on the fourth GPU. Similarly to the training example above, this a co-located database is launched by default but both deployment options are available. The example produces the log files `nekrs.out` and `nekrs.err`.
+This example runs NekRS in parallel on the first 3 GPU and performs ML inference on the fourth GPU. Once again, it also launched a colocated SmartSim Orchestrator (the database) on the CPU of the same node. 
+The example produces the log files `nekrs.out` and `nekrs.err`.
 
-Finally, note that the full list of configuration options to set up the training and inference runs can be found in `conf/ssim_config.yaml`.
+Note that the full list of configuration options to set up the training and inference runs can be found in `conf/ssim_config.yaml`.
 
-This example was also a demo for the [2023 ALCF Hands-On HPC Workshop](https://github.com/argonne-lcf/ALCF_Hands_on_HPC_Workshop/tree/master/couplingSimulationML), and more information on coupling simulation and AI/ML and this example can be dound there.
+## Running Example with Clustered Database
+
+Coming soon.
+
+This example was also a demo for the [2023 ALCF Hands-On HPC Workshop](https://github.com/argonne-lcf/ALCF_Hands_on_HPC_Workshop/tree/master/couplingSimulationML), and more information on coupling simulation and AI/ML and this example can be dound there, including further discussion of the colocated and clustered approaches.
 
 ## Documentation 
 For documentation, see our [readthedocs page](https://nekrs.readthedocs.io/en/latest/). For now it's just a dummy. We hope to improve it soon. 
