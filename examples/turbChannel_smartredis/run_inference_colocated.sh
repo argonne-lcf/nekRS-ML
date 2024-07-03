@@ -35,3 +35,5 @@ python ssim_driver_polaris.py \
   inference.model_path=./model_jit.pt inference.device=GPU:3
 
 rm turbChannel.udf
+rm turbChannel.par
+

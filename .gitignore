@@ -32,5 +32,4 @@ examples/turbChannel_smartredis/outputs/
 *.err
 */outputs/
 *.colocated_launcher.sh
-*.pt
 *-db.log

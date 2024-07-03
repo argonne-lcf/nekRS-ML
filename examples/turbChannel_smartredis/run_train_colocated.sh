@@ -36,3 +36,4 @@ python ssim_driver_polaris.py \
   train.device=cuda train.affinity=./affinity_ml.sh
 
 rm turbChannel.udf
+rm turbChannel.par

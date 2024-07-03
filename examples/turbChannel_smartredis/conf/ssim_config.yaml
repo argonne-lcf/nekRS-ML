@@ -33,7 +33,7 @@ sim:
     executable: "" # string - path to simulation executable
     arguments: "" # string - command line arguments to simulation
     affinity: "" # string - GPU affinity script for simulation
-    copy_files: ["./turbChannel.usr","./turbChannel.par","./turbChannel.udf","./turbChannel.re2","./turbChannel.nek5000","./turbChannel.box"] # [string] - files to attach by copy to Model sub-directory
+    copy_files: ["./turbChannel.usr","./turbChannel.par","./turbChannel.udf","./turbChannel.re2","./turbChannel.box"] # [string] - files to attach by copy to Model sub-directory
     link_files: ["./affinity_nrs.sh","restart.fld"] # [string] - files to attach by symlink to Model sub-directory
 
 # Model Inference config
