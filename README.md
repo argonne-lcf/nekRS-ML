@@ -76,16 +76,16 @@ CC=cc CXX=CC FC=ftn ./nrsconfig -DCMAKE_INSTALL_PREFIX=$NEKRS_HOME -DENABLE_SMAR
 ``` 
 Note that this version of NekRS requires the additional arguments `-DENABLE_SMARTREDIS=1 -DSMARTREDIS_PATH=</path/to/SmartRedis>` to the config script.
 
-## Running Example with Colocated Database
+### Running with a Colocated Database
 
-Run the online training example with the colocated database deployment with 
+From an interactive session on a compute node, source the build environment outlined above and run the online training example with the colocated database deployment with 
 ```sh
 ./run_train_colocated.sh
 ```
 This script runs NekRS in parallel on the first 2 GPU of a Polaris node, the ML distributed training on the other 2 GPU of the node, and a colocated SmartSim Orchestrator (the database) on the CPU of the same node. 
 The example produces the log files `nekrs.out`, `nekrs.err`, `train.out`, and `train.err` for NekRS and the ML training, respectively, and saves the trained model to file in normal and jitted formats as `model.pt` and `model_jit.pt`, respectively. Note that the output and error files will be located in the `nekRS-ML` directory, created by SmartSim in the working directory where the script is launched. 
 
-The, run the online inference example with
+Then, run the online inference example with
 ```sh
  ./run_inference_colocated.sh
 ```
@@ -94,11 +94,23 @@ The example produces the log files `nekrs.out` and `nekrs.err`.
 
 Note that the full list of configuration options to set up the training and inference runs can be found in `conf/ssim_config.yaml`.
 
-## Running Example with Clustered Database
+This example was also a demo for the [2023 ALCF Hands-On HPC Workshop](https://github.com/argonne-lcf/ALCF_Hands_on_HPC_Workshop/tree/master/couplingSimulationML), and more information on coupling simulation and AI/ML and this example can be dound there.
 
-Coming soon.
+### Running with a Clustered Database
 
-This example was also a demo for the [2023 ALCF Hands-On HPC Workshop](https://github.com/argonne-lcf/ALCF_Hands_on_HPC_Workshop/tree/master/couplingSimulationML), and more information on coupling simulation and AI/ML and this example can be dound there, including further discussion of the colocated and clustered approaches.
+From an interactive session with **three** compute nodes, source the build environment outlined above and run the online training example with the clustered database deployment with 
+```sh
+./run_train_clustered.sh
+```
+This script runs NekRS in parallel on the first node using all 4 GPU, the SmartSim Orchestrator (the database) on the second node, and the ML distributed training on the third node using all 4 GPU.
+The example produces the log files `nekrs.out`, `nekrs.err`, `train.out`, and `train.err` for NekRS and the ML training, respectively, and saves the trained model to file in normal and jitted formats as `model.pt` and `model_jit.pt`, respectively. Note that the output and error files will be located in the `nekRS-ML` directory, created by SmartSim in the working directory where the script is launched. 
+
+Then, run the online inference example with
+```sh
+ ./run_inference_clustered.sh
+```
+This example runs NekRS in parallel on the first node using all 4 GPU and performs ML inference on the GPU of the second node, where the SmartSim Orchestrator is launched. In this case, only **two** nodes are needed, meaning that if three nodes were requested as described above, the third node is idle during inference. 
+The example produces the log files `nekrs.out` and `nekrs.err`.
 
 ## Documentation 
 For documentation, see our [readthedocs page](https://nekrs.readthedocs.io/en/latest/). For now it's just a dummy. We hope to improve it soon. 
