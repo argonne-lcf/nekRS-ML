@@ -1,0 +1,33 @@
+(SSML) (2024-04-29/base) viralss2@x3006c0s19b0n0:~/nekRS-ML_MSR/examples/MSR_smartsim> python ssim_driver_polaris.py 
+Database running on 1 nodes:
+
+Simulatiom running on 1 nodes:
+x3006c0s19b0n0
+
+Starting database ...
+22:00:15 x3006c0s19b0n0 SmartSim[3435201:MainThread] ERROR Orchestrator failed during startup See /home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/orchestrator for details
+Traceback (most recent call last):
+  File "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/ssim_driver_polaris.py", line 120, in <module>
+    main()
+  File "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/ssim_driver_polaris.py", line 112, in main
+    launch_clDB(args, nodelist, nNodes)
+  File "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/ssim_driver_polaris.py", line 65, in launch_clDB
+    exp.start(db)
+  File "/home/viralss2/SSML/SmartSim/smartsim/log.py", line 353, in _contextual
+    return ctx.run(_ctx_modifier)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/viralss2/SSML/SmartSim/smartsim/log.py", line 348, in _ctx_modifier
+    result = fn(self, *args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/viralss2/SSML/SmartSim/smartsim/experiment.py", line 243, in start
+    self._control.start(
+  File "/home/viralss2/SSML/SmartSim/smartsim/_core/control/controller.py", line 137, in start
+    launched = self._launch(exp_name, exp_path, manifest)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/viralss2/SSML/SmartSim/smartsim/_core/control/controller.py", line 425, in _launch
+    self._launch_orchestrator(orchestrator, manifest_builder)
+  File "/home/viralss2/SSML/SmartSim/smartsim/_core/control/controller.py", line 539, in _launch_orchestrator
+    self._orchestrator_launch_wait(orchestrator)
+  File "/home/viralss2/SSML/SmartSim/smartsim/_core/control/controller.py", line 807, in _orchestrator_launch_wait
+    raise SmartSimError(msg)
+smartsim.error.errors.SmartSimError: Orchestrator failed during startup See /home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/orchestrator for details

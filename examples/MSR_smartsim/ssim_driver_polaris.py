@@ -9,7 +9,8 @@ import numpy as np
 # smartsim and smartredis imports
 from smartsim import Experiment
 from smartsim.settings import RunSettings, PalsMpiexecSettings
-from smartredis import Client
+#from smartredis import Client
+from smartredis import Client, Dataset
 
 ## Define function to parse node list
 def parseNodeList(fname):
@@ -83,7 +84,7 @@ def launch_clDB(args, nodelist, nNodes):
    
     # Gather training data from DB and print
     train_data = client.get_tensor('train_data')
-    intputs = train_data[:,0]
+    inputs = train_data[:,0]
     outputs = train_data[:,1]
     print(f'Model inputs: {inputs}')
     print(f'Model outputs: {outputs}')
