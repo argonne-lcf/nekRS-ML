@@ -1,0 +1,32 @@
+#!/bin/bash
+#PBS -A ConvReac
+#PBS -N nekRS_msr
+#PBS -q debug
+#PBS -l walltime=01:00:00
+#PBS -l filesystems=home:eagle:grand
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -k doe
+#PBS -j eo
+cd $PBS_O_WORKDIR
+module use /soft/modulefiles
+module use /opt/cray/pe/lmod/modulefiles/mix_compilers
+module load libfabric
+module load PrgEnv-gnu
+module load nvhpc-mixed
+module load craype-x86-milan craype-accel-nvidia80
+module load spack-pe-base cmake
+module list
+nvidia-smi
+ulimit -s unlimited 
+export NEKRS_HOME=/home/viralss2/.local/nekrs-23
+export NEKRS_GPU_MPI=1
+export MPICH_MPIIO_HINTS=*:striping_unit=16777216:striping_factor=1:romio_cb_write=enable:romio_ds_write=disable:romio_no_indep_rw=true
+export MPICH_MPIIO_STATS=1
+export NEKRS_CACHE_BCAST=1
+export NEKRS_LOCAL_TMP_DIR=/local/scratch
+export MPICH_GPU_SUPPORT_ENABLED=1
+export MPICH_OFI_NIC_POLICY=NUMA
+export FI_OFI_RXM_RX_SIZE=32768
+mpiexec -n 1 /home/viralss2/.local/nekrs-23/bin/nekrs --setup msr --backend CUDA --device-id 0 --build-only 4
+mpiexec -n 4 -ppn 4 -d 8 --cpu-bind depth ./.lhelper

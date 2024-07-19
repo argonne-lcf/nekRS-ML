@@ -4,6 +4,7 @@ import sys
 #from omegaconf import DictConfig, OmegaConf
 #import hydra
 from argparse import ArgumentParser
+import numpy as np
 
 # smartsim and smartredis imports
 from smartsim import Experiment
@@ -45,10 +46,10 @@ def launch_clDB(args, nodelist, nNodes):
         'maxclients': 100000,
         'threads_per_queue': 4, # set to 4 for improved performance
         'inter_op_parallelism': 1,
-        'intra_op_parallelism': cfg.run_args.cores_pn,
+        'intra_op_parallelism': 4,
         'cluster-node-timeout': 30000,
         }
-    elif (launcher=='pals'): run_command = 'mpiexec'
+    if (launcher=='pals'): run_command = 'mpiexec'
     db = exp.create_database(port=PORT, 
                              batch=False,
                              db_nodes=args.db_nodes,
@@ -103,7 +104,8 @@ def main():
 
     # Get nodes of this allocation (job)
     nodelist = nNodes = None
-    if (cfg.database.launcher=='pals'):
+    launcher = 'pals'
+    if (launcher=='pals'):
         hostfile = os.getenv('PBS_NODEFILE')
         nodelist, nNodes = parseNodeList(hostfile)
 
