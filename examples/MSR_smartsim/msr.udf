@@ -50,7 +50,12 @@ void UDF_LoadKernels(occa::properties& kernelInfo)
 
 void UDF_Setup0(MPI_Comm comm, setupAide &options)
 {
-  u_in = 1.0;  
+  // Initialize SmartRedis client
+  smartredis::init_client_msr();
+  smartredis::read_distributions(u_in);
+
+  printf("Inside UDF_Setup0: Read u_in from the DB with value %f \n", u_in);
+  
 }
 
 void UDF_Setup(nrs_t *nrs)
@@ -74,8 +79,8 @@ void UDF_Setup(nrs_t *nrs)
   platform->options.getArgs("DENSITY", rho); 
   RANSktau::setup(nrs, mueLam, rho, scalarFieldStart);
 
-  // Initialize SmartRedis client
-  smartredis::init_client(nrs);
+  //// Initialize SmartRedis client
+  //smartredis::init_client(nrs);
   // read the DataSet with the velocity distribution information
   // and change the value of the inflow velocity BC read from file
 //  smartredis::read_distributions(nrs);

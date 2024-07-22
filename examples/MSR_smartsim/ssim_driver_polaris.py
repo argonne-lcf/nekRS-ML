@@ -71,7 +71,7 @@ def launch_clDB(args, nodelist, nNodes):
     client = Client(address=db.get_address()[0], cluster=cluster)
 
     # Set the distributions of the input variables
-    vel_dist_type = 'uniform'
+    vel_dist_type = 'uni'
     vel_dist_params = np.array([1.0, 1.3])
     vel_dist_dataset = Dataset('velocity_distribution')
     vel_dist_dataset.add_tensor('vel_params', vel_dist_params)

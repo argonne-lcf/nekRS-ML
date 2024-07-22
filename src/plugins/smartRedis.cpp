@@ -9,7 +9,67 @@
 
 smartredis_data *sr = new smartredis_data;
 wallModel_data *wm = new wallModel_data;
+MSR_data *msr = new MSR_data;
 SmartRedis::Client *client_ptr;
+
+// MSR: Initialize the SmartRedis client
+void smartredis::init_client_msr()
+{
+  // Initialize local variables
+  int rank = platform->comm.mpiRank;
+  int size = platform->comm.mpiCommSize;
+
+  // Replace this with variable in .par file
+  sr->head_rank = 0;
+  sr->db_nodes = 1;
+
+  // Initialize SR client
+  if (rank == 0)
+    printf("\nInitializing client ...\n");
+  bool cluster_mode;
+  if (sr->db_nodes > 1)
+    cluster_mode = true;
+  else
+    cluster_mode = false;
+  std::string logger_name("Client");
+  client_ptr = new SmartRedis::Client(cluster_mode, logger_name); // allocates on heap
+  MPI_Barrier(platform->comm.mpiComm);
+  if (rank == 0)
+    printf("Done\n");
+}
+
+// MSR: read the input distributions from the database
+void smartredis::read_distributions(dfloat &u_in)
+{
+  std::string vel_dist_type;
+  int *vel_dist_params = new dfloat[2]();  
+  
+  // Read the DataSet for the velocity distribution
+  SmartRedis::DataSet vel_dataset = client_ptr->get_dataset("velocity_distribution");
+  vel_dataset.unpack_tensor("vel_params",
+                            vel_dist_params,
+                            {2},
+                            SRTensorTypeDouble,
+                            SRMemLayoutContiguous);
+  vel_dataset.get_meta_strings("vel_dist_type", vel_dist_type, 1, 3);
+  if vel_dist_type=="uni":
+      u_in = std::uniform_real_distribution(vel_dist_params[0],vel_dist_params[1]);
+  printf("Inside smartredis::read_distributions: Read u_in from the DB with value %f \n", u_in); 
+  msr->u_in = u_in;
+}
+
+// MSR: send training data
+void smartredis::send_train_data_msr(Tmax)
+{
+  dfloat *train_data = new dfloat[2]();
+  // train_data[0] = msr->u_in;
+  // train_data[1] = Tmax
+  
+  client_ptr->put_tensor("train_data", train_data, {2},
+                   SRTensorTypeDouble, SRMemLayoutContiguous);
+  
+}
+
 
 // Initialize the SmartRedis client and the smartredis struct
 void smartredis::init_client(nrs_t *nrs)

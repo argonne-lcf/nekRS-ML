@@ -25,6 +25,10 @@ struct wallModel_data {
   std::vector<int> ind_owall_nodes_matched; // indices of the paired off-wall nodes
 };
 
+struct MSR_data {
+   dfloat u_in; 
+};
+
 namespace smartredis
 {
   void init_client(nrs_t *nrs);
