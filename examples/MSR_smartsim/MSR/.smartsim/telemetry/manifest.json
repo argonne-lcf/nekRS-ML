@@ -12,8 +12,8 @@
   },
   "runs": [
     {
-      "run_id": "1bda769",
-      "timestamp": 1721422819462532048,
+      "run_id": "d236bc5",
+      "timestamp": 1721670726053552106,
       "model": [],
       "orchestrator": [
         {
@@ -26,19 +26,19 @@
           "shards": [
             {
               "name": "orchestrator_0",
-              "hostname": "10.201.2.8",
+              "hostname": "10.201.2.30",
               "port": 6780,
               "cluster": false,
               "conf_file": null,
-              "out_file": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/1bda769/database/orchestrator/orchestrator_0/orchestrator_0.out",
-              "err_file": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/1bda769/database/orchestrator/orchestrator_0/orchestrator_0.err",
+              "out_file": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/d236bc5/database/orchestrator/orchestrator_0/orchestrator_0.out",
+              "err_file": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/d236bc5/database/orchestrator/orchestrator_0/orchestrator_0.err",
               "memory_file": "",
               "client_file": "",
               "client_count_file": "",
               "telemetry_metadata": {
-                "status_dir": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/1bda769/database/orchestrator/orchestrator_0",
+                "status_dir": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/d236bc5/database/orchestrator/orchestrator_0",
                 "step_id": null,
-                "task_id": "3344907",
+                "task_id": "2075519",
                 "managed": false
               }
             }
@@ -48,8 +48,8 @@
       "ensemble": []
     },
     {
-      "run_id": "dd58ee8",
-      "timestamp": 1721422919139453869,
+      "run_id": "0c56d25",
+      "timestamp": 1721672033664473017,
       "model": [],
       "orchestrator": [
         {
@@ -62,19 +62,163 @@
           "shards": [
             {
               "name": "orchestrator_0",
-              "hostname": "10.201.2.8",
+              "hostname": "10.201.2.30",
               "port": 6780,
               "cluster": false,
               "conf_file": null,
-              "out_file": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/dd58ee8/database/orchestrator/orchestrator_0/orchestrator_0.out",
-              "err_file": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/dd58ee8/database/orchestrator/orchestrator_0/orchestrator_0.err",
+              "out_file": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/0c56d25/database/orchestrator/orchestrator_0/orchestrator_0.out",
+              "err_file": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/0c56d25/database/orchestrator/orchestrator_0/orchestrator_0.err",
               "memory_file": "",
               "client_file": "",
               "client_count_file": "",
               "telemetry_metadata": {
-                "status_dir": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/dd58ee8/database/orchestrator/orchestrator_0",
+                "status_dir": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/0c56d25/database/orchestrator/orchestrator_0",
                 "step_id": null,
-                "task_id": "3345600",
+                "task_id": "2079498",
+                "managed": false
+              }
+            }
+          ]
+        }
+      ],
+      "ensemble": []
+    },
+    {
+      "run_id": "953b5a3",
+      "timestamp": 1721672403857672906,
+      "model": [],
+      "orchestrator": [
+        {
+          "name": "orchestrator",
+          "type": "redis",
+          "interface": [
+            "hsn0",
+            "hsn1"
+          ],
+          "shards": [
+            {
+              "name": "orchestrator_0",
+              "hostname": "10.201.2.30",
+              "port": 6780,
+              "cluster": false,
+              "conf_file": null,
+              "out_file": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/953b5a3/database/orchestrator/orchestrator_0/orchestrator_0.out",
+              "err_file": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/953b5a3/database/orchestrator/orchestrator_0/orchestrator_0.err",
+              "memory_file": "",
+              "client_file": "",
+              "client_count_file": "",
+              "telemetry_metadata": {
+                "status_dir": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/953b5a3/database/orchestrator/orchestrator_0",
+                "step_id": null,
+                "task_id": "2080923",
+                "managed": false
+              }
+            }
+          ]
+        }
+      ],
+      "ensemble": []
+    },
+    {
+      "run_id": "9a22380",
+      "timestamp": 1721672899616021468,
+      "model": [],
+      "orchestrator": [
+        {
+          "name": "orchestrator",
+          "type": "redis",
+          "interface": [
+            "hsn0",
+            "hsn1"
+          ],
+          "shards": [
+            {
+              "name": "orchestrator_0",
+              "hostname": "10.201.2.30",
+              "port": 6780,
+              "cluster": false,
+              "conf_file": null,
+              "out_file": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/9a22380/database/orchestrator/orchestrator_0/orchestrator_0.out",
+              "err_file": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/9a22380/database/orchestrator/orchestrator_0/orchestrator_0.err",
+              "memory_file": "",
+              "client_file": "",
+              "client_count_file": "",
+              "telemetry_metadata": {
+                "status_dir": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/9a22380/database/orchestrator/orchestrator_0",
+                "step_id": null,
+                "task_id": "2082396",
+                "managed": false
+              }
+            }
+          ]
+        }
+      ],
+      "ensemble": []
+    },
+    {
+      "run_id": "9beaa39",
+      "timestamp": 1721673736572133503,
+      "model": [],
+      "orchestrator": [
+        {
+          "name": "orchestrator",
+          "type": "redis",
+          "interface": [
+            "hsn0",
+            "hsn1"
+          ],
+          "shards": [
+            {
+              "name": "orchestrator_0",
+              "hostname": "10.201.2.30",
+              "port": 6780,
+              "cluster": false,
+              "conf_file": null,
+              "out_file": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/9beaa39/database/orchestrator/orchestrator_0/orchestrator_0.out",
+              "err_file": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/9beaa39/database/orchestrator/orchestrator_0/orchestrator_0.err",
+              "memory_file": "",
+              "client_file": "",
+              "client_count_file": "",
+              "telemetry_metadata": {
+                "status_dir": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/9beaa39/database/orchestrator/orchestrator_0",
+                "step_id": null,
+                "task_id": "2084749",
+                "managed": false
+              }
+            }
+          ]
+        }
+      ],
+      "ensemble": []
+    },
+    {
+      "run_id": "b054fca",
+      "timestamp": 1721674005141766821,
+      "model": [],
+      "orchestrator": [
+        {
+          "name": "orchestrator",
+          "type": "redis",
+          "interface": [
+            "hsn0",
+            "hsn1"
+          ],
+          "shards": [
+            {
+              "name": "orchestrator_0",
+              "hostname": "10.201.2.30",
+              "port": 6780,
+              "cluster": false,
+              "conf_file": null,
+              "out_file": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/b054fca/database/orchestrator/orchestrator_0/orchestrator_0.out",
+              "err_file": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/b054fca/database/orchestrator/orchestrator_0/orchestrator_0.err",
+              "memory_file": "",
+              "client_file": "",
+              "client_count_file": "",
+              "telemetry_metadata": {
+                "status_dir": "/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/MSR/.smartsim/telemetry/MSR/b054fca/database/orchestrator/orchestrator_0",
+                "step_id": null,
+                "task_id": "2085662",
                 "managed": false
               }
             }

@@ -5,6 +5,7 @@
 #include <math.h>
 #include "udf.hpp"
 #include "plugins/RANSktau.hpp"
+#include "plugins/smartRedis.hpp"
 
 #ifdef __okl__
 
@@ -72,6 +73,12 @@ void UDF_Setup(nrs_t *nrs)
   platform->options.getArgs("VISCOSITY", mueLam); 
   platform->options.getArgs("DENSITY", rho); 
   RANSktau::setup(nrs, mueLam, rho, scalarFieldStart);
+
+  // Initialize SmartRedis client
+  smartredis::init_client(nrs);
+  // read the DataSet with the velocity distribution information
+  // and change the value of the inflow velocity BC read from file
+//  smartredis::read_distributions(nrs);
 }
 
 
@@ -102,5 +109,9 @@ void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
       printf("Tmax= %d %.16e\n",tstep,Tmax);
     }
   }
+
+  // When simulation is over and has converged, call smartredis function to send max Temp
+  // calculate max Temperature
+//    smartredis::put_data(maxT); // 
 
 }

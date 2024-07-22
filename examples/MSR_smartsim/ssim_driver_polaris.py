@@ -101,6 +101,13 @@ def main():
     parser = ArgumentParser(description='Online training from NekRS ensembles')
     parser.add_argument('--sim_nodes', default=1, type=int, help='Number of nodes assigned to the simulations')
     parser.add_argument('--db_nodes', default=1, type=int, help='Number of nodes assigned to the database')
+#    parser.add_argument('--db_nodes', default=1, type=int, help='Number of nodes assigned to the database')
+#    parser.add_argument('--sim_arguments', default="--setup msr.par --backend CUDA --device-id 0", help='command line arguments to simulation')
+#    parser.add_argument('--sim_executable', default="$NEKRS_HOME/bin/nekrs", help='path to simulation executable ')
+#    parser.add_argument('--sim_affinity', default="", type=int, help='GPU affinity script for simulation')
+#    parser.add_argument('--sim_copy_files', default=["./msr.usr","./msr.par","./msr.udf","./msr.re2","./msr.oudf","msr.co2","./utilities.usr"], help='files to attach by copy to Model sub-directory')
+#    parser.add_argument('--sim_link_files', default=["./affinity_nrs.sh","restart.fld"], help='files to attach by symlink to Model sub-directory')
+
     args = parser.parse_args()
 
     # Get nodes of this allocation (job)

@@ -1,4 +1,0 @@
-21:02:07 x3006c0s25b0n0 __main__.orchestrator_0-D2TTHZF549AG[3345908:MainThread] INFO Indirect proxy 3345908 child process 3346035 started
-21:02:07 x3006c0s25b0n0 __main__.orchestrator_0-D2TTHZF549AG[3345908:MainThread] INFO Waiting for child process 3346035 to complete
-21:02:08 x3006c0s25b0n0 __main__.orchestrator_0-D2TTHZF549AG[3345908:MainThread] INFO Indirect proxy 3345908 child process 3346035 complete. return code: 0
-21:02:08 x3006c0s25b0n0 __main__.orchestrator_0-D2TTHZF549AG[3345908:MainThread] INFO Performing cleanup
