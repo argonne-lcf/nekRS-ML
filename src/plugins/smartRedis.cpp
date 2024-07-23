@@ -42,7 +42,7 @@ void smartredis::init_client_msr()
 void smartredis::read_distributions(dfloat &u_in)
 {
   std::string vel_dist_type;
-  int *vel_dist_params = new dfloat[2]();  
+  dfloat *vel_dist_params = new dfloat[2]();  
   
   // Read the DataSet for the velocity distribution
   SmartRedis::DataSet vel_dataset = client_ptr->get_dataset("velocity_distribution");
@@ -51,25 +51,27 @@ void smartredis::read_distributions(dfloat &u_in)
                             {2},
                             SRTensorTypeDouble,
                             SRMemLayoutContiguous);
-  vel_dataset.get_meta_strings("vel_dist_type", vel_dist_type, 1, 3);
-  if vel_dist_type=="uni":
-      u_in = std::uniform_real_distribution(vel_dist_params[0],vel_dist_params[1]);
+//  vel_dataset.get_meta_strings("vel_dist_type", vel_dist_type, 1, 3);
+//  vel_dataset.get_meta_strings("vel_dist_type", vel_dist_type);
+//  if (vel_dist_type=="uni"){
+//      u_in = std::uniform_real_distribution<double>(vel_dist_params[0],vel_dist_params[1]);
+//  }
+  u_in = 1.0;
   printf("Inside smartredis::read_distributions: Read u_in from the DB with value %f \n", u_in); 
   msr->u_in = u_in;
 }
 
 // MSR: send training data
-void smartredis::send_train_data_msr(Tmax)
+void smartredis::send_train_data_msr(dfloat Tmax)
 {
   dfloat *train_data = new dfloat[2]();
   // train_data[0] = msr->u_in;
-  // train_data[1] = Tmax
+  // train_data[1] = Tmax;
   
   client_ptr->put_tensor("train_data", train_data, {2},
                    SRTensorTypeDouble, SRMemLayoutContiguous);
   
 }
-
 
 // Initialize the SmartRedis client and the smartredis struct
 void smartredis::init_client(nrs_t *nrs)

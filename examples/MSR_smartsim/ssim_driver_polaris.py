@@ -81,6 +81,33 @@ def launch_clDB(args, nodelist, nNodes):
     # Set up Parsl and launch the NekRS ensemble
     ## Pretend this is Parsl and NekRS
     client.put_tensor('train_data',np.ones((10,2)))
+
+    client_exe = args.sim_executable
+    if (launcher=='pals'):
+        nrs_settings = PalsMpiexecSettings(client_exe,
+                                           exe_args=None,
+                                           run_args=None,
+                                           env_vars=None)
+        nrs_settings.set_tasks(args.simprocs)
+        nrs_settings.set_tasks_per_node(args.simprocs_pn)
+        nrs_settings.set_hostlist(simNodes)
+        nrs_settings.set_cpu_binding_type(args.sim_cpu_bind)
+        nrs_settings.add_exe_args(args.sim_arguments)
+
+#        if (sim_affinity):
+#            nrs_settings.set_gpu_affinity_script(sim_affinity,
+#                                                 args.simprocs_pn)
+
+    nrs_model = exp.create_model("nekrs", nrs_settings)
+
+    # Start the client model
+    print("Launching the NekRS ...")
+    block = True
+    if len(args.sim_copy_files)>0 or len(args.sim_link_files)>0:
+        nrs_model.attach_generator_files(to_copy=list(args.sim_copy_files), to_symlink=list(args.sim_link_files))
+    exp.generate(nrs_model, overwrite=True)
+    exp.start(nrs_model, summary=False, block=block)
+    print("Done\n")
    
     # Gather training data from DB and print
     train_data = client.get_tensor('train_data')
@@ -98,15 +125,21 @@ def launch_clDB(args, nodelist, nNodes):
 ## Main function
 def main():
     # Parse arguments
+#    simargs="--setup msr.par --backend CUDA"
+
     parser = ArgumentParser(description='Online training from NekRS ensembles')
     parser.add_argument('--sim_nodes', default=1, type=int, help='Number of nodes assigned to the simulations')
     parser.add_argument('--db_nodes', default=1, type=int, help='Number of nodes assigned to the database')
+    parser.add_argument('--simprocs_pn', default=4, type=int, help='Number of MPI processes per node for simulation')
+    parser.add_argument('--simprocs', default=4, type=int, help='Number of MPI processes for simulation')
+    parser.add_argument('--sim_cpu_bind', default="numa", help='CPU binding for simulation')
 #    parser.add_argument('--db_nodes', default=1, type=int, help='Number of nodes assigned to the database')
-#    parser.add_argument('--sim_arguments', default="--setup msr.par --backend CUDA --device-id 0", help='command line arguments to simulation')
-#    parser.add_argument('--sim_executable', default="$NEKRS_HOME/bin/nekrs", help='path to simulation executable ')
-#    parser.add_argument('--sim_affinity', default="", type=int, help='GPU affinity script for simulation')
-#    parser.add_argument('--sim_copy_files', default=["./msr.usr","./msr.par","./msr.udf","./msr.re2","./msr.oudf","msr.co2","./utilities.usr"], help='files to attach by copy to Model sub-directory')
-#    parser.add_argument('--sim_link_files', default=["./affinity_nrs.sh","restart.fld"], help='files to attach by symlink to Model sub-directory')
+#    parser.add_argument('--sim_arguments', default="${--setup msr.par --backend CUDA --device-id 0}", help='command line arguments to simulation')
+    parser.add_argument('--sim_arguments', default="--setup msr.par --backend CUDA", help='command line arguments to simulation')
+    parser.add_argument('--sim_executable', default="/home/viralss2/.local/nekrs-ml-msr/bin/nekrs", help='path to simulation executable ')
+    parser.add_argument('--sim_affinity', default="", help='GPU affinity script for simulation')
+    parser.add_argument('--sim_copy_files', default=["./msr.usr","./msr.par","./msr.udf","./msr.re2","./msr.oudf","msr.co2","./utilities.usr"], help='files to attach by copy to Model sub-directory')
+    parser.add_argument('--sim_link_files', default=["./affinity_nrs.sh","restart.fld"], help='files to attach by symlink to Model sub-directory')
 
     args = parser.parse_args()
 

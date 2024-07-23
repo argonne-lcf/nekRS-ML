@@ -1,0 +1,1 @@
+/home/viralss2/nekRS-ML_MSR/examples/MSR_smartsim/affinity_nrs.sh

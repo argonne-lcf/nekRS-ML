@@ -1,0 +1,5 @@
+18:52:00 x3006c0s19b1n0 __main__.nekrs-D2X58J6JN69I[4133487:MainThread] INFO Indirect proxy 4133487 child process 4133551 started
+18:52:00 x3006c0s19b1n0 __main__.nekrs-D2X58J6JN69I[4133487:MainThread] INFO Waiting for child process 4133551 to complete
+19:02:54 x3006c0s19b1n0 __main__.nekrs-D2X58J6JN69I[4133487:MainThread] INFO handling signal 15
+19:02:54 x3006c0s19b1n0 __main__.nekrs-D2X58J6JN69I[4133487:MainThread] INFO Performing cleanup
+19:02:55 x3006c0s19b1n0 __main__.nekrs-D2X58J6JN69I[4133487:MainThread] INFO Indirect proxy 4133487 child process None complete. return code: 143

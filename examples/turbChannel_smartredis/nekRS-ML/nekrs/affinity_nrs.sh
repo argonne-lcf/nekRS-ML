@@ -1,0 +1,1 @@
+/home/viralss2/nekRS-ML_MSR/examples/turbChannel_smartredis/affinity_nrs.sh

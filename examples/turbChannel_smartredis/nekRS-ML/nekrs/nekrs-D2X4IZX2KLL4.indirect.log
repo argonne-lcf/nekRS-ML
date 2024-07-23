@@ -1,0 +1,4 @@
+18:18:39 x3006c0s19b1n0 __main__.nekrs-D2X4IZX2KLL4[4114930:MainThread] INFO Indirect proxy 4114930 child process 4114994 started
+18:18:39 x3006c0s19b1n0 __main__.nekrs-D2X4IZX2KLL4[4114930:MainThread] INFO Waiting for child process 4114994 to complete
+18:21:45 x3006c0s19b1n0 __main__.nekrs-D2X4IZX2KLL4[4114930:MainThread] INFO Indirect proxy 4114930 child process 4114994 complete. return code: 0
+18:21:45 x3006c0s19b1n0 __main__.nekrs-D2X4IZX2KLL4[4114930:MainThread] INFO Performing cleanup

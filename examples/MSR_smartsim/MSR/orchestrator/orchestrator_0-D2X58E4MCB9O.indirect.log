@@ -1,0 +1,5 @@
+18:51:49 x3006c0s19b1n0 __main__.orchestrator_0-D2X58E4MCB9O[4133262:MainThread] INFO Indirect proxy 4133262 child process 4133393 started
+18:51:49 x3006c0s19b1n0 __main__.orchestrator_0-D2X58E4MCB9O[4133262:MainThread] INFO Waiting for child process 4133393 to complete
+19:02:54 x3006c0s19b1n0 __main__.orchestrator_0-D2X58E4MCB9O[4133262:MainThread] INFO handling signal 15
+19:02:54 x3006c0s19b1n0 __main__.orchestrator_0-D2X58E4MCB9O[4133262:MainThread] INFO Performing cleanup
+19:02:54 x3006c0s19b1n0 __main__.orchestrator_0-D2X58E4MCB9O[4133262:MainThread] INFO Indirect proxy 4133262 child process None complete. return code: 0
