@@ -1,0 +1,101 @@
+Metadata-Version: 2.1
+Name: parsl
+Version: 2024.7.15
+Summary: Simple data dependent workflows in Python
+Home-page: https://github.com/Parsl/parsl
+Download-URL: https://github.com/Parsl/parsl/archive/2024.07.15.tar.gz
+Author: The Parsl Team
+Author-email: parsl@googlegroups.com
+License: Apache 2.0
+Keywords: Workflows,Scientific computing
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: Apache Software License
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Requires-Python: >=3.8.0
+License-File: LICENSE
+Requires-Dist: pyzmq >=17.1.2
+Requires-Dist: typeguard !=3.*,<5,>=2.10
+Requires-Dist: typing-extensions <5,>=4.6
+Requires-Dist: globus-sdk
+Requires-Dist: dill
+Requires-Dist: tblib
+Requires-Dist: requests
+Requires-Dist: paramiko
+Requires-Dist: psutil >=5.5.1
+Requires-Dist: setproctitle
+Requires-Dist: filelock <4,>=3.13
+Provides-Extra: all
+Requires-Dist: sqlalchemy <2,>=1.4 ; extra == 'all'
+Requires-Dist: pydot ; extra == 'all'
+Requires-Dist: networkx <2.6,>=2.5 ; extra == 'all'
+Requires-Dist: Flask >=1.0.2 ; extra == 'all'
+Requires-Dist: flask-sqlalchemy ; extra == 'all'
+Requires-Dist: pandas <2.2 ; extra == 'all'
+Requires-Dist: plotly ; extra == 'all'
+Requires-Dist: python-daemon ; extra == 'all'
+Requires-Dist: boto3 ; extra == 'all'
+Requires-Dist: kubernetes ; extra == 'all'
+Requires-Dist: oauth-ssh >=0.9 ; extra == 'all'
+Requires-Dist: ipython <=8.6.0 ; extra == 'all'
+Requires-Dist: nbsphinx ; extra == 'all'
+Requires-Dist: sphinx <7.2,>=7.1 ; extra == 'all'
+Requires-Dist: sphinx-rtd-theme ; extra == 'all'
+Requires-Dist: google-auth ; extra == 'all'
+Requires-Dist: google-api-python-client ; extra == 'all'
+Requires-Dist: python-gssapi ; extra == 'all'
+Requires-Dist: azure <=4 ; extra == 'all'
+Requires-Dist: msrestazure ; extra == 'all'
+Requires-Dist: work-queue ; extra == 'all'
+Requires-Dist: pyyaml ; extra == 'all'
+Requires-Dist: cffi ; extra == 'all'
+Requires-Dist: jsonschema ; extra == 'all'
+Requires-Dist: proxystore ; extra == 'all'
+Requires-Dist: radical.pilot ==1.60 ; extra == 'all'
+Requires-Dist: radical.utils ==1.60 ; extra == 'all'
+Provides-Extra: aws
+Requires-Dist: boto3 ; extra == 'aws'
+Provides-Extra: azure
+Requires-Dist: azure <=4 ; extra == 'azure'
+Requires-Dist: msrestazure ; extra == 'azure'
+Provides-Extra: docs
+Requires-Dist: ipython <=8.6.0 ; extra == 'docs'
+Requires-Dist: nbsphinx ; extra == 'docs'
+Requires-Dist: sphinx <7.2,>=7.1 ; extra == 'docs'
+Requires-Dist: sphinx-rtd-theme ; extra == 'docs'
+Provides-Extra: flux
+Requires-Dist: pyyaml ; extra == 'flux'
+Requires-Dist: cffi ; extra == 'flux'
+Requires-Dist: jsonschema ; extra == 'flux'
+Provides-Extra: google_cloud
+Requires-Dist: google-auth ; extra == 'google_cloud'
+Requires-Dist: google-api-python-client ; extra == 'google_cloud'
+Provides-Extra: gssapi
+Requires-Dist: python-gssapi ; extra == 'gssapi'
+Provides-Extra: kubernetes
+Requires-Dist: kubernetes ; extra == 'kubernetes'
+Provides-Extra: monitoring
+Requires-Dist: sqlalchemy <2,>=1.4 ; extra == 'monitoring'
+Provides-Extra: oauth_ssh
+Requires-Dist: oauth-ssh >=0.9 ; extra == 'oauth_ssh'
+Provides-Extra: proxystore
+Requires-Dist: proxystore ; extra == 'proxystore'
+Provides-Extra: radical-pilot
+Requires-Dist: radical.pilot ==1.60 ; extra == 'radical-pilot'
+Requires-Dist: radical.utils ==1.60 ; extra == 'radical-pilot'
+Provides-Extra: visualization
+Requires-Dist: pydot ; extra == 'visualization'
+Requires-Dist: networkx <2.6,>=2.5 ; extra == 'visualization'
+Requires-Dist: Flask >=1.0.2 ; extra == 'visualization'
+Requires-Dist: flask-sqlalchemy ; extra == 'visualization'
+Requires-Dist: pandas <2.2 ; extra == 'visualization'
+Requires-Dist: plotly ; extra == 'visualization'
+Requires-Dist: python-daemon ; extra == 'visualization'
+Provides-Extra: workqueue
+Requires-Dist: work-queue ; extra == 'workqueue'
+
+Simple parallel workflows system for Python

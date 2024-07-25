@@ -1,0 +1,8 @@
+#!/home/viralss2/ALCF_Hands_on_HPC_Workshop/workflows/parsl/env/bin/python
+# -*- coding: utf-8 -*-
+import re
+import sys
+from parsl.benchmark.perf import cli_run
+if __name__ == '__main__':
+    sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0])
+    sys.exit(cli_run())

@@ -118,11 +118,20 @@ void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
   // calculate max Temperature
 
 /*
-  bool converged = (tstep%1000 && tstep>0);
+  bool converged = (tstep%1000==0 && tstep>0);
   if(converged){
     Tmax = platform->linAlg->max(mesh->Nlocal, nrs->cds->o_S, platform->comm.mpiComm);
     smartredis::put_data(Tmax)
   }
 */
+
+
+//  if(tstep%1000==0 && tstep>0){
+  if(nrs->isOutputStep){
+    Tmax = platform->linAlg->max(mesh->Nlocal, nrs->cds->o_S, platform->comm.mpiComm);
+    if (platform->comm.mpiRank == 0) {
+      smartredis::send_train_data_msr(Tmax);
+    }
+  }
 
 }

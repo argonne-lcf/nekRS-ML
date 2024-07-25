@@ -115,8 +115,8 @@ def launch_clDB(args, nodelist, nNodes):
    
     # Gather training data from DB and print
     train_data = client.get_tensor('train_data')
-    inputs = train_data[:,0]
-    outputs = train_data[:,1]
+    inputs = train_data[0]
+    outputs = train_data[1]
     print(f'Model inputs: {inputs}')
     print(f'Model outputs: {outputs}')
 

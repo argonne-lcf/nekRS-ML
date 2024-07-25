@@ -33,7 +33,7 @@ namespace smartredis
 {
   void init_client_msr();
   void read_distributions(dfloat &u_in);
-  void send_train_data_msr(dfloat Tmax);
+  void send_train_data_msr(dfloat &Tmax);
 
   void init_client(nrs_t *nrs);
   int check_run();

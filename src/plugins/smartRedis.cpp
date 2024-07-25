@@ -68,15 +68,16 @@ void smartredis::read_distributions(dfloat &u_in)
 }
 
 // MSR: send training data
-void smartredis::send_train_data_msr(dfloat Tmax)
+void smartredis::send_train_data_msr(dfloat &Tmax)
 {
   dfloat *train_data = new dfloat[2]();
-  // train_data[0] = msr->u_in;
-  // train_data[1] = Tmax;
+  train_data[0] = msr->u_in;
+  train_data[1] = Tmax;
+   
+  printf("Inside SmartRedis Send Training Data %f, %f \n", train_data[0], train_data[1]); 
   
   client_ptr->put_tensor("train_data", train_data, {2},
                    SRTensorTypeDouble, SRMemLayoutContiguous);
-  
 }
 
 // Initialize the SmartRedis client and the smartredis struct
