@@ -15,7 +15,7 @@
 
 static dfloat rho, mueLam;
 occa::memory o_qt;
-static dfloat u_in;
+static dfloat u_in=0.0;
 
 void userq(nrs_t *nrs, dfloat time, occa::memory o_S, occa::memory o_FS)
 {
@@ -51,11 +51,15 @@ void UDF_LoadKernels(occa::properties& kernelInfo)
 void UDF_Setup0(MPI_Comm comm, setupAide &options)
 {
   // Initialize SmartRedis client
-//   smartredis::init_client_msr();
-//  smartredis::read_distributions(u_in);
+  smartredis::init_client_msr();
 
-//  printf("Inside UDF_Setup0: Read u_in from the DB with value %f \n", u_in);
-    u_in=1.0;
+  if (platform->comm.mpiRank == 0) {
+    smartredis::read_distributions(u_in);
+  }
+
+  MPI_Bcast(&u_in, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  printf("Inside UDF_Setup0: Read u_in from the DB with value %f \n", u_in);
+//    u_in=1.0;
   
 }
 
@@ -112,6 +116,13 @@ void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
 
   // When simulation is over and has converged, call smartredis function to send max Temp
   // calculate max Temperature
-//    smartredis::put_data(maxT); // 
+
+/*
+  bool converged = (tstep%1000 && tstep>0);
+  if(converged){
+    Tmax = platform->linAlg->max(mesh->Nlocal, nrs->cds->o_S, platform->comm.mpiComm);
+    smartredis::put_data(Tmax)
+  }
+*/
 
 }

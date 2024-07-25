@@ -1,0 +1,5 @@
+17:37:23 x3004c0s31b0n0 __main__.orchestrator_0-D2YSWHJ392RV[2010125:MainThread] INFO Indirect proxy 2010125 child process 2010255 started
+17:37:23 x3004c0s31b0n0 __main__.orchestrator_0-D2YSWHJ392RV[2010125:MainThread] INFO Waiting for child process 2010255 to complete
+17:39:18 x3004c0s31b0n0 __main__.orchestrator_0-D2YSWHJ392RV[2010125:MainThread] INFO handling signal 15
+17:39:18 x3004c0s31b0n0 __main__.orchestrator_0-D2YSWHJ392RV[2010125:MainThread] INFO Performing cleanup
+17:39:18 x3004c0s31b0n0 __main__.orchestrator_0-D2YSWHJ392RV[2010125:MainThread] INFO Indirect proxy 2010125 child process None complete. return code: 0

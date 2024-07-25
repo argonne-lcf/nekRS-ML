@@ -6,6 +6,7 @@
 #include "client.h"
 #include <string>
 #include <vector>
+#include <random>
 
 smartredis_data *sr = new smartredis_data;
 wallModel_data *wm = new wallModel_data;
@@ -42,21 +43,26 @@ void smartredis::init_client_msr()
 void smartredis::read_distributions(dfloat &u_in)
 {
   std::string vel_dist_type;
-  dfloat *vel_dist_params = new dfloat[2]();  
+//  dfloat *vel_dist_params = new dfloat[2]();  
   
   // Read the DataSet for the velocity distribution
-  SmartRedis::DataSet vel_dataset = client_ptr->get_dataset("velocity_distribution");
-  vel_dataset.unpack_tensor("vel_params",
-                            vel_dist_params,
-                            {2},
-                            SRTensorTypeDouble,
-                            SRMemLayoutContiguous);
-//  vel_dataset.get_meta_strings("vel_dist_type", vel_dist_type, 1, 3);
-//  vel_dataset.get_meta_strings("vel_dist_type", vel_dist_type);
-//  if (vel_dist_type=="uni"){
-//      u_in = std::uniform_real_distribution<double>(vel_dist_params[0],vel_dist_params[1]);
-//  }
-  u_in = 1.0;
+  std::string key = "vel_dist";
+  std::vector<double> vel_dist_params(3,0);
+  client_ptr->unpack_tensor("vel_dist", vel_dist_params.data(), {3},
+		  SRTensorTypeDouble, SRMemLayoutContiguous);
+//  client_ptr->get_tensor("vel_dist", vel_dist_params.data(), {3},
+//		  SRTensorTypeDouble, SRMemLayoutContiguous);
+
+  printf("velocity distribution data = %f, %f, %f \n", vel_dist_params[0],vel_dist_params[1],vel_dist_params[2]);
+
+  if (vel_dist_params[0]==0.0){
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<double> udist(vel_dist_params[1],vel_dist_params[2]);
+    u_in = udist(gen);
+  }
+
+//  u_in = vel_dist_params[1];
   printf("Inside smartredis::read_distributions: Read u_in from the DB with value %f \n", u_in); 
   msr->u_in = u_in;
 }

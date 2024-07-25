@@ -71,12 +71,15 @@ def launch_clDB(args, nodelist, nNodes):
     client = Client(address=db.get_address()[0], cluster=cluster)
 
     # Set the distributions of the input variables
-    vel_dist_type = 'uni'
-    vel_dist_params = np.array([1.0, 1.3])
-    vel_dist_dataset = Dataset('velocity_distribution')
-    vel_dist_dataset.add_tensor('vel_params', vel_dist_params)
-    vel_dist_dataset.add_meta_string('vel_dist_type',vel_dist_type)
-    client.put_dataset(vel_dist_dataset)
+    vel_dist_params = np.array([0.0, 1.0, 1.3])
+    client.put_tensor('vel_dist',vel_dist_params)
+
+##    vel_dist_type = 'uni'
+#    vel_dist_params = np.array([1.0, 1.3])
+#    vel_dist_dataset = Dataset('velocity_distribution')
+#    vel_dist_dataset.add_tensor('vel_params', vel_dist_params)
+##    vel_dist_dataset.add_meta_string('vel_dist_type',vel_dist_type)
+#    client.put_dataset(vel_dist_dataset)
     
     # Set up Parsl and launch the NekRS ensemble
     ## Pretend this is Parsl and NekRS
@@ -84,10 +87,11 @@ def launch_clDB(args, nodelist, nNodes):
 
     client_exe = args.sim_executable
     if (launcher=='pals'):
+        SSDB = db.get_address()[0]
         nrs_settings = PalsMpiexecSettings(client_exe,
                                            exe_args=None,
                                            run_args=None,
-                                           env_vars=None)
+                                           env_vars={'SSDB' : SSDB})
         nrs_settings.set_tasks(args.simprocs)
         nrs_settings.set_tasks_per_node(args.simprocs_pn)
         nrs_settings.set_hostlist(simNodes)
