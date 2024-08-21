@@ -1,0 +1,47 @@
+2024-08-20 00:25:12.623 parsl:914 2136091 MainThread [INFO]  Python version: 3.11.8 | packaged by conda-forge | (main, Feb 16 2024, 20:53:32) [GCC 12.3.0]
+2024-08-20 00:25:12.624 parsl:915 2136091 MainThread [INFO]  Debug logging: False
+2024-08-20 00:25:12.624 parsl:916 2136091 MainThread [INFO]  Certificates dir: None
+2024-08-20 00:25:12.624 parsl:917 2136091 MainThread [INFO]  Log dir: /home/viralss2/nekRS-ML_MSR/examples/parsl_MSR_smartsim/runinfo/024/HighThroughputExecutor
+2024-08-20 00:25:12.624 parsl:918 2136091 MainThread [INFO]  Manager ID: d057fe4761cc
+2024-08-20 00:25:12.624 parsl:919 2136091 MainThread [INFO]  Block ID: 0
+2024-08-20 00:25:12.624 parsl:920 2136091 MainThread [INFO]  cores_per_worker: 1.0
+2024-08-20 00:25:12.624 parsl:921 2136091 MainThread [INFO]  mem_per_worker: None
+2024-08-20 00:25:12.625 parsl:922 2136091 MainThread [INFO]  task_port: 54589
+2024-08-20 00:25:12.625 parsl:923 2136091 MainThread [INFO]  result_port: 54471
+2024-08-20 00:25:12.625 parsl:924 2136091 MainThread [INFO]  addresses: 10.140.56.174
+2024-08-20 00:25:12.625 parsl:925 2136091 MainThread [INFO]  max_workers_per_node: inf
+2024-08-20 00:25:12.625 parsl:926 2136091 MainThread [INFO]  poll_period: 10
+2024-08-20 00:25:12.625 parsl:927 2136091 MainThread [INFO]  address_probe_timeout: 30
+2024-08-20 00:25:12.625 parsl:928 2136091 MainThread [INFO]  Prefetch capacity: 0
+2024-08-20 00:25:12.625 parsl:929 2136091 MainThread [INFO]  Heartbeat threshold: 120
+2024-08-20 00:25:12.625 parsl:930 2136091 MainThread [INFO]  Heartbeat period: 30
+2024-08-20 00:25:12.625 parsl:931 2136091 MainThread [INFO]  Drain period: None
+2024-08-20 00:25:12.625 parsl:932 2136091 MainThread [INFO]  CPU affinity: block-reverse
+2024-08-20 00:25:12.625 parsl:933 2136091 MainThread [INFO]  Accelerators: 0,1,2,3
+2024-08-20 00:25:12.625 parsl:934 2136091 MainThread [INFO]  enable_mpi_mode: False
+2024-08-20 00:25:12.625 parsl:935 2136091 MainThread [INFO]  mpi_launcher: mpiexec
+2024-08-20 00:25:12.625 parsl:151 2136091 MainThread [INFO]  Manager initializing
+2024-08-20 00:25:12.636 parsl.executors.high_throughput.probe:49 2136091 MainThread [INFO]  Connected to interchange on 10.140.56.174
+2024-08-20 00:25:12.636 parsl:160 2136091 MainThread [INFO]  Connection to Interchange successful on 10.140.56.174
+2024-08-20 00:25:12.636 parsl:163 2136091 MainThread [INFO]  Task url : tcp://10.140.56.174:54589
+2024-08-20 00:25:12.636 parsl:164 2136091 MainThread [INFO]  Result url : tcp://10.140.56.174:54471
+2024-08-20 00:25:12.636 parsl:183 2136091 MainThread [INFO]  Manager connected to interchange
+2024-08-20 00:25:13.176 parsl:254 2136091 MainThread [INFO]  Manager will spawn 1 workers
+2024-08-20 00:25:13.178 parsl:306 2136091 Task-Puller [INFO]  starting
+2024-08-20 00:25:13.179 parsl:536 2136091 MainThread [INFO]  Manager threads started
+2024-08-20 00:25:43.184 parsl:418 2136091 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724113513.1791463 heartbeat_period=30 seconds
+2024-08-20 00:26:13.191 parsl:418 2136091 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724113543.184169 heartbeat_period=30 seconds
+2024-08-20 00:26:43.201 parsl:418 2136091 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724113573.1918802 heartbeat_period=30 seconds
+2024-08-20 00:27:13.207 parsl:418 2136091 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724113603.202108 heartbeat_period=30 seconds
+2024-08-20 00:27:43.208 parsl:418 2136091 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724113633.207281 heartbeat_period=30 seconds
+2024-08-20 00:28:13.214 parsl:418 2136091 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724113663.2090223 heartbeat_period=30 seconds
+2024-08-20 00:28:43.222 parsl:418 2136091 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724113693.2145958 heartbeat_period=30 seconds
+2024-08-20 00:28:43.300 parsl:381 2136091 Task-Puller [CRITICAL]  Missing contact with interchange beyond heartbeat_threshold
+2024-08-20 00:28:43.300 parsl:383 2136091 Task-Puller [CRITICAL]  Exiting
+2024-08-20 00:28:43.300 parsl:540 2136091 MainThread [CRITICAL]  Received kill event, terminating worker processes
+2024-08-20 00:28:43.300 parsl:471 2136091 worker-watchdog [CRITICAL]  Exiting
+2024-08-20 00:28:43.303 parsl:434 2136091 Result-Pusher [CRITICAL]  Exiting
+2024-08-20 00:28:43.304 parsl:501 2136091 Monitoring-Handler [CRITICAL]  Exiting
+2024-08-20 00:28:43.305 parsl:548 2136091 MainThread [CRITICAL]  Terminating worker <SpawnProcess name='HTEX-Worker-0' pid=2136105 parent=2136091 started>: is_alive()=True
+2024-08-20 00:28:43.311 parsl:557 2136091 MainThread [INFO]  process_worker_pool ran for 210.68584752082825 seconds
+2024-08-20 00:28:43.311 parsl:965 2136091 MainThread [INFO]  Process worker pool exiting normally

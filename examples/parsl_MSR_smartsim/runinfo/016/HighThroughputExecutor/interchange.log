@@ -1,0 +1,6 @@
+2024-08-20 00:13:16.726 interchange:114 MainProcess(2131335) MainThread __init__ [INFO] Attempting connection to client at 127.0.0.1 on ports: 55541,55386,55705
+2024-08-20 00:13:16.727 interchange:126 MainProcess(2131335) MainThread __init__ [INFO] Connected to client
+2024-08-20 00:13:16.729 interchange:157 MainProcess(2131335) MainThread __init__ [INFO] Bound to ports 54424,54063 for incoming worker connections
+2024-08-20 00:13:16.729 interchange:175 MainProcess(2131335) MainThread __init__ [INFO] Platform info: {'parsl_v': '2024.08.05', 'python_v': '3.11.8', 'os': 'Linux', 'hostname': 'x3203c0s1b1n0', 'dir': '/home/viralss2/nekRS-ML_MSR/examples/parsl_MSR_smartsim'}
+2024-08-20 00:13:16.729 interchange:328 MainProcess(2131335) MainThread start [INFO] Starting main interchange method
+2024-08-20 00:13:16.729 interchange:206 MainProcess(2131335) Interchange-Task-Puller task_puller [INFO] Starting

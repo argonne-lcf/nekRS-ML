@@ -1,0 +1,192 @@
+c 
+c-----------------------------------------------------------------------
+      include 'utilities.usr'
+C-----------------------------------------------------------------------
+      subroutine userchk()
+      include 'SIZE'
+      include 'TOTAL'
+
+      real kmin,kmax,tmax,tmin,random,taumax,taumin
+	  real ypmin,ypmax,ypave,utmin,utmax,utave
+	  real SC_NRS
+      common /scrach_o2/ ywd(lx1,ly1,lz1,lelv)
+
+      COMMON /NRSSCPTR/ nrs_scptr(1)
+      integer*8         nrs_scptr
+
+      nt = lx1*ly1*lz1*nelt
+	  
+	  nrs_scptr(1) = loc(ywd)
+
+      do i=1,nt 
+        wd=ywd(i,1,1,1)
+      enddo
+
+
+      if (mod(istep,10).eq.0) then
+      call print_limits
+      call y_p_limits(ywd,ypmin,ypmax,ypave,utmin,utmax,utave)  
+
+
+      call get_limits(t(1,1,1,1,2),kmin 
+     &          ,kmax,random,random,tlag(1,1,1,1,1,2),random,nt)
+      call get_limits(t(1,1,1,1,3),taumin 
+     &          ,taumax,random,random,tlag(1,1,1,1,1,3),random,nt)	 
+
+      call get_limits(t(1,1,1,1,1),tmin 
+     &          ,tmax,random,random,tlag(1,1,1,1,1,1),random,nt)
+
+	  
+       if (nid.eq.0) write(6,1) istep,time,kmin,kmax
+       if (nid.eq.0) write(6,2) istep,time,taumin,taumax
+       if (nid.eq.0) write(6,3) istep,time,tmin,tmax
+
+   1     format(i9,1p3e12.5,' PS1')
+   2     format(i9,1p3e12.5,' PS2')
+   3     format(i9,1p3e12.5,' T')
+
+      endif
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat()   ! This routine to modify element vertices
+      include 'SIZE'
+      include 'TOTAL'
+
+
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat2()  ! This routine to modify mesh coordinates
+      include 'SIZE'
+      include 'TOTAL'
+
+	  integer n,i
+	   
+      n = lx1*ly1*lz1*nelv
+	  
+c The mesh is in unit of cm
+c scale the mesh by xxxx
+
+
+c      do i=1,n
+c        xm1(i,1,1,1)=xm1(i,1,1,1)/1.0807535
+c        ym1(i,1,1,1)=ym1(i,1,1,1)/1.0807535
+c        zm1(i,1,1,1)=zm1(i,1,1,1)/1.0807535
+c      enddo
+
+      do iel=1,nelt
+      do ifc=1,2*ndim
+        id_face = bc(5,ifc,iel,1)
+        boundaryID(ifc,iel) = 0
+      if (id_face.eq.1) then ! inlet
+	  cbc(ifc,iel,1) = 'v  '
+      boundaryID(ifc,iel) = 1
+      elseif (id_face.eq.2) then ! outlet
+	  cbc(ifc,iel,1) = 'O  '
+      boundaryID(ifc,iel) = 2
+      elseif (id_face.eq.3) then ! axile sym 
+	  cbc(ifc,iel,1) = 'SYM'
+      boundaryID(ifc,iel) = 3
+      elseif (id_face.eq.4) then !  wall
+	  cbc(ifc,iel,1) = 'W  '
+      boundaryID(ifc,iel) = 4
+	  elseif (id_face.eq.5) then !  side SYM
+	  cbc(ifc,iel,1) = 'SYM'
+      boundaryID(ifc,iel) = 3
+	  elseif (id_face.eq.6) then !  side SYM
+	  cbc(ifc,iel,1) = 'SYM'
+      boundaryID(ifc,iel) = 3
+      endif
+      
+      enddo
+      enddo
+
+      do i=2,ldimt1
+      do e=1,nelt
+      do f=1,ldim*2
+        cbc(f,e,i)=cbc(f,e,1)
+        if(cbc(f,e,1).eq.'v  ') cbc(f,e,i)='t  '
+        if(cbc(f,e,1).eq.'W  ') then
+	  if(i.eq.2) cbc(f,e,i)='I  '
+          if(i.gt.2) cbc(f,e,i)='t  '
+        endif
+        if(cbc(f,e,1).eq.'O  ') cbc(f,e,i)='O  '
+        if(cbc(f,e,1).eq.'SYM') cbc(f,e,i)='I  '
+      enddo
+      enddo
+      enddo
+
+
+C Rescale the geometry so that the min core diameter is 1.0
+      ntot = nelt*lx1*ly1*lz1
+      Dhi = 1.0/2.108
+      do i=1,ntot
+        xm1(i,1,1,1)=xm1(i,1,1,1)*Dhi
+        ym1(i,1,1,1)=ym1(i,1,1,1)*Dhi
+        zm1(i,1,1,1)=zm1(i,1,1,1)*Dhi
+      enddo
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat3()
+      implicit none
+      include 'SIZE'
+      include 'TOTAL'
+
+      real wd,ywd
+      common /scrach_o2/ ywd(lx1,ly1,lz1,lelv)
+
+
+      call cheap_dist(ywd,1,'W  ')
+
+
+      call count_boundaries
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine useric(ix,iy,iz,ieg) ! set up initial conditions
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+      integer e,ieg
+	  real Re,darcy,utau,sigk,kmax,yplus,yk
+
+      common /scrach_o2/
+     & ywd(lx1,ly1,lz1,lelv)
+
+      e=gllel(ieg) 
+      wd=ywd(ix,iy,iz,e)
+
+      Re    = 1e6
+      darcy = 0.316/(Re**0.25)
+      utau = sqrt(darcy/8.0)
+      sigk = 0.6
+      kmax = 2.5*utau*utau
+      yplus = max(wd*utau*Re,1.0e-6)
+      yk = 30.0
+
+      tke = kmax*exp(-(log10(yplus/yk))**2.0/(2.0*sigk**2))
+      tau = 0.072*(wd*wd)*Re/6.0
+      tke = min(tke,7.6e-3)
+      tau = min(tau,1.3)
+
+      ux   = 0.0
+      uy   = 0.0
+      uz   = 0.0
+
+      if (ifield.eq.2) then
+         temp = 0.0
+      elseif (ifield.eq.3) then
+         temp = tke
+      elseif (ifield.eq.4) then
+         temp = tau
+      endif
+
+      return
+      end
+c-----------------------------------------------------------------------

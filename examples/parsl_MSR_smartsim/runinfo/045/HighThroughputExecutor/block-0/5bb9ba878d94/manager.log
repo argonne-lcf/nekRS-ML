@@ -1,0 +1,41 @@
+2024-08-20 00:55:00.479 parsl:914 2149700 MainThread [INFO]  Python version: 3.11.8 | packaged by conda-forge | (main, Feb 16 2024, 20:53:32) [GCC 12.3.0]
+2024-08-20 00:55:00.480 parsl:915 2149700 MainThread [INFO]  Debug logging: False
+2024-08-20 00:55:00.480 parsl:916 2149700 MainThread [INFO]  Certificates dir: None
+2024-08-20 00:55:00.480 parsl:917 2149700 MainThread [INFO]  Log dir: /home/viralss2/nekRS-ML_MSR/examples/parsl_MSR_smartsim/runinfo/045/HighThroughputExecutor
+2024-08-20 00:55:00.480 parsl:918 2149700 MainThread [INFO]  Manager ID: 5bb9ba878d94
+2024-08-20 00:55:00.480 parsl:919 2149700 MainThread [INFO]  Block ID: 0
+2024-08-20 00:55:00.480 parsl:920 2149700 MainThread [INFO]  cores_per_worker: 1.0
+2024-08-20 00:55:00.480 parsl:921 2149700 MainThread [INFO]  mem_per_worker: None
+2024-08-20 00:55:00.480 parsl:922 2149700 MainThread [INFO]  task_port: 54438
+2024-08-20 00:55:00.480 parsl:923 2149700 MainThread [INFO]  result_port: 54074
+2024-08-20 00:55:00.480 parsl:924 2149700 MainThread [INFO]  addresses: 10.140.56.174
+2024-08-20 00:55:00.480 parsl:925 2149700 MainThread [INFO]  max_workers_per_node: inf
+2024-08-20 00:55:00.480 parsl:926 2149700 MainThread [INFO]  poll_period: 10
+2024-08-20 00:55:00.480 parsl:927 2149700 MainThread [INFO]  address_probe_timeout: 30
+2024-08-20 00:55:00.480 parsl:928 2149700 MainThread [INFO]  Prefetch capacity: 0
+2024-08-20 00:55:00.480 parsl:929 2149700 MainThread [INFO]  Heartbeat threshold: 120
+2024-08-20 00:55:00.480 parsl:930 2149700 MainThread [INFO]  Heartbeat period: 30
+2024-08-20 00:55:00.480 parsl:931 2149700 MainThread [INFO]  Drain period: None
+2024-08-20 00:55:00.481 parsl:932 2149700 MainThread [INFO]  CPU affinity: block-reverse
+2024-08-20 00:55:00.481 parsl:933 2149700 MainThread [INFO]  Accelerators: 0,1,2,3
+2024-08-20 00:55:00.481 parsl:934 2149700 MainThread [INFO]  enable_mpi_mode: False
+2024-08-20 00:55:00.481 parsl:935 2149700 MainThread [INFO]  mpi_launcher: mpiexec
+2024-08-20 00:55:00.481 parsl:151 2149700 MainThread [INFO]  Manager initializing
+2024-08-20 00:55:00.491 parsl.executors.high_throughput.probe:49 2149700 MainThread [INFO]  Connected to interchange on 10.140.56.174
+2024-08-20 00:55:00.492 parsl:160 2149700 MainThread [INFO]  Connection to Interchange successful on 10.140.56.174
+2024-08-20 00:55:00.492 parsl:163 2149700 MainThread [INFO]  Task url : tcp://10.140.56.174:54438
+2024-08-20 00:55:00.492 parsl:164 2149700 MainThread [INFO]  Result url : tcp://10.140.56.174:54074
+2024-08-20 00:55:00.492 parsl:183 2149700 MainThread [INFO]  Manager connected to interchange
+2024-08-20 00:55:01.029 parsl:254 2149700 MainThread [INFO]  Manager will spawn 1 workers
+2024-08-20 00:55:01.032 parsl:306 2149700 Task-Puller [INFO]  starting
+2024-08-20 00:55:01.033 parsl:536 2149700 MainThread [INFO]  Manager threads started
+2024-08-20 00:55:31.032 parsl:451 2149700 worker-watchdog [ERROR]  Worker 0 has died
+2024-08-20 00:55:31.033 parsl:454 2149700 worker-watchdog [INFO]  Worker 0 was busy when it died
+2024-08-20 00:55:31.033 parsl:458 2149700 worker-watchdog [INFO]  Putting exception for executor task 1 in the pending result queue
+2024-08-20 00:55:31.034 parsl:418 2149700 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724115301.032597 heartbeat_period=30 seconds
+2024-08-20 00:55:31.035 parsl:469 2149700 worker-watchdog [INFO]  Worker 0 has been restarted
+2024-08-20 00:56:01.035 parsl:451 2149700 worker-watchdog [ERROR]  Worker 0 has died
+2024-08-20 00:56:01.035 parsl:454 2149700 worker-watchdog [INFO]  Worker 0 was busy when it died
+2024-08-20 00:56:01.035 parsl:458 2149700 worker-watchdog [INFO]  Putting exception for executor task 2 in the pending result queue
+2024-08-20 00:56:01.036 parsl:418 2149700 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724115331.0345185 heartbeat_period=30 seconds
+2024-08-20 00:56:01.037 parsl:469 2149700 worker-watchdog [INFO]  Worker 0 has been restarted

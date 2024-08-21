@@ -1,0 +1,5 @@
+18:22:07 x3203c0s7b0n0 __main__.orchestrator_0-D3LSRGGHD5BZ[4017831:MainThread] INFO Indirect proxy 4017831 child process 4017961 started
+18:22:07 x3203c0s7b0n0 __main__.orchestrator_0-D3LSRGGHD5BZ[4017831:MainThread] INFO Waiting for child process 4017961 to complete
+18:24:25 x3203c0s7b0n0 __main__.orchestrator_0-D3LSRGGHD5BZ[4017831:MainThread] INFO handling signal 15
+18:24:25 x3203c0s7b0n0 __main__.orchestrator_0-D3LSRGGHD5BZ[4017831:MainThread] INFO Performing cleanup
+18:24:25 x3203c0s7b0n0 __main__.orchestrator_0-D3LSRGGHD5BZ[4017831:MainThread] INFO Indirect proxy 4017831 child process None complete. return code: 0

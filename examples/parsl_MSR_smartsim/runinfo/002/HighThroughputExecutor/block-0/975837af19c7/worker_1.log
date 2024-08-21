@@ -1,0 +1,7 @@
+2024-08-19 22:25:58.599 worker_log:678 2996743 MainThread [INFO]  Worker 1 started
+2024-08-19 22:25:58.600 worker_log:735 2996743 MainThread [INFO]  Set worker CPU affinity to [32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47]
+2024-08-19 22:25:58.762 worker_log:754 2996743 MainThread [INFO]  Pinned worker to partitioned cuda device: 1
+2024-08-19 22:25:58.762 worker_log:763 2996743 MainThread [INFO]  Pinned worker to accelerator: 1
+2024-08-19 22:26:51.153 worker_log:791 2996743 MainThread [INFO]  Received executor task 2
+2024-08-19 22:27:39.387 worker_log:807 2996743 MainThread [INFO]  Completed executor task 2
+2024-08-19 22:27:39.387 worker_log:818 2996743 MainThread [INFO]  All processing finished for executor task 2

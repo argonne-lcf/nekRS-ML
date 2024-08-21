@@ -1,0 +1,3 @@
+2024-08-19 22:11:28.485 worker_log:678 2993712 MainThread [INFO]  Worker 2 started
+2024-08-19 22:11:28.486 worker_log:735 2993712 MainThread [INFO]  Set worker CPU affinity to [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
+2024-08-19 22:11:28.648 worker_log:763 2993712 MainThread [INFO]  Pinned worker to accelerator: 3

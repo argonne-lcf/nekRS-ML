@@ -1,0 +1,79 @@
+1724167252.416545 2024-08-20 15:20:52 MainProcess-1948905 MainThread-22454961553600 parsl.dataflow.dflow:175 _log INFO: Starting DataFlowKernel with config
+Config(
+    app_cache=True, 
+    checkpoint_files=None, 
+    checkpoint_mode=None, 
+    checkpoint_period=None, 
+    dependency_resolver=None, 
+    executors=(HighThroughputExecutor(
+        address='10.140.57.105', 
+        address_probe_timeout=None, 
+        available_accelerators=['0,1,2,3'], 
+        block_error_handler=<function simple_error_handler at 0x146a2914a8e0>, 
+        cores_per_worker=1.0, 
+        cpu_affinity='block-reverse', 
+        drain_period=None, 
+        enable_mpi_mode=False, 
+        encrypted=False, 
+        heartbeat_period=30, 
+        heartbeat_threshold=120, 
+        interchange_launch_cmd=['interchange.py'], 
+        interchange_port_range=(55000, 56000), 
+        label='HighThroughputExecutor', 
+        launch_cmd='process_worker_pool.py {debug} {max_workers_per_node} -a {addresses} -p {prefetch_capacity} -c {cores_per_worker} -m {mem_per_worker} --poll {poll_period} --task_port={task_port} --result_port={result_port} --cert_dir {cert_dir} --logdir={logdir} --block_id={{block_id}} --hb_period={heartbeat_period} {address_probe_timeout_string} --hb_threshold={heartbeat_threshold} --drain_period={drain_period} --cpu-affinity {cpu_affinity} {enable_mpi_mode} --mpi-launcher={mpi_launcher} --available-accelerators {accelerators}', 
+        manager_selector=<parsl.executors.high_throughput.manager_selector.RandomManagerSelector object at 0x146a29152d10>, 
+        max_workers=inf, 
+        max_workers_per_node=inf, 
+        mem_per_worker=None, 
+        mpi_launcher='mpiexec', 
+        poll_period=10, 
+        prefetch_capacity=0, 
+        provider=PBSProProvider(
+            account=None, 
+            channel='SSHInteractiveLoginChannel', 
+            cmd_timeout=120, 
+            cpus_per_node=64, 
+            init_blocks=1, 
+            launcher=SingleNodeLauncher(debug=True, fail_on_any=False), 
+            max_blocks=1, 
+            min_blocks=0, 
+            nodes_per_block=1, 
+            parallelism=1, 
+            queue=None, 
+            scheduler_options='#PBS -l nodes=1:ppn=64', 
+            select_options='', 
+            walltime='00:20:00', 
+            worker_init='source /home/viralss2/ALCF_Hands_on_HPC_Workshop/workflows/parsl/launch_eg/set_run_env;\n                            cd /home/viralss2/nekRS-ML_MSR/examples/parsl_MSR_smartsim'
+        ), 
+        storage_access=None, 
+        worker_debug=False, 
+        worker_logdir_root=None, 
+        worker_port_range=(54000, 55000), 
+        worker_ports=None, 
+        working_dir=None
+    ),), 
+    exit_mode='cleanup', 
+    garbage_collect=True, 
+    initialize_logging=True, 
+    internal_tasks_max_threads=10, 
+    max_idletime=120.0, 
+    monitoring=None, 
+    retries=1, 
+    retry_handler=None, 
+    run_dir='runinfo', 
+    std_autopath=None, 
+    strategy='simple', 
+    strategy_period=5, 
+    usage_tracking=0
+)
+1724167252.417578 2024-08-20 15:20:52 MainProcess-1948905 MainThread-22454961553600 parsl.dataflow.dflow:175 _log INFO: Parsl version: 2024.08.05
+1724167252.417666 2024-08-20 15:20:52 MainProcess-1948905 MainThread-22454961553600 parsl.usage_tracking.usage:175 _log DEBUG: Tracking level: 0
+1724167252.417747 2024-08-20 15:20:52 MainProcess-1948905 MainThread-22454961553600 parsl.dataflow.dflow:175 _log INFO: Run id is: 927042d3-4457-4955-9ef2-0bcd6da53ef1
+1724167252.574877 2024-08-20 15:20:52 MainProcess-1948905 MainThread-22454961553600 parsl.dataflow.dflow:175 _log DEBUG: Considering candidate for workflow name: /home/viralss2/SSML/lib/python3.11/site-packages/parsl/dataflow/dflow.py
+1724167252.574942 2024-08-20 15:20:52 MainProcess-1948905 MainThread-22454961553600 parsl.dataflow.dflow:175 _log DEBUG: Considering candidate for workflow name: /soft/applications/conda/2024-04-29/mconda3/lib/python3.11/site-packages/typeguard/__init__.py
+1724167252.574994 2024-08-20 15:20:52 MainProcess-1948905 MainThread-22454961553600 parsl.dataflow.dflow:175 _log DEBUG: Considering candidate for workflow name: /home/viralss2/SSML/lib/python3.11/site-packages/parsl/dataflow/dflow.py
+1724167252.575064 2024-08-20 15:20:52 MainProcess-1948905 MainThread-22454961553600 parsl.dataflow.dflow:175 _log DEBUG: Considering candidate for workflow name: /soft/applications/conda/2024-04-29/mconda3/lib/python3.11/site-packages/typeguard/__init__.py
+1724167252.575122 2024-08-20 15:20:52 MainProcess-1948905 MainThread-22454961553600 parsl.dataflow.dflow:175 _log DEBUG: Considering candidate for workflow name: /home/viralss2/nekRS-ML_MSR/examples/parsl_MSR_smartsim/ssim_driver_polaris.py
+1724167252.575165 2024-08-20 15:20:52 MainProcess-1948905 MainThread-22454961553600 parsl.dataflow.dflow:175 _log DEBUG: Using ssim_driver_polaris.py as workflow name
+1724167252.575294 2024-08-20 15:20:52 MainProcess-1948905 MainThread-22454961553600 parsl.dataflow.memoization:175 _log INFO: App caching initialized
+1724167252.575351 2024-08-20 15:20:52 MainProcess-1948905 MainThread-22454961553600 parsl.jobs.strategy:175 _log DEBUG: Scaling strategy: simple

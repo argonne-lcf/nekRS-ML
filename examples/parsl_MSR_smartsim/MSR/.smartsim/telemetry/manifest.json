@@ -1,0 +1,51 @@
+{
+  "schema info": {
+    "schema_name": "entity manifest",
+    "version": "0.0.4"
+  },
+  "experiment": {
+    "name": "MSR",
+    "path": "/home/viralss2/nekRS-ML_MSR/examples/parsl_MSR_smartsim/MSR",
+    "launcher": "PBS",
+    "out_file": "/home/viralss2/nekRS-ML_MSR/examples/parsl_MSR_smartsim/MSR/.smartsim/telemetry/logs/smartsim.out",
+    "err_file": "/home/viralss2/nekRS-ML_MSR/examples/parsl_MSR_smartsim/MSR/.smartsim/telemetry/logs/smartsim.err"
+  },
+  "runs": [
+    {
+      "run_id": "f6b1012",
+      "timestamp": 1724264537315542933,
+      "model": [],
+      "orchestrator": [
+        {
+          "name": "orchestrator",
+          "type": "redis",
+          "interface": [
+            "hsn0",
+            "hsn1"
+          ],
+          "shards": [
+            {
+              "name": "orchestrator_0",
+              "hostname": "10.201.0.161",
+              "port": 6780,
+              "cluster": false,
+              "conf_file": null,
+              "out_file": "/home/viralss2/nekRS-ML_MSR/examples/parsl_MSR_smartsim/MSR/.smartsim/telemetry/MSR/f6b1012/database/orchestrator/orchestrator_0/orchestrator_0.out",
+              "err_file": "/home/viralss2/nekRS-ML_MSR/examples/parsl_MSR_smartsim/MSR/.smartsim/telemetry/MSR/f6b1012/database/orchestrator/orchestrator_0/orchestrator_0.err",
+              "memory_file": "",
+              "client_file": "",
+              "client_count_file": "",
+              "telemetry_metadata": {
+                "status_dir": "/home/viralss2/nekRS-ML_MSR/examples/parsl_MSR_smartsim/MSR/.smartsim/telemetry/MSR/f6b1012/database/orchestrator/orchestrator_0",
+                "step_id": null,
+                "task_id": "4017831",
+                "managed": false
+              }
+            }
+          ]
+        }
+      ],
+      "ensemble": []
+    }
+  ]
+}

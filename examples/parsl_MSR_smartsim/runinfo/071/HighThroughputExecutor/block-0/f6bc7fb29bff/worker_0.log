@@ -1,0 +1,9 @@
+2024-08-21 17:14:26.301 worker_log:678 3989029 MainThread [INFO]  Worker 0 started
+2024-08-21 17:14:26.302 worker_log:735 3989029 MainThread [INFO]  Set worker CPU affinity to [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63]
+2024-08-21 17:14:26.443 worker_log:763 3989029 MainThread [INFO]  Pinned worker to accelerator: 0,1,2,3
+2024-08-21 17:14:27.503 worker_log:791 3989029 MainThread [INFO]  Received executor task 1
+2024-08-21 17:14:27.572 worker_log:807 3989029 MainThread [INFO]  Completed executor task 1
+2024-08-21 17:14:27.573 worker_log:818 3989029 MainThread [INFO]  All processing finished for executor task 1
+2024-08-21 17:14:27.594 worker_log:791 3989029 MainThread [INFO]  Received executor task 2
+2024-08-21 17:14:27.661 worker_log:807 3989029 MainThread [INFO]  Completed executor task 2
+2024-08-21 17:14:27.662 worker_log:818 3989029 MainThread [INFO]  All processing finished for executor task 2

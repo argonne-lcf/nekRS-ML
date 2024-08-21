@@ -1,5 +1,0 @@
-17:37:33 x3004c0s31b0n0 __main__.nekrs-D2YSWM8P91VX[2010336:MainThread] INFO Indirect proxy 2010336 child process 2010400 started
-17:37:33 x3004c0s31b0n0 __main__.nekrs-D2YSWM8P91VX[2010336:MainThread] INFO Waiting for child process 2010400 to complete
-17:39:18 x3004c0s31b0n0 __main__.nekrs-D2YSWM8P91VX[2010336:MainThread] INFO handling signal 15
-17:39:18 x3004c0s31b0n0 __main__.nekrs-D2YSWM8P91VX[2010336:MainThread] INFO Performing cleanup
-17:39:19 x3004c0s31b0n0 __main__.nekrs-D2YSWM8P91VX[2010336:MainThread] INFO Indirect proxy 2010336 child process None complete. return code: 143

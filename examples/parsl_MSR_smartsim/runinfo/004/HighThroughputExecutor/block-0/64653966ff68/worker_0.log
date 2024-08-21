@@ -1,0 +1,4 @@
+2024-08-19 22:31:58.912 worker_log:678 2999850 MainThread [INFO]  Worker 0 started
+2024-08-19 22:31:58.913 worker_log:735 2999850 MainThread [INFO]  Set worker CPU affinity to [48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63]
+2024-08-19 22:31:59.109 worker_log:754 2999850 MainThread [INFO]  Pinned worker to partitioned cuda device: 0
+2024-08-19 22:31:59.109 worker_log:763 2999850 MainThread [INFO]  Pinned worker to accelerator: 0

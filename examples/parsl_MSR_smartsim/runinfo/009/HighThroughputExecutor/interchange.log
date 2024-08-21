@@ -1,0 +1,10 @@
+2024-08-19 22:41:23.984 interchange:114 MainProcess(3006519) MainThread __init__ [INFO] Attempting connection to client at 127.0.0.1 on ports: 55233,55934,55728
+2024-08-19 22:41:23.985 interchange:126 MainProcess(3006519) MainThread __init__ [INFO] Connected to client
+2024-08-19 22:41:23.987 interchange:157 MainProcess(3006519) MainThread __init__ [INFO] Bound to ports 54817,54764 for incoming worker connections
+2024-08-19 22:41:23.987 interchange:175 MainProcess(3006519) MainThread __init__ [INFO] Platform info: {'parsl_v': '2024.08.05', 'python_v': '3.11.8', 'os': 'Linux', 'hostname': 'x3005c0s37b0n0', 'dir': '/home/viralss2/nekRS-ML_MSR/examples/parsl_MSR_smartsim'}
+2024-08-19 22:41:23.987 interchange:328 MainProcess(3006519) MainThread start [INFO] Starting main interchange method
+2024-08-19 22:41:23.987 interchange:206 MainProcess(3006519) Interchange-Task-Puller task_puller [INFO] Starting
+2024-08-19 22:41:32.640 interchange:424 MainProcess(3006519) MainThread process_task_outgoing_incoming [INFO] Adding manager: b'10a4ce900aae' to ready queue
+2024-08-19 22:41:32.640 interchange:433 MainProcess(3006519) MainThread process_task_outgoing_incoming [INFO] Registration info for manager b'10a4ce900aae': {'type': 'registration', 'parsl_v': '2024.08.05', 'python_v': '3.11.8', 'worker_count': 1, 'uid': '10a4ce900aae', 'block_id': '0', 'start_time': 1724107292.0668797, 'prefetch_capacity': 0, 'max_capacity': 1, 'os': 'Linux', 'hostname': 'x3005c0s37b0n0', 'dir': '/home/viralss2/nekRS-ML_MSR/examples/parsl_MSR_smartsim', 'cpu_count': 32, 'total_memory': 540304736256}
+2024-08-19 22:41:32.640 interchange:451 MainProcess(3006519) MainThread process_task_outgoing_incoming [INFO] Manager b'10a4ce900aae' has compatible Parsl version 2024.08.05
+2024-08-19 22:41:32.640 interchange:452 MainProcess(3006519) MainThread process_task_outgoing_incoming [INFO] Manager b'10a4ce900aae' has compatible Python version 3.11

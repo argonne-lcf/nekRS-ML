@@ -1,0 +1,7 @@
+2024-08-21 19:58:07.806 worker_log:678 2758086 MainThread [INFO]  Worker 0 started
+2024-08-21 19:58:07.808 worker_log:791 2758086 MainThread [INFO]  Received executor task 1
+2024-08-21 19:58:09.813 worker_log:807 2758086 MainThread [INFO]  Completed executor task 1
+2024-08-21 19:58:09.813 worker_log:818 2758086 MainThread [INFO]  All processing finished for executor task 1
+2024-08-21 19:58:09.814 worker_log:791 2758086 MainThread [INFO]  Received executor task 3
+2024-08-21 19:58:11.815 worker_log:807 2758086 MainThread [INFO]  Completed executor task 3
+2024-08-21 19:58:11.815 worker_log:818 2758086 MainThread [INFO]  All processing finished for executor task 3

@@ -1,0 +1,47 @@
+2024-08-21 17:14:04.127 parsl:914 3988582 MainThread [INFO]  Python version: 3.11.8 | packaged by conda-forge | (main, Feb 16 2024, 20:53:32) [GCC 12.3.0]
+2024-08-21 17:14:04.128 parsl:915 3988582 MainThread [INFO]  Debug logging: False
+2024-08-21 17:14:04.128 parsl:916 3988582 MainThread [INFO]  Certificates dir: None
+2024-08-21 17:14:04.128 parsl:917 3988582 MainThread [INFO]  Log dir: /home/viralss2/nekRS-ML_MSR/examples/parsl_MSR_smartsim/runinfo/070/HighThroughputExecutor
+2024-08-21 17:14:04.128 parsl:918 3988582 MainThread [INFO]  Manager ID: f2257771db48
+2024-08-21 17:14:04.128 parsl:919 3988582 MainThread [INFO]  Block ID: 0
+2024-08-21 17:14:04.128 parsl:920 3988582 MainThread [INFO]  cores_per_worker: 1.0
+2024-08-21 17:14:04.128 parsl:921 3988582 MainThread [INFO]  mem_per_worker: None
+2024-08-21 17:14:04.128 parsl:922 3988582 MainThread [INFO]  task_port: 54191
+2024-08-21 17:14:04.128 parsl:923 3988582 MainThread [INFO]  result_port: 54939
+2024-08-21 17:14:04.128 parsl:924 3988582 MainThread [INFO]  addresses: 10.140.56.175
+2024-08-21 17:14:04.128 parsl:925 3988582 MainThread [INFO]  max_workers_per_node: inf
+2024-08-21 17:14:04.128 parsl:926 3988582 MainThread [INFO]  poll_period: 10
+2024-08-21 17:14:04.128 parsl:927 3988582 MainThread [INFO]  address_probe_timeout: 30
+2024-08-21 17:14:04.128 parsl:928 3988582 MainThread [INFO]  Prefetch capacity: 0
+2024-08-21 17:14:04.128 parsl:929 3988582 MainThread [INFO]  Heartbeat threshold: 120
+2024-08-21 17:14:04.128 parsl:930 3988582 MainThread [INFO]  Heartbeat period: 30
+2024-08-21 17:14:04.128 parsl:931 3988582 MainThread [INFO]  Drain period: None
+2024-08-21 17:14:04.128 parsl:932 3988582 MainThread [INFO]  CPU affinity: block-reverse
+2024-08-21 17:14:04.129 parsl:933 3988582 MainThread [INFO]  Accelerators: 0,1,2,3
+2024-08-21 17:14:04.129 parsl:934 3988582 MainThread [INFO]  enable_mpi_mode: False
+2024-08-21 17:14:04.129 parsl:935 3988582 MainThread [INFO]  mpi_launcher: mpiexec
+2024-08-21 17:14:04.129 parsl:151 3988582 MainThread [INFO]  Manager initializing
+2024-08-21 17:14:04.139 parsl.executors.high_throughput.probe:49 3988582 MainThread [INFO]  Connected to interchange on 10.140.56.175
+2024-08-21 17:14:04.140 parsl:160 3988582 MainThread [INFO]  Connection to Interchange successful on 10.140.56.175
+2024-08-21 17:14:04.140 parsl:163 3988582 MainThread [INFO]  Task url : tcp://10.140.56.175:54191
+2024-08-21 17:14:04.140 parsl:164 3988582 MainThread [INFO]  Result url : tcp://10.140.56.175:54939
+2024-08-21 17:14:04.140 parsl:183 3988582 MainThread [INFO]  Manager connected to interchange
+2024-08-21 17:14:04.714 parsl:254 3988582 MainThread [INFO]  Manager will spawn 1 workers
+2024-08-21 17:14:04.716 parsl:306 3988582 Task-Puller [INFO]  starting
+2024-08-21 17:14:04.718 parsl:536 3988582 MainThread [INFO]  Manager threads started
+2024-08-21 17:14:34.726 parsl:418 3988582 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724260444.7168348 heartbeat_period=30 seconds
+2024-08-21 17:15:04.733 parsl:418 3988582 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724260474.7266939 heartbeat_period=30 seconds
+2024-08-21 17:15:34.735 parsl:418 3988582 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724260504.733152 heartbeat_period=30 seconds
+2024-08-21 17:16:04.740 parsl:418 3988582 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724260534.7354653 heartbeat_period=30 seconds
+2024-08-21 17:16:34.743 parsl:418 3988582 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724260564.7407339 heartbeat_period=30 seconds
+2024-08-21 17:17:04.743 parsl:418 3988582 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724260594.7432587 heartbeat_period=30 seconds
+2024-08-21 17:17:34.745 parsl:418 3988582 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724260624.743893 heartbeat_period=30 seconds
+2024-08-21 17:18:04.753 parsl:418 3988582 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724260654.74622 heartbeat_period=30 seconds
+2024-08-21 17:18:34.756 parsl:418 3988582 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724260684.753774 heartbeat_period=30 seconds
+2024-08-21 17:19:04.762 parsl:418 3988582 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724260714.7562714 heartbeat_period=30 seconds
+2024-08-21 17:19:34.769 parsl:418 3988582 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724260744.7628312 heartbeat_period=30 seconds
+2024-08-21 17:20:04.772 parsl:418 3988582 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724260774.769971 heartbeat_period=30 seconds
+2024-08-21 17:20:34.772 parsl:418 3988582 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724260804.7725568 heartbeat_period=30 seconds
+2024-08-21 17:21:04.778 parsl:418 3988582 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724260834.773096 heartbeat_period=30 seconds
+2024-08-21 17:21:34.782 parsl:418 3988582 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724260864.7783992 heartbeat_period=30 seconds
+2024-08-21 17:22:04.783 parsl:418 3988582 Result-Pusher [INFO]  Sending heartbeat via results connection: last_result_beat=1724260894.7827792 heartbeat_period=30 seconds
