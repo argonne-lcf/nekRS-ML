@@ -5,9 +5,9 @@ set -e -a
 
 if [ -z ${CC} ] || [ -z ${CXX}  ] || [ -z ${FC}  ]; then
   echo -e "\033[31mWARNING: env-var CC, CXX or FC is not set!\033[m"
-  export CC=cc
-  export CXX=CC
-  export FC=ftn
+  export CC=mpicc
+  export CXX=mpic++
+  export FC=mpif77
   read -p         "Press ENTER to continue with CC=$CC CXX=$CXX FC=$FC or ctrl-c to cancel" 
 fi
 

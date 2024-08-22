@@ -1,12 +1,14 @@
-module restore
-module swap PrgEnv-nvhpc PrgEnv-gnu
-module load cudatoolkit-standalone
-module load cmake
-#module load nvhpc-mixed/21.9
-#module unload cray-libsci
+#!/bin/bash
+set -e -a
 
-export CRAY_ACCEL_TARGET=nvidia80
-export MPICH_GPU_SUPPORT_ENABLED=1
+#... load the necessary modules here ...
+module restore
+module use /soft/modulefiles
+module load PrgEnv-gnu
+module load nvhpc-mixed/23.9
+module load craype-accel-nvidia80
+module load craype-x86-milan
+module load spack-pe-base cmake
 
 echo $(cc --version)
 echo $(CC --version)
@@ -15,8 +17,6 @@ echo $(gcc --version)
 echo $(g++ --version)
 echo $(gfortran --version)
 
+#... set some environment variables
 export NEKRS_HOME=$PWD/install_dir/nekrs
-export PATH=$NEKRS_HOME/bin:$PATH
- 
-export NEK5000_HOME=/lus/eagle/projects/datascience/sbarwey/codes/nek/Nek5000
-export PATH=$NEK5000_HOME/bin:$PATH
+export PATH=$NEKRS_HOME/bin:$PATH 
