@@ -9,6 +9,31 @@ void gnn_t::get_edge_index()
     if (verbose) printf("[RANK %d] -- in get_edge_index() \n", rank);
 }
 
+// NOTE: this assumes graphNodes is already populated. 
+// Call this right after get_graph_nodes() if element-local connectivity is needed.  
+void gnn_t::get_graph_nodes_element()
+{
+    if (verbose) printf("[RANK %d] -- in get_graph_nodes_element() \n", rank);
+
+    // Create data `
+    int Nq = mesh->Nq; // (Nq = poly_order + 1)
+    int edge_cnt = 0;
+    int node_cnt = 0;
+
+    // Copy connectivity for only the first element into graphNodes_element
+    for (int i = 0; i < mesh->Np; i++)
+    {
+        int num_nbr = graphNodes[i].nbrIds.size();
+        dlong idx_own = graphNodes[i].localId;
+        graphNodes_element[i].localId = idx_own; 
+        for (int j = 0; j < num_nbr; j++)
+        {               
+            dlong idx_nei = graphNodes[i].nbrIds[j];  
+            graphNodes_element[i].nbrIds.push_back(idx_nei);
+        }   
+    }
+}
+
 void gnn_t::get_graph_nodes()
 {
 	if (verbose) printf("[RANK %d] -- in get_graph_nodes() \n", rank);
