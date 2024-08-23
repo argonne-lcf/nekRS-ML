@@ -1,0 +1,24 @@
+#!/bin/bash
+module restore
+module use /soft/modulefiles
+module load PrgEnv-gnu
+module load nvhpc-mixed/23.9
+module load craype-accel-nvidia80
+module load cudatoolkit-standalone/12.5.0
+module load craype-x86-milan
+module load spack-pe-base cmake
+module list
+nvidia-smi
+ulimit -s unlimited 
+export NEKRS_HOME=/lus/eagle/projects/datascience/sbarwey/codes/nek/nekRS-ML-GNN/examples/tgv_gnn/../../install_dir/nekrs
+export NEKRS_GPU_MPI=1
+export MPICH_MPIIO_HINTS=*:striping_unit=16777216:striping_factor=1:romio_cb_write=enable:romio_ds_write=disable:romio_no_indep_rw=true
+export MPICH_MPIIO_STATS=1
+export NEKRS_CACHE_BCAST=1
+export NEKRS_LOCAL_TMP_DIR=/local/scratch
+export MPICH_GPU_SUPPORT_ENABLED=1
+export MPICH_OFI_NIC_POLICY=NUMA
+export FI_OFI_RXM_RX_SIZE=65536
+export FI_CXI_RX_MATCH_MODE=hybrid
+mpiexec -n 1 ${NEKRS_HOME}/bin/nekrs --setup tgv --backend CUDA --device-id 0 --build-only 4
+mpiexec -n 4 -ppn 4 -d 8 --cpu-bind depth ./.lhelper

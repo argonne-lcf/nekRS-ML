@@ -1,0 +1,4 @@
+#!/bin/bash
+gpu_id=$((4 - 1 - ${PMI_LOCAL_RANK} % 4))
+export CUDA_VISIBLE_DEVICES=$gpu_id
+/lus/eagle/projects/datascience/sbarwey/codes/nek/nekRS-ML-GNN/examples/tgv_gnn/../../install_dir/nekrs/bin/nekrs --setup tgv --backend CUDA --device-id 0
