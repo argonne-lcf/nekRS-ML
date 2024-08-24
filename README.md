@@ -71,8 +71,8 @@ The above commmand will use 4 GPUs to run the `tgv_gnn` example using a p=1 poly
 ### GNN Plugin Outputs (`gnn_outputs`)
 After the run is completed, the GNN plugin will have created the `gnn_outputs_poly_1` directory, per the polynomial order of 1 specified in the `tgv.par` file. If the code is re-run with a polynomial order of 5, new files will be written to a directory called `gnn_outputs_poly_5`, to emphasize the point that graphs constructed with different element polynomial orders are different. In what is described below, without loss of generality, the focus will be placed on the p=1 case. A snippet of the contents of `gnn_outputs_poly_1` is provided here, which contains the sub-graph (along with other) info for each of the four participating ranks: 
 ```bash
-# Seeing the contents of gnn_outputs
-$ ls gnn_outputs
+# Seeing the contents of gnn_outputs_poly_1
+$ ls gnn_outputs_poly_1
 edge_index_element_local_rank_0_size_4         fld_u_time_0.0_rank_2_size_4.bin     node_element_ids_rank_0_size_4.bin
 edge_index_element_local_rank_1_size_4         fld_u_time_0.0_rank_3_size_4.bin     node_element_ids_rank_1_size_4.bin
 edge_index_element_local_rank_2_size_4         global_ids_rank_0_size_4.bin         node_element_ids_rank_2_size_4.bin
@@ -108,7 +108,7 @@ As seen in the UDF file via `UDF_ExecuteStep`, when the solver reaches the last 
 
 ## Offline Training Example
 #### Producing the Files Required for Consistent GNN Training/Inference
-The Python component for GNN training is located in `3rd_party/gnn`. The GNN model is defined in `gnn.py`. The config file is located in `conf/config.yaml` -- the GNN in this demo is configured for the "large" model setting described in the paper. 
+The Python component for GNN training is located in `3rd_party/gnn`. The main code containing the setup and training loop is found in `main.py`, and the GNN model is defined in `gnn.py`. The config file is located in `conf/config.yaml` -- the GNN in this demo is configured for the "large" model setting described in the paper. 
 
 Before executing training iterations, a preprocessing step is required, which parses the graphs described above and appends to the `gnn_outputs_poly_1` folder an additional set of files (for each rank) containing the halo node information. These additional files define the halo nodes and facilitate the halo exchanges across sub-graph boundaries. To produce these files, run the following on an interactive node:
 ```
@@ -123,7 +123,7 @@ Again, on the same interactive node, iterations of GNN training (configured in t
 ```
 ./run_gnn_polaris.sh
 ```
-This is set up to run 50 training iterations for the GNN using all 4 GPUs on the Polaris node, consistent with the number of ranks used to run the `tgv_gnn` example case. Upon executing the script, an initialization step is carried out to parse the files conatined in the `examples/tgv_gnn/gnn_outputs_poly_1` directory. Training commences after this step. Each rank executes the GNN forward pass on its own local sub-graph (equivalent to its sub-domain mesh). The halo exchange setting is specified using the `halo_swap_mode` input. When looking at `run_gnn_polaris.sh`, it can be seen that the `all_to_all_opt` setting is utilized (refer to the paper for details on the various options. Additional options (commented-out) for the halo exchange include `none` (resulting in an inconsistent GNN formulation) and `all_to_all` (the standard but sub-optimal buffer configuration for the all-to-all operation).   
+This is set up to run 50 training iterations for the GNN using all 4 GPUs on the Polaris node, consistent with the number of ranks used to run the `tgv_gnn` example case. Upon executing the script, an initialization step is carried out to parse the files contained in the `examples/tgv_gnn/gnn_outputs_poly_1` directory. Training commences after this step. Each rank executes the GNN forward pass on its own local sub-graph (equivalent to its sub-domain mesh). The halo exchange setting is specified using the `halo_swap_mode` input. When looking at `run_gnn_polaris.sh`, it can be seen that the `all_to_all_opt` setting is utilized (refer to the paper for details on the various options. Additional options (commented-out) for the halo exchange include `none` (resulting in an inconsistent GNN formulation) and `all_to_all` (the standard but sub-optimal buffer configuration for the all-to-all operation).   
 
 ## License
 nekRS is released under the BSD 3-clause license (see `LICENSE` file). 
