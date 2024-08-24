@@ -129,7 +129,8 @@ This is set up to run 50 training iterations for the GNN using all 4 GPUs on the
 nekRS is released under the BSD 3-clause license (see `LICENSE` file). 
 All new contributions must be made under the BSD 3-clause license.
 
-## Citing nekRS
+## Citing this work
+Consistent GNN paper, describing the methodology and scaling: FORTHCOMING 
 [NekRS, a GPU-Accelerated Spectral Element Navier-Stokes Solver](https://www.sciencedirect.com/science/article/abs/pii/S0167819122000710) 
 
 ## Acknowledgment
