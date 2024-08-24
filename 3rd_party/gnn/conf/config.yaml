@@ -1,13 +1,10 @@
 # @package _global_
-profile: False
-halo_test: False
 verbose: True
 seed: 12
 epochs: 50
 backend: nccl
 lr_init: 0.0001
 # momentum: 0.5
-use_noise : True
 num_threads: 0
 logfreq: 10
 ckptfreq: 1000
@@ -23,14 +20,8 @@ hidden_channels: 32
 n_mlp_hidden_layers: 5 
 n_messagePassing_layers: 4
 
-# Number of training rollout steps
-rollout_steps: 1
-
 # Halo swap mode 
 halo_swap_mode : none
-
-# plotting the connecivity (can take some time)
-plot_connectivity : False
 
 hydra:
   job:
@@ -55,4 +46,4 @@ model_dir: ${work_dir}/saved_models/
 profile_dir: ${work_dir}/outputs/profiles/test/ 
 
 # Polaris 
-gnn_outputs_path: /lus/eagle/projects/datascience/sbarwey/codes/nek/nekRS-ML-GNN/examples/tgv_gnn/gnn_outputs_poly_1/ 
+gnn_outputs_path: /my_nekRS_dir/examples/tgv_gnn/gnn_outputs_poly_1/ 

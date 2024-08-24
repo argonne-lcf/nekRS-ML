@@ -58,9 +58,8 @@ except ModuleNotFoundError as e:
 # Models
 import gnn
 
-# Graph connectivity/plotting 
+# Graph connectivity
 import graph_connectivity as gcon
-import graph_plotting as gplot
 
 log = logging.getLogger(__name__)
 
@@ -335,12 +334,7 @@ class Trainer:
     def build_model(self) -> nn.Module:
         if RANK == 0:
             log.info('In build_model...')
-
         sample = self.data['train']['example'] 
-
-        # # Toy model 
-        # model = gnn.toy_gnn_distributed(halo_swap_mode = self.cfg.halo_swap_mode,
-        #                                 name = 'TOY_RANK_%d_SIZE_%d' %(RANK,SIZE))
 
         # Get the polynomial order -- for naming the model  
         try:
@@ -361,17 +355,7 @@ class Trainer:
         halo_swap_mode = self.cfg.halo_swap_mode
         name = 'POLY_%d_RANK_%d_SIZE_%d_SEED_%d' %(poly,RANK,SIZE,self.cfg.seed) 
 
-        # # Full model -- old 
-        # model = gnn.mp_gnn_distributed(input_node_channels, 
-        #                    hidden_channels, 
-        #                    output_node_channels, 
-        #                    [n_mlp_hidden_layers + 1]*3,
-        #                    n_messagePassing_layers, 
-        #                    activation = F.elu,
-        #                    halo_swap_mode= halo_swap_mode, 
-        #                    name=name)
-
-        # Full model -- new 
+        # Full model
         model = gnn.DistributedGNN(input_node_channels,
                            input_edge_channels,
                            hidden_channels,
@@ -393,8 +377,6 @@ class Trainer:
         """
         DDP: scale learning rate by the number of GPUs
         """
-        # optimizer = optim.Adam(model.parameters(),
-        #                        lr=SIZE * self.cfg.lr_init)
         optimizer = optim.Adam(model.parameters(),
                                lr=self.cfg.lr_init)
 
@@ -450,9 +432,6 @@ class Trainer:
         """
         mask_send = [torch.tensor([])] * SIZE
         mask_recv = [torch.tensor([])] * SIZE
-
-        #mask_send = [None] * SIZE
-        #mask_recv = [None] * SIZE
 
         if SIZE > 1: 
             #n_nodes_local = self.data.n_nodes_internal + self.data.n_nodes_halo
@@ -568,24 +547,6 @@ class Trainer:
         dist.gather(input_tensor, gather_list, dst=0)
         return gather_list
 
-    # def gather_node_tensor(self, input_tensor, dst=0, dtype=torch.float32):
-    #     """
-    #     Gathers node-based tensor into root proc. Shape is [n_internal_nodes, n_features] 
-    #     NOTE: input tensor on all ranks should correspond to INTERNAL nodes (exclude halo nodes) 
-    #     n_internal_nodes can vary for each proc, but n_features must be the same 
-    #     """
-    #     # torch.distributed.gather(tensor, gather_list=None, dst=0, group=None, async_op=False)
-    #     n_features = input_tensor.shape[1]
-    #     gather_list = None
-    #     if RANK == 0:
-    #         gather_list = [None] * SIZE
-    #         for i in range(SIZE):
-    #             gather_list[i] = torch.empty([self.n_nodes_internal_procs[i], n_features],
-    #                                          dtype=dtype,
-    #                                          device=DEVICE_ID)
-    #     dist.gather(input_tensor, gather_list, dst=0)
-    #     return gather_list 
-        
     def setup_local_graph(self):
         """
         Load in the local graph
@@ -603,7 +564,7 @@ class Trainer:
         if self.cfg.verbose: log.info('[RANK %d]: Loading positions and global node index' %(RANK))
         pos = np.fromfile(path_to_pos_full + ".bin", dtype=np.float64).reshape((-1,3))
         pos = pos.astype(NP_FLOAT_DTYPE)
-        pos = np.cos(pos) # SB: positional encoding for periodic case 
+        pos = np.cos(pos) # cos positional encoding (for periodic case)
 
         gli = np.fromfile(path_to_glob_ids + ".bin", dtype=np.int64).reshape((-1,1))
 
@@ -750,10 +711,6 @@ class Trainer:
         data_temp.x = torch.cat((data_temp.x, data_x_halo), dim=0)
         data_temp.y = torch.cat((data_temp.y, data_y_halo), dim=0)
         data_temp.pos = torch.cat((data_temp.pos, pos_halo), dim=0)
-        #data_temp.node_degree = torch.cat((data_temp.node_degree, node_degree_halo), dim=0)
-        #data_temp.edge_index = torch.cat((data_temp.edge_index, edge_index_halo), dim=1)
-        #data_temp.edge_weight = torch.cat((data_temp.edge_weight, edge_weight_halo), dim=0)
-        #data_temp.edge_weight_temp = data_temp.edge_weight
 
         # Populate edge_attrs
         cart = torch_geometric.transforms.Cartesian(norm=False, max_value = None, cat = False)
@@ -766,7 +723,7 @@ class Trainer:
         n_train = len(data_train_list) # should be 1
        
         train_dataset = data_train_list
-        test_dataset = data_train_list # no test dataset right now 
+        test_dataset = data_train_list # no test dataset in this example
 
         # No need for distributed sampler -- create standard dataset loader  
         train_loader = torch_geometric.loader.DataLoader(train_dataset, batch_size=self.cfg.batch_size, shuffle=False)
@@ -923,13 +880,6 @@ class Trainer:
         loss.backward()
         self.timers['backwardPass'][self.timer_step] = time.time() - self.timers['backwardPass'][self.timer_step]
 
-        #if SIZE == 1:
-        #    model = self.model 
-        #else:
-        #    model = self.model.module 
-        #for p in model.parameters():
-        #    p.grad = 0.1 * SIZE * torch.ones_like(p.grad)  # or whatever other operation
-
         self.timers['optimizerStep'][self.timer_step] = time.time()
         self.optimizer.step()
         self.timers['optimizerStep'][self.timer_step] = time.time() - self.timers['optimizerStep'][self.timer_step]
@@ -937,237 +887,8 @@ class Trainer:
         # Update timers 
         if self.timer_step < self.timer_step_max - 1:
             self.timer_step += 1
-        #if self.timer_step < self.timer_step_max - 1:
-        #    self.update_timers()
-        #    self.timer_step += 1
-        #else: # write timers 
-        #    savepath = self.cfg.profile_dir
-        #    if RANK == 0:
-        #        if not os.path.exists(savepath):
-        #            os.makedirs(savepath)
-        #    COMM.Barrier()
-        #    torch.save(self.timers, savepath + '/timers_%s.tar' %(model.get_save_header()))
-        #    torch.save(self.timers_max, savepath + '/timers_max_%s.tar' %(model.get_save_header()))
-        #    torch.save(self.timers_min, savepath + '/timers_min_%s.tar' %(model.get_save_header()))
-        #    torch.save(self.timers_avg, savepath + '/timers_avg_%s.tar' %(model.get_save_header()))
-
+        
         return loss 
-
-    def train_step_verification(self, data: DataBatch) -> Tensor:
-        loss = torch.tensor([0.0])
-        
-        if WITH_CUDA or WITH_XPU:
-            data.x = data.x.to(self.device) 
-            data.y = data.y.to(self.device)
-            data.edge_index = data.edge_index.to(self.device)
-            data.edge_weight = data.edge_weight.to(self.device)
-            data.edge_attr = data.edge_attr.to(self.device)
-            data.batch = data.batch.to(self.device) if data.batch is not None else None
-            data.halo_info = data.halo_info.to(self.device)
-            data.node_degree = data.node_degree.to(self.device)
-            loss = loss.to(self.device)
-                    
-        self.optimizer.zero_grad()
-        
-        out_gnn = self.model(x = data.x,
-                             edge_index = data.edge_index,
-                             edge_attr = data.edge_attr,
-                             edge_weight = data.edge_weight,
-                             halo_info = data.halo_info,
-                             mask_send = self.mask_send,
-                             mask_recv = self.mask_recv,
-                             buffer_send = self.buffer_send,
-                             buffer_recv = self.buffer_recv,
-                             neighboring_procs = self.neighboring_procs,
-                             SIZE = SIZE,
-                             batch = data.batch)
-
-        # Accumulate loss
-        target = data.x
-
-        # Toy loss: evaluate at all of the nodes 
-        n_nodes_local = data.n_nodes_local
-
-        if SIZE == 1:
-            loss = self.loss_fn(out_gnn[:n_nodes_local], target[:n_nodes_local])
-            effective_nodes = n_nodes_local 
-        else: # custom 
-            n_output_features = out_gnn.shape[1]
-            squared_errors_local = torch.pow(out_gnn[:n_nodes_local] - target[:n_nodes_local], 2)
-            squared_errors_local = squared_errors_local/data.node_degree[:n_nodes_local].unsqueeze(-1)
-
-            sum_squared_errors_local = squared_errors_local.sum()
-            effective_nodes_local = torch.sum(1.0/data.node_degree[:n_nodes_local])
-
-            effective_nodes = distnn.all_reduce(effective_nodes_local)
-            sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
-            loss = (1.0/(effective_nodes*n_output_features)) * sum_squared_errors
-
-        
-        #loss.backward()
-        #self.optimizer.step()
-
-        # Scaled sum of input node features 
-        x_scaled = data.x[:n_nodes_local, :]/data.node_degree[:n_nodes_local].unsqueeze(-1)
-        sum_x_scaled = x_scaled.sum(axis=0)
-        total_sum_x_scaled = distnn.all_reduce(sum_x_scaled)
-
-        # Scaled sum of output node features 
-        y_scaled = out_gnn[:n_nodes_local, :].detach()/data.node_degree[:n_nodes_local].unsqueeze(-1) 
-        sum_y_scaled = y_scaled.sum(axis=0)
-        total_sum_y_scaled = distnn.all_reduce(sum_y_scaled)
-
-        # Scaled sum of positions 
-        pos_scaled = data.pos[:n_nodes_local, :]/data.node_degree[:n_nodes_local].unsqueeze(-1)
-        sum_pos_scaled = pos_scaled.sum(axis=0)
-        total_sum_pos_scaled = distnn.all_reduce(sum_pos_scaled)
-
-        # Sum of n_nodes_local 
-        n_nodes = distnn.all_reduce(n_nodes_local)
-
-        # Edge weights 
-        n_edges_local = torch.tensor(data.edge_index.shape[1])
-        n_edges = distnn.all_reduce(n_edges_local)
-        effective_edges_local = torch.tensor(data.edge_weight.sum())
-        effective_edges = distnn.all_reduce(effective_edges_local)
-
-        log.info('[RANK %d] Loss: %g' %(RANK, loss.item()))
-        #log.info('[RANK %d] QoI in scaled: %g' %(RANK, total_sum_x_scaled.item()))
-        log.info(f'[RANK {RANK}] : Input dtype : {data.x.dtype}')
-        log.info(f'[RANK {RANK}] : Output dtype : {out_gnn.dtype}')
-        log.info(f'[RANK {RANK}] : QoI in scaled : {total_sum_x_scaled}')
-        log.info(f'[RANK {RANK}] : QoI out scaled : {total_sum_y_scaled}')
-        log.info('[RANK %d] n_nodes total: %g \t effective_nodes: %g' %(RANK, n_nodes.item(), effective_nodes.item()))
-        log.info('[RANK %d] ei_edges_local: %g \t ei_edges total: %g' %(RANK, n_edges_local.item(), n_edges.item()))
-        log.info('[RANK %d] effective_edges_local: %g \t effective_edges total: %g' %(RANK, effective_edges_local.item(), effective_edges.item()))
-        #log.info('[RANK %d] Effective nodes: %g' %(RANK, effective_nodes.item()))
-        #log.info('[RANK %d] QoI out: %g' %(RANK, qoi_out.item()))
-
-        # Print the backward gradient   
-        if SIZE == 1:
-            model = self.model 
-        else:
-            model = self.model.module 
-
-        # loop through model parameters 
-        grad_dict = {name: param.grad for name, param in model.named_parameters()}
-        grad_dict["loss"] = loss.item()
-        grad_dict["total_sum_x_scaled"] = total_sum_x_scaled
-        grad_dict["total_sum_y_scaled"] = total_sum_y_scaled
-        grad_dict["total_sum_pos_scaled"] = total_sum_pos_scaled
-        grad_dict["effective_nodes"] = effective_nodes
-        grad_dict["effective_edges"] = effective_edges
-
-        if (TORCH_FLOAT_DTYPE == torch.float64):
-            path_desc = 'float64'
-        else:
-            path_desc = 'float32'
-        
-        savepath = self.cfg.work_dir + '/outputs/postproc/real_gnn_test_4/periodic_after_fix_edges_2/gradient_data_gpu_nondeterministic_POLARIS/tgv_poly_1/%s' %(path_desc)
-
-        # if path doesnt exist, make it 
-        if RANK == 0:
-            if not os.path.exists(savepath):
-                os.makedirs(savepath)
-                print("Directory created by root processor.")
-            else:
-                print("Directory already exists.")
-
-        # Synchronize all processors
-        COMM.Barrier()
-        
-        torch.save(grad_dict, savepath + '/%s.tar' %(model.get_save_header()))
-       
-        force_abort()
-        return loss 
-
-    def train_step_profile(self):
-        self.model.train()
-        skip = 5
-        wait = 1
-        warmup = 1
-        active = 5
-
-        # with torch.no_grad(): 
-        with profile(
-                activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-                schedule=torch.profiler.schedule(
-                    skip_first=skip,
-                    wait=wait,
-                    warmup=warmup,
-                    active=active),
-                record_shapes=True,
-                profile_memory=True,
-                with_stack=True,
-                #on_trace_ready=trace_handler
-            ) as prof:
-
-            for idx in range(skip+wait+warmup+active): 
-                # log.info(f"\t[RANK {RANK}] -- step {idx}")
-                data = self.data['train']['example']
-
-                loss = torch.tensor([0.0])
-                if WITH_CUDA or WITH_XPU:
-                    data.x = data.x.to(self.device) 
-                    #data.y = data.y.to(self.device)
-                    data.edge_index = data.edge_index.to(self.device)
-                    data.edge_weight = data.edge_weight.to(self.device)
-                    data.edge_attr = data.edge_attr.to(self.device)
-                    data.batch = data.batch.to(self.device) if data.batch is not None else None
-                    data.halo_info = data.halo_info.to(self.device)
-                    data.node_degree = data.node_degree.to(self.device)
-                    loss = loss.to(self.device)
-
-                self.optimizer.zero_grad()
-
-                # re-allocate send buffer 
-                if self.cfg.halo_swap_mode != 'none':
-                    for i in range(SIZE):
-                        self.buffer_send[i] = torch.zeros_like(self.buffer_send[i])
-                        self.buffer_recv[i] = torch.zeros_like(self.buffer_recv[i])
-                else:
-                    buffer_send = None
-                    buffer_recv = None
-                
-                with record_function(f"forward_pass"):
-                    out_gnn = self.model(x = data.x,
-                                         edge_index = data.edge_index,
-                                         edge_attr = data.edge_attr,
-                                         edge_weight = data.edge_weight,
-                                         halo_info = data.halo_info,
-                                         mask_send = self.mask_send,
-                                         mask_recv = self.mask_recv,
-                                         buffer_send = self.buffer_send,
-                                         buffer_recv = self.buffer_recv,
-                                         neighboring_procs = self.neighboring_procs,
-                                         SIZE = SIZE,
-                                         batch = data.batch)
-
-                with record_function(f"loss"):
-                    target = data.x
-                    n_nodes_local = data.n_nodes_local
-                    if SIZE == 1:
-                        loss = self.loss_fn(out_gnn[:n_nodes_local], target[:n_nodes_local])
-                        effective_nodes = n_nodes_local
-                    else: # custom
-                        n_output_features = out_gnn.shape[1]
-                        squared_errors_local = torch.pow(out_gnn[:n_nodes_local] - target[:n_nodes_local], 2)
-                        squared_errors_local = squared_errors_local/data.node_degree[:n_nodes_local].unsqueeze(-1)
-                        sum_squared_errors_local = squared_errors_local.sum()
-                        effective_nodes_local = torch.sum(1.0/data.node_degree[:n_nodes_local])
-                        effective_nodes = distnn.all_reduce(effective_nodes_local)
-                        sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
-                        loss = (1.0/(effective_nodes*n_output_features)) * sum_squared_errors
-
-                with record_function(f"backward_pass"):
-                     loss.backward()
-
-                self.optimizer.step()
-
-                # Step the profiler 
-                prof.step()
-
-        return prof
 
     def train_epoch(self, epoch: int) -> dict:
         self.model.train()
@@ -1186,7 +907,6 @@ class Trainer:
         #train_sampler.set_epoch(epoch)
 
         for bidx, data in enumerate(train_loader):
-            #loss = self.train_step_verification(data)
             start = time.time()
             loss = self.train_step(data)
             running_loss += loss
@@ -1281,8 +1001,6 @@ class Trainer:
         torch.save(a, savepath + '/%s.tar' %(model.get_save_header())) 
         
         return 
-
-
 
 def train(cfg: DictConfig) -> None:
     start = time.time()
@@ -1420,41 +1138,6 @@ def train(cfg: DictConfig) -> None:
         
         torch.save(save_dict, trainer.model_path)
 
-    # Plot connectivity
-    if (cfg.plot_connectivity):
-        gplot.plot_graph(trainer.data['train']['example'], RANK, cfg.work_dir)
-
-    return 
-
-
-def train_profile(cfg: DictConfig) -> None:
-    trainer = Trainer(cfg)
-
-    # Run a bunch of train steps 
-    prof = trainer.train_step_profile()
-
-    if RANK == 0:
-        print(prof.key_averages().table(sort_by="self_cuda_time_total", row_limit=20))
-
-    # save profiler data 
-    if SIZE == 1:
-        model = trainer.model
-    else:
-        model = trainer.model.module
-
-    # if path doesnt exist, make it 
-    savepath = cfg.profile_dir
-    if RANK == 0:
-        if not os.path.exists(savepath):
-            os.makedirs(savepath)
-            print("Directory created by root processor.")
-        else:
-            print("Directory already exists.")
-    COMM.Barrier()
-
-    torch.save(prof.key_averages(), savepath + '/%s.tar' %(model.get_save_header()))
-    prof.export_chrome_trace(f"/eagle/datascience/balin/Nek/GNN/GNN/NekRS-ML/runs/polaris/none/4_torch_prof/trace_{RANK}.json")
-
     return 
 
 @hydra.main(version_base=None, config_path='./conf', config_name='config')
@@ -1468,11 +1151,7 @@ def main(cfg: DictConfig) -> None:
         print(OmegaConf.to_yaml(cfg)) 
         print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
 
-    if cfg.profile: 
-        train_profile(cfg)
-    else: 
-        train(cfg)
-
+    train(cfg)
     cleanup()
 
 if __name__ == '__main__':
