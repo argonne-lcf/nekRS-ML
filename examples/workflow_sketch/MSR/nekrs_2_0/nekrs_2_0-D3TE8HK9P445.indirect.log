@@ -1,4 +1,0 @@
-16:40:25 x3004c0s1b0n0 __main__.nekrs_2_0-D3TE8HK9P445[1894318:MainThread] INFO Indirect proxy 1894318 child process 1894636 started
-16:40:25 x3004c0s1b0n0 __main__.nekrs_2_0-D3TE8HK9P445[1894318:MainThread] INFO Waiting for child process 1894636 to complete
-16:40:51 x3004c0s1b0n0 __main__.nekrs_2_0-D3TE8HK9P445[1894318:MainThread] INFO Indirect proxy 1894318 child process 1894636 complete. return code: 0
-16:40:51 x3004c0s1b0n0 __main__.nekrs_2_0-D3TE8HK9P445[1894318:MainThread] INFO Performing cleanup

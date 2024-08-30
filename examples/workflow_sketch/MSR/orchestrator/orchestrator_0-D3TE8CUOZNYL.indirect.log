@@ -1,4 +1,0 @@
-16:40:15 x3004c0s1b0n0 __main__.orchestrator_0-D3TE8CUOZNYL[1894105:MainThread] INFO Indirect proxy 1894105 child process 1894232 started
-16:40:15 x3004c0s1b0n0 __main__.orchestrator_0-D3TE8CUOZNYL[1894105:MainThread] INFO Waiting for child process 1894232 to complete
-16:41:10 x3004c0s1b0n0 __main__.orchestrator_0-D3TE8CUOZNYL[1894105:MainThread] INFO Indirect proxy 1894105 child process 1894232 complete. return code: 0
-16:41:10 x3004c0s1b0n0 __main__.orchestrator_0-D3TE8CUOZNYL[1894105:MainThread] INFO Performing cleanup
