@@ -1,0 +1,57 @@
+{
+  "schema info": {
+    "schema_name": "entity manifest",
+    "version": "0.0.4"
+  },
+  "experiment": {
+    "name": "MSR",
+    "path": "/lus/eagle/projects/datascience/balin/Nek/nekRS-ML_ConvReac/examples/workflow_sketch/MSR",
+    "launcher": "PBS",
+    "out_file": "/lus/eagle/projects/datascience/balin/Nek/nekRS-ML_ConvReac/examples/workflow_sketch/MSR/.smartsim/telemetry/logs/smartsim.out",
+    "err_file": "/lus/eagle/projects/datascience/balin/Nek/nekRS-ML_ConvReac/examples/workflow_sketch/MSR/.smartsim/telemetry/logs/smartsim.err"
+  },
+  "runs": [
+    {
+      "run_id": "344ffec",
+      "timestamp": 1725036024905410425,
+      "model": [
+        {
+          "name": "nekrs_3_0",
+          "path": "/lus/eagle/projects/datascience/balin/Nek/nekRS-ML_ConvReac/examples/workflow_sketch/MSR/nekrs_3_0",
+          "exe_args": [
+            "/eagle/datascience/balin/Nek/nekRS-ML_ConvReac/examples/workflow_sketch/nrs.py"
+          ],
+          "run_settings": {
+            "exe": [
+              "/eagle/datascience/balin/Nek/venv/conda_2024-04-29/_ssim_env/bin/python"
+            ],
+            "run_command": "/opt/cray/pals/1.3.4/bin/mpiexec",
+            "run_args": {
+              "np": 1,
+              "ppn": 1,
+              "hosts": "x3004c0s1b0n0"
+            }
+          },
+          "batch_settings": {},
+          "params": {},
+          "files": {
+            "Symlink": [],
+            "Configure": [],
+            "Copy": []
+          },
+          "colocated_db": {},
+          "telemetry_metadata": {
+            "status_dir": "/lus/eagle/projects/datascience/balin/Nek/nekRS-ML_ConvReac/examples/workflow_sketch/MSR/.smartsim/telemetry/MSR/344ffec/model/nekrs_3_0",
+            "step_id": null,
+            "task_id": "1894319",
+            "managed": false
+          },
+          "out_file": "/lus/eagle/projects/datascience/balin/Nek/nekRS-ML_ConvReac/examples/workflow_sketch/MSR/.smartsim/telemetry/MSR/344ffec/model/nekrs_3_0/nekrs_3_0.out",
+          "err_file": "/lus/eagle/projects/datascience/balin/Nek/nekRS-ML_ConvReac/examples/workflow_sketch/MSR/.smartsim/telemetry/MSR/344ffec/model/nekrs_3_0/nekrs_3_0.err"
+        }
+      ],
+      "orchestrator": [],
+      "ensemble": []
+    }
+  ]
+}

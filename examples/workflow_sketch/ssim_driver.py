@@ -26,10 +26,7 @@ def parseNodeList(fname):
 
 
 ## Launch a SmartSim Model for NekRS
-def launch_nrs(launch_id, node_list, gpu_list, run_settings, experiment):
-    #  (I think here we can use queues to send stopping events when training is done)
-    #  (We can get stuff from queue at every iteration of the loop and if it meets some event we stop the model and break the loop)
-    
+def launch_nrs(q, launch_id, node_list, gpu_list, run_settings, experiment):
     # Launch the first model
     run_id = 0
     run_settings.set_hostlist(','.join(node_list))
@@ -42,6 +39,17 @@ def launch_nrs(launch_id, node_list, gpu_list, run_settings, experiment):
     
     while True:
         sleep(5)
+
+        # Read from queue whether to quit simulation
+        try:
+            run_check = q.get(block=False)
+            if run_check=='stop':
+                experiment.stop(nrs_model)
+                break
+        except Exception as e:
+            pass
+
+        # Get simulation status and relaunch if done
         status = experiment.get_status(nrs_model)[0]
         if status==smartsim.status.SmartSimStatus.STATUS_NEW:
             print(f'nekrs_{launch_id} status: New',flush=True)
@@ -125,6 +133,7 @@ def launch_clDB(args, nodelist, nNodes):
     n_nodes_nrs_runs = float(args.simprocs/n_gpu_pn)
     #print(f'{n_nodes_nrs_runs=}')
     processes = []
+    queues = []
     print(f'\nSetting up {n_concurrent_nrs_runs} NekRS launcher processes',flush=True)
     for launch_id in range(n_concurrent_nrs_runs):
         if args.sim_nodes==1:
@@ -138,7 +147,10 @@ def launch_clDB(args, nodelist, nNodes):
         else:
             gpu_list = [int(i+n_nodes_nrs_runs*n_gpu_pn*launch_id) for i in range(args.simprocs_pn)]
             #print(f'{launch_id}: gpu {gpu_list}')
-        p = mp.Process(target=launch_nrs, args=(launch_id, process_node_list, gpu_list, nrs_settings, exp))
+        
+        q = mp.Queue()
+        queues.append(q)
+        p = mp.Process(target=launch_nrs, args=(q, launch_id, process_node_list, gpu_list, nrs_settings, exp))
         processes.append(p)
 
     print(f'Starting the NekRS launcher processes',flush=True)
@@ -160,20 +172,24 @@ def launch_clDB(args, nodelist, nNodes):
     
     train_model = exp.create_model("trainer", train_settings)
     print(f"Launching the trainer ...")
-    block = True
     exp.generate(train_model, overwrite=True)
-    exp.start(train_model, summary=False, block=block)
+    exp.start(train_model, summary=False, block=True)
     print("Done\n")
 
+    # Tell the launchers to stop the simulations
+    print("Stopping the simulations",flush=True)
+    for q in queues:
+        q.put("stop")
+    print("Done\n",flush=True)
+    
     # Join the launcher processes
     print("Joining the launcher processes",flush=True)
     for p in processes:
         p.join()
-        print("Joined 1 process",flush=True)
     print("Done\n",flush=True)
 
     # Stop database
-    print("Stopping the Orchestrator ...")
+    print("Bringing down the database ...")
     exp.stop(db)
     print("Done\n")
 
