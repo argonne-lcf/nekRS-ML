@@ -7,12 +7,13 @@ from argparse import ArgumentParser
 import numpy as np
 import multiprocessing as mp
 from time import sleep
+import psutil
 
 # smartsim and smartredis imports
+#import smartsim
 from smartsim import Experiment
-#import smartsim.status as ssim_status
-import smartsim
 from smartsim.settings import RunSettings, PalsMpiexecSettings
+from smartsim._core.launcher.taskManager import Task
 from smartredis import Client, Dataset
 
 ## Define function to parse node list
@@ -33,10 +34,10 @@ def launch_nrs(q, launch_id, node_list, gpu_list, run_settings, experiment):
     nrs_model = experiment.create_model(f"nekrs_{launch_id}_{run_id}", run_settings)
     print(f"Launching a new NekRS simulation from launcher process {launch_id} on nodes {node_list} and GPUs {gpu_list}",flush=True)
     experiment.generate(nrs_model, overwrite=True)
-    experiment.start(nrs_model, summary=False, block=False)
-    
-    # Check its status and launch another one when finished
-    
+    task_id = experiment.start(nrs_model, summary=False, block=False)
+    task = Task(psutil.Process(int(task_id)))
+ 
+    # Check status and launch another one when finished
     while True:
         sleep(5)
 
@@ -50,19 +51,28 @@ def launch_nrs(q, launch_id, node_list, gpu_list, run_settings, experiment):
             pass
 
         # Get simulation status and relaunch if done
-        status = experiment.get_status(nrs_model)[0]
-        if status==smartsim.status.SmartSimStatus.STATUS_NEW:
-            print(f'nekrs_{launch_id} status: New',flush=True)
-        elif status==smartsim.status.SmartSimStatus.STATUS_RUNNING:
-            print(f'nekrs_{launch_id} status: Running',flush=True)
-        elif status==smartsim.status.SmartSimStatus.STATUS_COMPLETED:
+        #ssim_status = experiment.get_status(nrs_model)[0] # this always prints STATUS_NEW because manager process doesn't update it
+        #print(f'Task status: {status}',flush=True) 
+        #if status==smartsim.status.SmartSimStatus.STATUS_NEW:
+        #    print(f'nekrs_{launch_id}_{run_id} status: New',flush=True)
+        #elif status==smartsim.status.SmartSimStatus.STATUS_RUNNING:
+        #    print(f'nekrs_{launch_id}_{run_id} status: Running',flush=True)
+        #elif status==smartsim.status.SmartSimStatus.STATUS_COMPLETED:
+        
+        status = task.status
+        if status!='zombie':
+            print(f'nekrs_{launch_id}_{run_id} status: Running',flush=True)
+        else:
+            # kill current task
+            task.terminate(timeout=1)
+            
             # launch a new model
             run_id+=1
             print(f"Launching a new NekRS simulation from launcher process {launch_id} on nodes {node_list} and GPUs {gpu_list}",flush=True)
-            #nrs_model = experiment.create_model(f"nekrs_{launch_id}_{run_id}", run_settings)
-            #experiment.generate(nrs_model, overwrite=True)
-            #experiment.start(nrs_model, summary=False, block=False)
-            break
+            nrs_model = experiment.create_model(f"nekrs_{launch_id}_{run_id}", run_settings)
+            experiment.generate(nrs_model, overwrite=True)
+            task_id = experiment.start(nrs_model, summary=False, block=False)
+            task = Task(psutil.Process(int(task_id)))
 
 
 ## Clustered DB launch
@@ -106,7 +116,7 @@ def launch_clDB(args, nodelist, nNodes):
                             )
     exp.generate(db)
     print("\nStarting database ...")
-    exp.start(db)
+    _ = exp.start(db)
     print("Done\n")
 
     # Initialize SmartRedis client
@@ -173,7 +183,7 @@ def launch_clDB(args, nodelist, nNodes):
     train_model = exp.create_model("trainer", train_settings)
     print(f"Launching the trainer ...")
     exp.generate(train_model, overwrite=True)
-    exp.start(train_model, summary=False, block=True)
+    _ = exp.start(train_model, summary=False, block=True)
     print("Done\n")
 
     # Tell the launchers to stop the simulations
