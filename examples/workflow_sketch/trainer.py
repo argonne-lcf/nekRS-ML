@@ -15,7 +15,7 @@ print('Initialized client\n',flush=True)
 max_iter = 0
 count = 0
 past_list_length = 0
-while count<=5 and max_iter<50:
+while count<=5 and max_iter<30:
     sleep(3)
     max_iter+=1
     list_length = client.get_list_length(LIST_NAME)
