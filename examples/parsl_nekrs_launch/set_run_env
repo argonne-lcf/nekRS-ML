@@ -1,0 +1,15 @@
+#!/bin/bash
+
+module use /soft/modulefiles
+module use /opt/cray/pe/lmod/modulefiles/mix_compilers
+module load conda/2024-04-29
+conda activate base
+source ~/SSML/bin/activate
+
+export MPICH_GPU_SUPPORT_ENABLED=1
+export CRAY_ACCEL_TARGET=nvidia80
+export NEKRS_HOME=$HOME/.local/nekrs-ml-msr
+export PATH=$NEKRS_HOME/bin:$PATH
+export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
+export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=~/SSML/SmartRedis/install/lib:$LD_LIBRARY_PATH

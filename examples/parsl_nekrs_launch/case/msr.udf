@@ -1,0 +1,142 @@
+//
+// nekRS User Defined File
+//
+
+#include <math.h>
+#include "udf.hpp"
+#include "plugins/RANSktau.hpp"
+#include "plugins/smartRedis.hpp"
+
+#ifdef __okl__
+
+#include "msr.oudf"
+
+#endif
+
+static dfloat rho, mueLam;
+occa::memory o_qt;
+static dfloat u_in=0.0;
+
+void userq(nrs_t *nrs, dfloat time, occa::memory o_S, occa::memory o_FS)
+{
+  mesh_t *mesh = nrs->meshV;
+  cds_t *cds   = nrs->cds;
+  
+  fillQ(mesh->Nelements,o_qt,o_FS);
+  RANSktau::updateSourceTerms();
+}
+
+void uservp(nrs_t *nrs, dfloat time, occa::memory o_U, occa::memory o_S,
+            occa::memory o_UProp, occa::memory o_SProp)
+{
+  mesh_t *mesh = nrs->meshV;
+  cds_t *cds   = nrs->cds;
+
+  RANSktau::updateProperties();
+
+  dfloat conductivity;
+  platform->options.getArgs("SCALAR00 DIFFUSIVITY", conductivity);
+  const dfloat Pr_t = 0.85;
+  occa::memory o_mue_t = RANSktau::o_mue_t();
+  occa::memory o_temp_mue = cds->o_diff + 0*cds->fieldOffset[0]*sizeof(dfloat);
+  scalarScaledAdd(mesh->Nlocal, conductivity, 1/Pr_t, o_mue_t, o_temp_mue); 
+}
+
+void UDF_LoadKernels(occa::properties& kernelInfo)
+{
+    RANSktau::buildKernel(kernelInfo);
+    kernelInfo["defines/U_IN"] = u_in;
+}
+
+void UDF_Setup0(MPI_Comm comm, setupAide &options)
+{
+/*
+  // Initialize SmartRedis client
+  smartredis::init_client_msr();
+
+  if (platform->comm.mpiRank == 0) {
+    smartredis::read_distributions(u_in);
+  }
+
+  MPI_Bcast(&u_in, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  printf("Inside UDF_Setup0: Read u_in from the DB with value %f \n", u_in);
+//    u_in=1.0;
+*/
+
+  u_in=1.0;  
+}
+
+void UDF_Setup(nrs_t *nrs)
+{
+  mesh_t *mesh = nrs->meshV;
+  cds_t *cds = nrs->cds;
+
+  o_qt = platform->device.malloc(nrs->fieldOffset * sizeof(dfloat));
+  fillQT(mesh->Nelements,mesh->o_y,mesh->o_x,o_qt);  
+
+  udf.properties = &uservp;
+  udf.sEqnSource = &userq;
+  
+  double *wd = (double *) nek::scPtr(1);
+  platform_t* platform = platform_t::getInstance();
+  nrs->o_usrwrk = platform->device.malloc(2*nrs->fieldOffset,sizeof(dfloat));
+  nrs->o_usrwrk.copyFrom(wd,mesh->Nlocal*sizeof(dfloat),1*nrs->fieldOffset*sizeof(dfloat));
+
+  const int scalarFieldStart = 1;
+  platform->options.getArgs("VISCOSITY", mueLam); 
+  platform->options.getArgs("DENSITY", rho); 
+  RANSktau::setup(nrs, mueLam, rho, scalarFieldStart);
+}
+
+
+void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
+{
+  mesh_t *mesh = nrs->meshV;
+  dfloat Tmax;
+/*
+  dfloat q_tot = platform->linAlg->weightedInnerProd(mesh->Nlocal, o_qt, mesh->o_LMM, mesh->o_y, platform->comm.mpiComm);
+  q_tot = q_tot*2.0*M_PI*2.108*2.108*2.108;
+  if (platform->comm.mpiRank == 0) {
+    printf("q_tot = %d %.16e %.16e\n",tstep,time,q_tot);
+  }
+*/
+
+  clipT(mesh->Nelements, 0.0, nrs->cds->o_S);
+
+//    fillQ(mesh->Nelements,o_qt,nrs->cds->o_S);
+//  if(nrs->isOutputStep){
+  if(tstep%100==0){
+    nek::ocopyToNek(time, tstep);
+    nek::userchk();
+  }
+  
+  if(tstep%100==0){
+    Tmax = platform->linAlg->max(mesh->Nlocal, nrs->cds->o_S, platform->comm.mpiComm);
+    if (platform->comm.mpiRank == 0) {
+      printf("Tmax= %d %.16e\n",tstep,Tmax);
+    }
+  }
+
+  // When simulation is over and has converged, call smartredis function to send max Temp
+  // calculate max Temperature
+
+/*
+  bool converged = (tstep%1000==0 && tstep>0);
+  if(converged){
+    Tmax = platform->linAlg->max(mesh->Nlocal, nrs->cds->o_S, platform->comm.mpiComm);
+    smartredis::put_data(Tmax)
+  }
+*/
+
+
+/*
+//  if(tstep%1000==0 && tstep>0){
+  if(nrs->isOutputStep){
+    Tmax = platform->linAlg->max(mesh->Nlocal, nrs->cds->o_S, platform->comm.mpiComm);
+    if (platform->comm.mpiRank == 0) {
+      smartredis::send_train_data_msr(Tmax);
+    }
+  }
+*/
+
+}
