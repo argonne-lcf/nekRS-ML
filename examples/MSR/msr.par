@@ -1,0 +1,59 @@
+[OCCA]
+#backend = SERIAL
+deviceNumber = LOCAL-RANK
+
+[GENERAL]
+polynomialOrder = 3
+startFrom = restart.fld
+stopAt = numSteps
+numSteps = 200000
+#dt = 1.0e-3
+dt = targetCFL=0.5 + max=1e-2 + initial=1e-4
+timeStepper = tombo2
+writeInterval = 100000
+dealiasing = yes
+#extrapolation = OIFS
+
+
+
+[PROBLEMTYPE]
+stressFormulation = true # required for variable viscosity
+
+[MESH]
+writeToFieldFile = yes
+
+[PRESSURE]
+residualTol = 1e-06
+
+
+[VELOCITY]
+#boundaryTypeMap = v, O, SYM, W, SYM, SYM
+boundaryTypeMap = v, O, SYM, W
+residualTol = 1e-8
+density = 1.0
+#viscosity = -1.0e6
+viscosity = -5.0e4
+
+[TEMPERATURE]
+#solver = none
+#boundaryTypeMap = t, O, I, insulated, I, I
+boundaryTypeMap = t, O, I, insulated
+residualTol = 1e-6
+rhoCp = 1.0
+conductivity = -5.0e4
+
+
+[SCALAR01] # k
+#boundaryTypeMap = t, O, I, inlet, I, I
+boundaryTypeMap = t, O, I, inlet
+residualTol = 1e-06
+rho = 1.0
+diffusivity = -5.0e4
+
+
+[SCALAR02] # tau
+#boundaryTypeMap = t, O, I, inlet, I, I
+boundaryTypeMap = t, O, I, inlet
+residualTol = 1e-06
+rho = 1.0
+diffusivity = -5.0e4

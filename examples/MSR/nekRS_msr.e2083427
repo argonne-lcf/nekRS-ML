@@ -1,0 +1,125 @@
+
+Lmod is automatically replacing "nvhpc/23.9" with "gcc-native/12.3".
+
+
+Lmod is automatically replacing "PrgEnv-nvhpc/8.5.0" with "PrgEnv-gnu/8.5.0".
+
+
+Due to MODULEPATH changes, the following have been reloaded:
+  1) cray-mpich/8.1.28
+
+
+Currently Loaded Modules:
+  1) craype-network-ofi      11) cray-libpals/1.3.4
+  2) perftools-base/23.12.0  12) PrgEnv-gnu/8.5.0
+  3) darshan/3.4.4           13) nvhpc-mixed/23.9
+  4) gcc-native/12.3         14) craype-x86-milan
+  5) libfabric/1.15.2.0      15) craype-accel-nvidia80
+  6) craype/2.7.30           16) spack-pe-base/0.7.1
+  7) cray-dsmml/0.2.2        17) nghttp2/1.57.0-ciat5hu
+  8) cray-mpich/8.1.28       18) curl/8.4.0-2ztev25
+  9) cray-pmi/6.1.13         19) cmake/3.27.7
+ 10) cray-pals/1.3.4
+
+ 
+
+Fri Sep  6 19:14:30 2024       
++---------------------------------------------------------------------------------------+
+| NVIDIA-SMI 535.154.05             Driver Version: 535.154.05   CUDA Version: 12.2     |
+|-----------------------------------------+----------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id        Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |         Memory-Usage | GPU-Util  Compute M. |
+|                                         |                      |               MIG M. |
+|=========================================+======================+======================|
+|   0  NVIDIA A100-SXM4-40GB          On  | 00000000:07:00.0 Off |                    0 |
+| N/A   39C    P0              57W / 400W |      0MiB / 40960MiB |      0%      Default |
+|                                         |                      |             Disabled |
++-----------------------------------------+----------------------+----------------------+
+|   1  NVIDIA A100-SXM4-40GB          On  | 00000000:46:00.0 Off |                    0 |
+| N/A   37C    P0              53W / 400W |      0MiB / 40960MiB |      0%      Default |
+|                                         |                      |             Disabled |
++-----------------------------------------+----------------------+----------------------+
+|   2  NVIDIA A100-SXM4-40GB          On  | 00000000:85:00.0 Off |                    0 |
+| N/A   29C    P0              53W / 400W |      0MiB / 40960MiB |      0%      Default |
+|                                         |                      |             Disabled |
++-----------------------------------------+----------------------+----------------------+
+|   3  NVIDIA A100-SXM4-40GB          On  | 00000000:C7:00.0 Off |                    0 |
+| N/A   33C    P0              56W / 400W |      0MiB / 40960MiB |      0%      Default |
+|                                         |                      |             Disabled |
++-----------------------------------------+----------------------+----------------------+
+                                                                                         
++---------------------------------------------------------------------------------------+
+| Processes:                                                                            |
+|  GPU   GI   CI        PID   Type   Process name                            GPU Memory |
+|        ID   ID                                                             Usage      |
+|=======================================================================================|
+|  No running processes found                                                           |
++---------------------------------------------------------------------------------------+
++--------------------------------------------------------+
+|   pfl comp[0]=  1 x     16M      0M -     -1  w=     0M /     7 (0.001 + 0.000)  r=     0M /     0 (0.000 + 0.000)
+|   pfl comp total w=     0M /     7 (0.001 + 0.000)  r=     0M /     0 (0.000 + 0.000)
++--------------------------------------------------------+
+| MPIIO write access patterns for /lus/grand/logs/darshan/polaris/2024/9/6/yiqi_nekrs_id2083427-1545552_9-6-69271-12118335903810276982.darshan_partial
+|   ranks in communicator   = 1
+|   independent writes      = 2
+|   collective writes       = 5
+|   independent writers     = 1
+|   aggregators             = 1
+|   stripe count            = 1
+|   stripe size             = 16777216
+|   system writes           = 7
+|   stripe sized writes     = 0
+|   direct_io writes        = 0
+|   aggregators active      = 5,0,0,0 (1, <= 1, > 1, 1)
+|   total bytes for writes  = 143755
+|   ave system write size   = 20536
+|   read-modify-write count = 0
+|   read-modify-write bytes = 0
+|   number of write gaps    = 0
+|   ave write gap size      = NA
++--------------------------------------------------------+
++--------------------------------------------------------+
+|   pfl comp[0]=  1 x      1M      0M -     -1  w=     0M /     0 (0.000 + 0.000)  r=    21M /    28 (0.073 + 0.000)
+|   pfl comp total w=     0M /     0 (0.000 + 0.000)  r=    21M /    28 (0.073 + 0.000)
++--------------------------------------------------------+
+| MPIIO read access patterns for ini/msr0.f00010
+|   ranks in communicator   = 4
+|   independent reads       = 0
+|   collective reads        = 7
+|   independent readers     = 0
+|   aggregators             = 1
+|   stripe count            = 1
+|   stripe size             = 1048576
+|   system reads            = 28
+|   stripe sized reads      = 15
+|   direct_io reads         = 0
+|   total bytes for reads   = 22850368 = 21 MiB
+|   ave system read size    = 816084
+|   number of read gaps     = 0
+|   ave read gap size       = NA
++--------------------------------------------------------+
++--------------------------------------------------------+
+|   pfl comp[0]=  1 x     16M      0M -     -1  w=    22M /    16 (0.024 + 0.000)  r=     0M /     0 (0.000 + 0.000)
+|   pfl comp total w=    22M /    16 (0.024 + 0.000)  r=     0M /     0 (0.000 + 0.000)
++--------------------------------------------------------+
+| MPIIO write access patterns for msr0.f00001
+|   ranks in communicator   = 4
+|   independent writes      = 0
+|   collective writes       = 15
+|   independent writers     = 0
+|   aggregators             = 1
+|   stripe count            = 1
+|   stripe size             = 16777216
+|   system writes           = 16
+|   stripe sized writes     = 0
+|   direct_io writes        = 0
+|   aggregators active      = 60,0,0,0 (1, <= 1, > 1, 1)
+|   total bytes for writes  = 23563464 = 22 MiB
+|   ave system write size   = 1472716
+|   read-modify-write count = 0
+|   read-modify-write bytes = 0
+|   number of write gaps    = 0
+|   ave write gap size      = NA
++--------------------------------------------------------+
+=>> PBS: job killed: walltime 602 exceeded limit 600
+x3006c0s13b1n0.hsn.cm.polaris.alcf.anl.gov: rank 0 died from signal 15

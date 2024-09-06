@@ -1,0 +1,10 @@
+The detailed information for the CFD model can be found in the following links: 
+
+MSFR description on VTB:
+https://mooseframework.inl.gov/virtual_test_bed/msr/msfr/reactor_description.html
+
+VTB Documentation on the Nek5000 CFD cases:
+https://mooseframework.inl.gov/virtual_test_bed/msr/msfr/nek5000_cfd_model.html
+
+Files that are shared via VTB repository:
+https://github.com/idaholab/virtual_test_bed/tree/devel/msr/msfr/core_cfd

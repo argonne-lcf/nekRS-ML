@@ -1,0 +1,145 @@
+@kernel void cfillz(const dlong Ntotal,
+                    const dlong offset,
+                    const dfloat CONST,
+                    @restrict dfloat * NU) 
+{
+  for(dlong n=0;n<Ntotal;++n;@tile(256,@outer,@inner)){
+    if(n<Ntotal){
+      const dlong id = n + 1*offset;
+      NU[id] = CONST;
+    }
+  }
+}
+
+@kernel void scalarScaledAdd(const dlong N,
+                             const dfloat a,
+                             const dfloat b,
+                             @restrict const dfloat* X,
+                             @restrict dfloat* Y)
+{
+  for(dlong n = 0; n < N; ++n; @tile(256,@outer,@inner))
+    if(n < N)
+      Y[n] = a + b * X[n];
+}
+
+@kernel void fillQT(const dlong Nelements,
+                      @ restrict const dfloat *R,
+                      @ restrict const dfloat *Z,
+                      @ restrict dfloat *QT)
+{
+  for (dlong e = 0; e < Nelements; ++e; @outer(0)) {
+    for (int n = 0; n < p_Np; ++n; @inner(0)) {
+      const int id = e * p_Np + n;
+
+      const dfloat fc0  =  9.0598E+08;
+      const dfloat fc1  = -2.8371E-02;
+      const dfloat fc2  = -5.0560E-02;
+      const dfloat fc3  = -1.3396E+00;
+      const dfloat fc4  = -6.3452E-03;
+      const dfloat fc5  = -1.1533E+00;
+      const dfloat fc6  =  7.6823E-01;
+      const dfloat fc7  =  4.4223E-02;
+      const dfloat fc8  =  1.2867E+00;
+      const dfloat fc9  =  6.5014E-02;
+      const dfloat fc10 = -1.4560E-01;
+      const dfloat fc11 = -9.5125E-03;
+      const dfloat fc12 = -2.2533E-01;
+      const dfloat fc13 = -4.6725E-02;
+      const dfloat fc14 = -1.0218E-01;
+
+      const dfloat rr = R[id]*2.108;
+      const dfloat zz = Z[id]*2.108;
+
+      dfloat qt = 0.0;
+
+      qt = fc0 * (\
+           1.0377388808236376 +\
+           fc1 * rr +\
+           fc2 * zz +\
+           fc3 * rr*rr +\
+           fc4 * rr * zz +\
+           fc5 * zz*zz +\
+           fc6 * rr*rr*rr +\
+           fc7 * rr*rr * zz +\
+           fc8 * rr * zz*zz +\
+           fc9 * zz*zz*zz +\
+           fc10* rr*rr*rr*rr +\
+           fc11* rr*rr*rr * zz +\
+           fc12* rr*rr * zz*zz +\
+           fc13* rr * zz*zz*zz +\
+           fc14* zz*zz*zz*zz );
+      
+      qt = max(0.0,qt);
+//      QT[id] = 1 - rr;
+//      QT[id] = 2.50213E-09*qt;;
+      QT[id] = 2.50213E-09*qt*0.47438330170778*1.2; // dividing by 2.108 (non-dimentional factor for D)
+
+    }
+  }
+}
+
+
+@kernel void fillQ(const dlong Nelements, @ restrict const dfloat *QT, @ restrict dfloat *QVOL)
+{
+  for (dlong e = 0; e < Nelements; ++e; @outer(0)) {
+    for (int n = 0; n < p_Np; ++n; @inner(0)) {
+      const int id = e * p_Np + n;
+      QVOL[id] = QT[id];
+    }
+  }
+}
+
+
+@kernel void clipT(const dlong Nelements, const dfloat Tmin, @ restrict dfloat *T)
+{
+  for (dlong e = 0; e < Nelements; ++e; @outer(0)) {
+    for (int n = 0; n < p_Np; ++n; @inner(0)) {
+      const int id = e * p_Np + n;
+      if(T[id]<Tmin){T[id] = Tmin;}
+    }
+  }
+}
+
+// Boundary conditions
+void velocityDirichletConditions(bcData *bc)
+{                                                                        
+  bc->u = -1.0;
+  bc->v = 0.0;
+  bc->w = 0.0;
+}
+
+
+void scalarDirichletConditions(bcData *bc)
+{
+  dfloat wd, Re, darcy, utau, sigk, kmax, yplus, yk, tke, tau;
+  wd    = bc->usrwrk[bc->idM+1*bc->fieldOffset];
+  wd    = max(wd,0.0);
+  Re    = 77969.0;
+  darcy = 0.316/(pow(Re,0.25));
+  utau  = sqrt(darcy/8.0);
+  sigk  = 0.6;
+  kmax  = 2.5*utau*utau;
+  yplus = max(wd*utau*Re,1.0e-6);
+  yk    = 30.0;
+  tke   = kmax*exp(-pow(log10(yplus/yk),2.0)/(2.0*sigk*sigk));
+  tau   = 0.072*(wd*wd)*Re/6.0;
+  tke   = min(tke,7.6e-3);
+  tau   = min(tau,1.3);
+
+  bc->s = 0;
+  if (bc->scalarId == 0) bc->s = 0;
+  if((bc->scalarId == 1)&&(bc->id == 1)) bc->s = tke;
+  if((bc->scalarId == 2)&&(bc->id == 1)) bc->s = tau;
+}
+
+
+// Stabilized outflow (Dong et al)
+void pressureDirichletConditions(bcData *bc)
+{
+  const dfloat iU0delta = 100.0;
+  const dfloat un = bc->u*bc->nx + bc->v*bc->ny + bc->w*bc->nz;
+  const dfloat s0 = 0.5 * (1.0 - tanh(un*iU0delta)); 
+  bc->p = -0.5 * (bc->u*bc->u + bc->v*bc->v + bc->w*bc->w) * s0;
+}
+
+
