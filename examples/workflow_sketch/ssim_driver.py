@@ -80,12 +80,20 @@ def launch_clDB(args, nodelist, nNodes):
     # Split nodes between the components
     dbNodes_list = None
     if (nodelist is not None):
-        simNodes = ','.join(nodelist[0: args.sim_nodes])
-        simNodes_list = nodelist[0: args.sim_nodes]
-        dbNodes = ','.join(nodelist[args.sim_nodes: \
-                                args.sim_nodes + args.db_nodes])
-        dbNodes_list = nodelist[args.sim_nodes: \
-                                args.sim_nodes + args.db_nodes]
+        #simNodes = ','.join(nodelist[0: args.sim_nodes])
+        #simNodes_list = nodelist[0: args.sim_nodes]
+        #dbNodes = ','.join(nodelist[args.sim_nodes: \
+        #                        args.sim_nodes + args.db_nodes])
+        #dbNodes_list = nodelist[args.sim_nodes: \
+        #                        args.sim_nodes + args.db_nodes]
+        
+        dbNodes = ','.join(nodelist[0: args.db_nodes])
+        dbNodes_list = nodelist[0: args.db_nodes]
+        simNodes = ','.join(nodelist[args.db_nodes: \
+                                args.db_nodes + args.sim_nodes])
+        simNodes_list = nodelist[args.db_nodes: \
+                                args.db_nodes + args.sim_nodes]
+        
         print(f"Database running on {args.db_nodes} nodes:")
         print(dbNodes)
         print(f"Simulatiom running on {args.sim_nodes} nodes:")
@@ -139,23 +147,24 @@ def launch_clDB(args, nodelist, nNodes):
 
     # Launch the NekRS launcher processes
     n_gpu_pn = 4
-    n_concurrent_nrs_runs = int((args.sim_nodes*n_gpu_pn)/args.simprocs)
+    n_launchers = int((args.sim_nodes*n_gpu_pn)/args.simprocs)
     n_nodes_nrs_runs = float(args.simprocs/n_gpu_pn)
-    #print(f'{n_nodes_nrs_runs=}')
+    #print(f'\n{n_nodes_nrs_runs=}')
     processes = []
     queues = []
-    print(f'\nSetting up {n_concurrent_nrs_runs} NekRS launcher processes',flush=True)
-    for launch_id in range(n_concurrent_nrs_runs):
+    print(f'\nSetting up {n_launchers} NekRS launcher processes',flush=True)
+    for launch_id in range(n_launchers):
         if args.sim_nodes==1:
             process_node_list = list(simNodes_list)
         else:
-            node_id_start = (n_nodes_nrs_runs*launch_id)//args.sim_nodes
+            node_id_start = int((n_nodes_nrs_runs*launch_id)) #//args.sim_nodes)
             node_id_end = node_id_start+int(n_nodes_nrs_runs)
-            #print(f'{launch_id}: {node_id_start} - {node_id_end}')
+            print(f'{launch_id}: launching on node indices {node_id_start} - {node_id_end}')
+            process_node_list = simNodes_list[node_id_start:node_id_end] if node_id_start!=node_id_end else simNodes_list[node_id_start]
         if args.simprocs_pn==n_gpu_pn:
             gpu_list = [i for i in range(n_gpu_pn)]
         else:
-            gpu_list = [int(i+n_nodes_nrs_runs*n_gpu_pn*launch_id) for i in range(args.simprocs_pn)]
+            gpu_list = [int(i+n_nodes_nrs_runs*n_gpu_pn*launch_id)%n_gpu_pn for i in range(args.simprocs_pn)]
             #print(f'{launch_id}: gpu {gpu_list}')
         
         q = mp.Queue()
