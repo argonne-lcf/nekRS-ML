@@ -1,0 +1,16 @@
+Here we observe the following issues with the cureent setup
+
+1) Not all cases are able to start simultaneously eg. the runs 0_0, 0_1, 1_0, 1_1 etc all fail while only 3_0 is able to run
+The error looks something like below for the cases that were not able to start
+
+filesystem error: cannot set permissions: No such file or directory [/local/scratch/nekrs/nek5000/3rd_party/parRSB/include/sort.h]
+MPICH ERROR [Rank 0] [job id 70dc6b42-a7e9-4cbd-b663-7426aa0144eb] [Thu Sep  5 22:15:01 2024] [x3006c0s19b1n0] - Abort(1) (rank 0 in comm 0): application called MPI_Abort(MPI_COMM_WORLD, 1) - process 0
+
+x3006c0s19b1n0: rank 0 exited with code 1
+
+2) While the failed cases try to launch nekrs again and again we see 3_0, 0_2, 1_2, 2_2 all running simultaneously on different GPUs for the same node (as one would expect)
+3) Another issue I observe here is that as soon as one of the cases is done all cases stop and try to launch a new nekRS case. 
+Meaning 3_0, 0_2, 1_2, 2_2 all halt simultaneously and there are things printed in the error files.
+
+4) Even though training data is put on by nekRS the trainer is not able to read anything.
+

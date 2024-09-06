@@ -212,7 +212,7 @@ def launch_clDB(args, nodelist, nNodes):
     if (launcher=='pals'):
         SSDB = db.get_address()[0]
         train_settings = PalsMpiexecSettings('python',
-                                           exe_args="/home/viralss2/nekRS-ML_MSR/examples/MSR_workflow/trainer.py",
+                                           exe_args="/eagle/ConvReac/viralss2/nekRS-ML_MSR/examples/MSR_workflow/trainer.py",
                                            run_args=None,
                                            env_vars={'SSDB' : SSDB})
         train_settings.set_tasks(1)
@@ -257,7 +257,7 @@ def main():
 #    parser.add_argument('--db_nodes', default=1, type=int, help='Number of nodes assigned to the database')
 #    parser.add_argument('--sim_arguments', default="${--setup msr.par --backend CUDA --device-id 0}", help='command line arguments to simulation')
     parser.add_argument('--sim_arguments', default="--setup msr.par --backend CUDA", help='command line arguments to simulation')
-    parser.add_argument('--sim_executable', default="/home/viralss2/.local/nekrs-ml-msr/bin/nekrs", help='path to simulation executable ')
+    parser.add_argument('--sim_executable', default="/eagle/ConvReac/viralss2/.local/nekrs-ml-msr/bin/nekrs", help='path to simulation executable ')
     parser.add_argument('--sim_affinity', default="", help='GPU affinity script for simulation')
     parser.add_argument('--sim_copy_files', default=["./msr.usr","./msr.par","./msr.udf","./msr.re2","./msr.oudf","msr.co2","./utilities.usr"], help='files to attach by copy to Model sub-directory')
     parser.add_argument('--sim_link_files', default=["./affinity_nrs.sh","restart.fld"], help='files to attach by symlink to Model sub-directory')
