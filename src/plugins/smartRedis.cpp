@@ -12,6 +12,7 @@ smartredis_data *sr = new smartredis_data;
 wallModel_data *wm = new wallModel_data;
 MSR_data *msr = new MSR_data;
 SmartRedis::Client *client_ptr;
+SmartRedis::DataSet dataset("example_dataset");
 
 // MSR: Initialize the SmartRedis client
 void smartredis::init_client_msr()
@@ -40,7 +41,7 @@ void smartredis::init_client_msr()
 }
 
 // MSR: read the input distributions from the database
-void smartredis::read_distributions(dfloat &u_in)
+void smartredis::read_distributions(dfloat *u_in)
 {
   std::string vel_dist_type;
 //  dfloat *vel_dist_params = new dfloat[2]();  
@@ -59,17 +60,18 @@ void smartredis::read_distributions(dfloat &u_in)
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_real_distribution<double> udist(vel_dist_params[1],vel_dist_params[2]);
-    u_in = udist(gen);
+    *u_in = udist(gen);
   }
 
 //  u_in = vel_dist_params[1];
-  printf("Inside smartredis::read_distributions: Read u_in from the DB with value %f \n", u_in); 
-  msr->u_in = u_in;
+  printf("Inside smartredis::read_distributions: Read u_in from the DB with value %f \n", *u_in); 
+  msr->u_in = *u_in;
 }
 
 // MSR: send training data
-void smartredis::send_train_data_msr(dfloat &Tmax)
+void smartredis::send_train_data_msr(dfloat *Tmax)
 {
+/*
   dfloat *train_data = new dfloat[2]();
   train_data[0] = msr->u_in;
   train_data[1] = Tmax;
@@ -78,6 +80,18 @@ void smartredis::send_train_data_msr(dfloat &Tmax)
   
   client_ptr->put_tensor("train_data", train_data, {2},
                    SRTensorTypeDouble, SRMemLayoutContiguous);
+*/
+
+  dfloat *train_data = new dfloat[2]();
+  train_data[0] = msr->u_in;
+  train_data[1] = *Tmax;
+   
+  SmartRedis::DataSet train_dataset("train_data" + std::to_string(*Tmax));
+  train_dataset.add_tensor("train",  train_data, {2}, SRTensorTypeDouble, SRMemLayoutContiguous);
+  client_ptr->put_dataset(train_dataset);
+  client_ptr->append_to_list("training_list",train_dataset);
+
+  printf("Inside SmartRedis Send Training Data %f, %f \n", train_data[0], train_data[1]);   
 }
 
 // Initialize the SmartRedis client and the smartredis struct

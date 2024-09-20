@@ -4,12 +4,12 @@ deviceNumber = LOCAL-RANK
 
 [GENERAL]
 polynomialOrder = 3
-startFrom = restart.fld
+#startFrom = restart.fld
 stopAt = numSteps
 numSteps = 200
 dt = 4.0e-4
 timeStepper = tombo2
-writeInterval = 100
+writeInterval = 200
 dealiasing = yes
 #extrapolation = OIFS
 

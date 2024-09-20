@@ -138,8 +138,12 @@ def launch_clDB(args, nodelist, nNodes):
     # Define the simulation settings
     if (launcher=='pals'):
         SSDB = db.get_address()[0]
-        nrs_settings = PalsMpiexecSettings('python',
-                                           exe_args="/eagle/datascience/balin/Nek/nekRS-ML_ConvReac/examples/workflow_sketch/nrs.py",
+#        nrs_settings = PalsMpiexecSettings('python',
+#                                           exe_args="/eagle/datascience/balin/Nek/nekRS-ML_ConvReac/examples/workflow_sketch/nrs.py",
+#                                           run_args=None,
+#                                           env_vars={'SSDB' : SSDB})
+        nrs_settings = PalsMpiexecSettings('/eagle/ConvReac/viralss2/nekRS-ML_MSR/examples/workflow_sketch/a.out',
+                                           exe_args=None,
                                            run_args=None,
                                            env_vars={'SSDB' : SSDB})
         nrs_settings.set_tasks(args.simprocs)
@@ -182,7 +186,7 @@ def launch_clDB(args, nodelist, nNodes):
     if (launcher=='pals'):
         SSDB = db.get_address()[0]
         train_settings = PalsMpiexecSettings('python',
-                                           exe_args="/eagle/datascience/balin/Nek/nekRS-ML_ConvReac/examples/workflow_sketch/trainer.py",
+                                           exe_args="/eagle/ConvReac/viralss2/nekRS-ML_MSR/examples/workflow_sketch/trainer.py",
                                            run_args=None,
                                            env_vars={'SSDB' : SSDB})
         train_settings.set_tasks(1)

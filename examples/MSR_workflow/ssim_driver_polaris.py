@@ -33,6 +33,10 @@ def launch_nrs(q, launch_id, node_list, gpu_list, run_settings, experiment, argu
     run_id = 0
     run_settings.set_hostlist(','.join(node_list))
     run_settings.env_vars["CUDA_VISIBLE_DEVICES"] = ','.join(map(str, gpu_list))
+#    run_settings.env_vars["NEKRS_HOME"] = "/eagle/ConvReac/viralss2/.local/nekrs-ml-msr"
+#    run_settings.env_vars["NEKRS_LOCAL_TMP_DIR"] = "/local/scratch/"+','.join(map(str, gpu_list))
+#    run_settings.env_vars["NEKRS_CACHE_BCAST"] = 0
+
     nrs_model = experiment.create_model(f"nekrs_{launch_id}_{run_id}", run_settings)
     if len(arguments.sim_copy_files)>0 or len(arguments.sim_link_files)>0:
         nrs_model.attach_generator_files(to_copy=list(arguments.sim_copy_files), to_symlink=list(arguments.sim_link_files))
@@ -152,6 +156,7 @@ def launch_clDB(args, nodelist, nNodes):
                                            exe_args=None,
                                            run_args=None,
                                            env_vars={'SSDB' : SSDB})
+#                                           env_vars={'SSDB' : SSDB, 'NEKRS_CACHE_DIR' : '/lus/eagle/projects/ConvReac/viralss2/nekRS-ML_MSR/examples/MSR_workflow/MSR/nekrs_0_0/.cache'})
         nrs_settings.set_tasks(args.simprocs)
         nrs_settings.set_tasks_per_node(args.simprocs_pn)
 #        nrs_settings.set_hostlist(simNodes)
@@ -253,8 +258,8 @@ def main():
     parser = ArgumentParser(description='Online training from NekRS ensembles')
     parser.add_argument('--sim_nodes', default=1, type=int, help='Number of nodes assigned to the simulations')
     parser.add_argument('--db_nodes', default=1, type=int, help='Number of nodes assigned to the database')
-    parser.add_argument('--simprocs_pn', default=4, type=int, help='Number of MPI processes per node for simulation')
-    parser.add_argument('--simprocs', default=4, type=int, help='Number of MPI processes for simulation')
+    parser.add_argument('--simprocs_pn', default=1, type=int, help='Number of MPI processes per node for simulation')
+    parser.add_argument('--simprocs', default=1, type=int, help='Number of MPI processes for simulation')
     parser.add_argument('--sim_cpu_bind', default="numa", help='CPU binding for simulation')
 #    parser.add_argument('--db_nodes', default=1, type=int, help='Number of nodes assigned to the database')
 #    parser.add_argument('--sim_arguments', default="${--setup msr.par --backend CUDA --device-id 0}", help='command line arguments to simulation')
