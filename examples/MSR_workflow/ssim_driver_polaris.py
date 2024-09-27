@@ -33,7 +33,7 @@ def launch_nrs(q, launch_id, node_list, gpu_list, run_settings, experiment, argu
     run_id = 0
     run_settings.set_hostlist(','.join(node_list))
     run_settings.env_vars["CUDA_VISIBLE_DEVICES"] = ','.join(map(str, gpu_list))
-#    run_settings.env_vars["NEKRS_HOME"] = "/eagle/ConvReac/viralss2/.local/nekrs-ml-msr"
+    run_settings.env_vars["NEKRS_CACHE_DIR"] = "/eagle/ConvReac/viralss2/nekRS-ML_MSR/examples/MSR_workflow/MSR/nekrs_" + ','.join(map(str, gpu_list)) + "_0/.cache"
 #    run_settings.env_vars["NEKRS_LOCAL_TMP_DIR"] = "/local/scratch/"+','.join(map(str, gpu_list))
 #    run_settings.env_vars["NEKRS_CACHE_BCAST"] = 0
 
