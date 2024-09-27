@@ -1,7 +1,27 @@
+# General imports
+import sys
 import os
+import argparse
+import logging
 import numpy as np
-from time import sleep
+from time import sleep, perf_counter
+from os.path import exists
+import socket
+import datetime
 
+# MPI
+from mpi4py import MPI
+
+# ML imports
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.distributed import DistributedSampler
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
+
+# SmartRedis imports
 from smartredis import Client
 
 LIST_NAME = 'training_list'
@@ -15,8 +35,8 @@ print('Initialized client\n',flush=True)
 max_iter = 0
 count = 0
 past_list_length = 0
-while count<=5 and max_iter<50:
-    sleep(180)
+while count<=10 and max_iter<50:
+    sleep(60)
     max_iter+=1
     list_length = client.get_list_length(LIST_NAME)
     print(f'Read list with length {list_length}',flush=True)

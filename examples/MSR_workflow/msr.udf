@@ -54,7 +54,7 @@ void UDF_Setup0(MPI_Comm comm, setupAide &options)
   smartredis::init_client_msr();
 
   if (platform->comm.mpiRank == 0) {
-    smartredis::read_distributions(u_in);
+    smartredis::read_distributions(&u_in);
   }
 
   MPI_Bcast(&u_in, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
@@ -130,7 +130,7 @@ void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
   if(nrs->isOutputStep){
     Tmax = platform->linAlg->max(mesh->Nlocal, nrs->cds->o_S, platform->comm.mpiComm);
     if (platform->comm.mpiRank == 0) {
-      smartredis::send_train_data_msr(Tmax);
+      smartredis::send_train_data_msr(&Tmax);
     }
   }
 
