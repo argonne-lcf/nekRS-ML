@@ -17,8 +17,8 @@ export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
 #python ssim_driver.py --sim_nodes=1 --db_nodes=1 --simprocs=4 --simprocs_pn=4
 
 # 3 nodes
-python ssim_driver.py --sim_nodes=2 --db_nodes=1 --simprocs=1 --simprocs_pn=1
-#python ssim_driver.py --sim_nodes=2 --db_nodes=1 --simprocs=2 --simprocs_pn=2
+#python ssim_driver.py --sim_nodes=2 --db_nodes=1 --simprocs=1 --simprocs_pn=1
+python ssim_driver.py --sim_nodes=2 --db_nodes=1 --simprocs=2 --simprocs_pn=2
 #python ssim_driver.py --sim_nodes=2 --db_nodes=1 --simprocs=4 --simprocs_pn=4
 #python ssim_driver.py --sim_nodes=2 --db_nodes=1 --simprocs=8 --simprocs_pn=4
 

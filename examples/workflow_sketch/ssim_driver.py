@@ -139,16 +139,17 @@ def launch_clDB(args, nodelist, nNodes):
     # Define the simulation settings
     if (launcher=='pals'):
         SSDB = db.get_address()[0]
-#        nrs_settings = PalsMpiexecSettings('python',
-#                                           exe_args="/eagle/datascience/balin/Nek/nekRS-ML_ConvReac/examples/workflow_sketch/nrs.py",
-#                                           run_args=None,
-#                                           env_vars={'SSDB' : SSDB})
-        nrs_settings = PalsMpiexecSettings('/eagle/ConvReac/viralss2/nekRS-ML_MSR/examples/workflow_sketch/a.out',
-                                           exe_args=None,
+        nrs_settings = PalsMpiexecSettings('python',
+                                           exe_args="/eagle/datascience/balin/Nek/nekRS-ML_ConvReac/examples/workflow_sketch/nrs.py",
                                            run_args=None,
                                            env_vars={'SSDB' : SSDB})
+#        nrs_settings = PalsMpiexecSettings('/eagle/ConvReac/viralss2/nekRS-ML_MSR/examples/workflow_sketch/a.out',
+#                                           exe_args=None,
+#                                           run_args=None,
+#                                           env_vars={'SSDB' : SSDB})
         nrs_settings.set_tasks(args.simprocs)
         nrs_settings.set_tasks_per_node(args.simprocs_pn)
+        nrs_settings.set_launcher_args({'envall': None})
 
     # Launch the NekRS launcher processes
     n_gpu_pn = 4
@@ -165,7 +166,7 @@ def launch_clDB(args, nodelist, nNodes):
             node_id_start = int((n_nodes_nrs_runs*launch_id)) #//args.sim_nodes)
             node_id_end = node_id_start+int(n_nodes_nrs_runs)
             print(f'{launch_id}: launching on node indices {node_id_start} - {node_id_end}')
-            process_node_list = simNodes_list[node_id_start:node_id_end] if node_id_start!=node_id_end else simNodes_list[node_id_start]
+            process_node_list = simNodes_list[node_id_start:node_id_end] if node_id_start!=node_id_end else [simNodes_list[node_id_start]]
         if args.simprocs_pn==n_gpu_pn:
             gpu_list = [i for i in range(n_gpu_pn)]
         else:
@@ -192,7 +193,7 @@ def launch_clDB(args, nodelist, nNodes):
                                            env_vars={'SSDB' : SSDB})
         train_settings.set_tasks(1)
         train_settings.set_tasks_per_node(1)
-        train_settings.set_hostlist(simNodes)
+        train_settings.set_hostlist(dbNodes)
     
     train_model = exp.create_model("trainer", train_settings)
     print(f"Launching the trainer ...")

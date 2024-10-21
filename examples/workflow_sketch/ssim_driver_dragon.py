@@ -102,7 +102,7 @@ def launch_clDB(args, nodelist, nNodes):
 
     # Set up database and start it
     PORT = 6780
-    launcher = 'pals'
+    launcher = 'dragon'
     exp = Experiment('MSR', launcher=launcher)
     runArgs = {"np": 1, "ppn": 1, "cpu-bind": "numa"}
     kwargs = {
@@ -112,7 +112,7 @@ def launch_clDB(args, nodelist, nNodes):
         'intra_op_parallelism': 4,
         'cluster-node-timeout': 30000,
         }
-    if (launcher=='pals'): run_command = 'mpiexec'
+    if (launcher=='dragon'): run_command = 'mpiexec'
     db = exp.create_database(port=PORT, 
                              batch=False,
                              db_nodes=args.db_nodes,
@@ -137,9 +137,10 @@ def launch_clDB(args, nodelist, nNodes):
     client.put_tensor('vel_dist',vel_dist_params)
 
     # Define the simulation settings
-    if (launcher=='pals'):
+    if (launcher=='dragon'):
         SSDB = db.get_address()[0]
-        nrs_settings = PalsMpiexecSettings('python',
+        nrs_settings = exp.create_run_settings(
+                           PalsMpiexecSettings('python',
                                            exe_args="/eagle/datascience/balin/Nek/nekRS-ML_ConvReac/examples/workflow_sketch/nrs.py",
                                            run_args=None,
                                            env_vars={'SSDB' : SSDB})
@@ -180,7 +181,7 @@ def launch_clDB(args, nodelist, nNodes):
 
 
     # Launch a trainer 
-    if (launcher=='pals'):
+    if (launcher=='dragon'):
         SSDB = db.get_address()[0]
         train_settings = PalsMpiexecSettings('python',
                                            exe_args="/eagle/datascience/balin/Nek/nekRS-ML_ConvReac/examples/workflow_sketch/trainer.py",
@@ -228,8 +229,8 @@ def main():
 
     # Get nodes of this allocation (job)
     nodelist = nNodes = None
-    launcher = 'pals'
-    if (launcher=='pals'):
+    scheduler = 'pbs'
+    if (scheduler=='pbs'):
         hostfile = os.getenv('PBS_NODEFILE')
         nodelist, nNodes = parseNodeList(hostfile)
 
