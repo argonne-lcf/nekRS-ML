@@ -24,7 +24,7 @@ def main():
                              batch=False,
                              db_nodes=1,
                              #run_command=run_command,
-                             interface=['lo'],
+                             interface=['hsn0'],
                              #hosts=dbNodes_list,
                              #run_args=runArgs,
                              single_cmd=True,
@@ -34,7 +34,7 @@ def main():
 
     exp.generate(db)
     print("\nStarting database ...")
-    _ = exp.start(db)
+    exp.start(db)
     print("Done\n")
 
     # Initialize SmartRedis client
@@ -50,7 +50,7 @@ def main():
     # Launch something
     SSDB = db.get_address()[0]
     nrs_settings = DragonRunSettings('python',
-                                         exe_args="/eagle/datascience/balin/Nek/nekRS-ML_ConvReac/examples/workflow_sketch/nrs_no_mpi.py",
+                                         exe_args="/eagle/datascience/balin/Nek/nekRS-ML_ConvReac/examples/workflow_sketch/nrs.py",
                                          run_args=None,
                                          env_vars={'SSDB' : SSDB})
     nrs_settings.set_nodes(1)
