@@ -9,8 +9,8 @@ module list
 
 #... set some environment variables
 NEKRS_BUILD_DIR=$PWD
-ENABLE_SMARTREDIS=ON
-export NEKRS_HOME=/flare/datascience/balin/Nek/nekRSv24/exe/nekrsv24_simai_frameworks
+ENABLE_SMARTREDIS=OFF
+export NEKRS_HOME=~/.nekRS/
 export CC=mpicc
 export CXX=mpic++
 export FC=mpif77
