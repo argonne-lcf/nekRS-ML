@@ -22,6 +22,13 @@ typedef struct {
     int owned;        // owner node flag 
 } parallelNode_t;
 
+typedef struct {
+  size_t num_nodes;
+  hlong *nodes;
+  size_t *offsets;
+  hlong *neighbors;
+} gnnGraph_t;
+
 template <typename T> 
 void writeToFile(const std::string& filename, T* data, int nRows, int nCols); 
 
