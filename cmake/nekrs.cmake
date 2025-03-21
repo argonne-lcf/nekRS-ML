@@ -93,6 +93,7 @@ set(NRS_SRC
     src/plugins/adiosStreamer.cpp
     src/plugins/gnn.cpp
     src/plugins/gnn_connectivity.cpp
+    src/plugins/gnn_repartition.cpp
     src/plugins/trajGen.cpp
     src/nrs/plugins/velRecycling.cpp
     src//nrs/plugins/RANSktau.cpp
