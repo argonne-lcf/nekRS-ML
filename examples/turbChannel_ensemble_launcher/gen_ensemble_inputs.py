@@ -108,14 +108,24 @@ if required_env_var not in os.environ:
 ensemble = {}
 ensemble["poll_interval"] = 5
 ensemble["ensembles"] = {}
+ensemble["sys_info"] ={
+    "name":"aurora",
+    "ncores_per_node":12,
+    "ngpus_per_node":12
+}
 ensemble["ensembles"]["nekRS_test"]={}
 ensemble["ensembles"]["nekRS_test"] = {
         "num_nodes": nodes,
         "num_processes_per_node": 12,
+        "num_gpus_per_process":1,
         "launcher": "mpi",
         "relation": "one-to-one",
         "run_dir": [outdir+"/"+r for r in rundirs],
-        "cmd": f"--cpu-bind list:1:8:16:24:32:40:53:60:68:76:84:92 -- {os.getenv('NEKRS_HOME')}/bin/nekrs --setup turbChannel --backend dpcpp --device-id 0",
+        "launch_dir": [outdir+"/"+r for r in rundirs],
+        "cmd_template": f"{os.getenv('NEKRS_HOME')}/bin/nekrs --setup turbChannel --backend dpcpp --device-id 0",
+        "launcher_options":{
+            "cpu-bind":"list:1:8:16:24:32:40:53:60:68:76:84:92"
+        }
     }
 with open(os.path.join(outdir, "config.json"), "w") as f:
     json.dump(ensemble, f, indent=4)
