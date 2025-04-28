@@ -1,0 +1,12 @@
+#!/bin/bash
+
+rm -r CMakeCache.txt CMakeFiles cmake_install.cmake Makefile
+rm sim
+rm submit.sh
+if ls *.sst 1> /dev/null 2>&1; then
+  rm *.sst
+fi
+if ls *.bp 1> /dev/null 2>&1; then
+  rm -r *.bp
+fi
+

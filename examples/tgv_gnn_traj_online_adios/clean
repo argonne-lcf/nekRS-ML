@@ -1,0 +1,8 @@
+#!/bin/bash
+
+rm -rf _pyg
+rm affinity_* config.yaml run.sh
+rm -r outputs logs saved_models
+rm tgv.par
+rm -r *.bp *.sst
+

@@ -1,0 +1,60 @@
+#!/bin/bash
+set -e
+
+#--------------------------------------
+: ${QUEUE:="prod"}
+: ${RANKS_PER_NODE:=12}
+: ${FRAMEWORKS_MODULE:="frameworks"}
+#--------------------------------------
+
+#--------------------------------------
+# Generate the submit script
+SFILE=submit.sh
+echo "#!/bin/bash -l" > $SFILE
+
+echo "#PBS -S /bin/bash" >>$SFILE
+echo "#PBS -N adios2_example" >>$SFILE
+echo "#PBS -l select=${NODES}" >>$SFILE
+echo "#PBS -l walltime=${TIME}" >>$SFILE
+echo "#PBS -l filesystems=home:flare" >>$SFILE
+echo "#PBS -A datascience" >>$SFILE
+echo "#PBS -q ${QUEUE}" >>$SFILE
+echo "#PBS -k doe" >>$SFILE
+echo "#PBS -j oe" >>$SFILE
+
+echo -e "\ncd \$PBS_O_WORKDIR" >> $SFILE
+echo "export TZ='/usr/share/zoneinfo/US/Central'" >> $SFILE
+
+echo -e "\necho Jobid: \$PBS_JOBID" >>$SFILE
+echo "echo Running on host \`hostname\`" >>$SFILE
+echo "echo Running on nodes \`cat \$PBS_NODEFILE\`" >>$SFILE
+
+echo "module load ${FRAMEWORKS_MODULE}" >> $SFILE
+echo "module list" >> $SFILE
+
+echo -e "\n# Compute number of ranks" >> $SFILE
+echo "NODES=\$(cat \$PBS_NODEFILE | wc -l)" >> $SFILE
+echo "RANKS=\$(( NODES * $RANKS_PER_NODE ))" >> $SFILE
+
+echo -e "\n# ADIOS2 vars" >> $SFILE
+echo "export PYTHONPATH=\$PYTHONPATH:${NEKRS_HOME}/lib/python3.10/site-packages" >> $SFILE
+echo "#export SstVerbose=1" >> $SFILE
+echo "export OMP_PROC_BIND=spread" >> $SFILE
+echo "export OMP_PLACES=threads" >> $SFILE
+echo "if ls *.sst 1> /dev/null 2>&1" >> $SFILE
+echo "then" >> $SFILE 
+echo "    echo Cleaning up old .sst files" >> $SFILE
+echo "    rm *.sst" >> $SFILE
+echo "fi" >> $SFILE
+echo "if ls *.bp 1> /dev/null 2>&1" >> $SFILE
+echo "then" >> $SFILE
+echo "    echo Cleaning up old .bp files" >> $SFILE
+echo "    rm -r ./*.bp" >> $SFILE
+echo "fi" >> $SFILE
+
+echo -e "\n# Run" >>$SFILE
+echo "mpirun -np \$RANKS --ppn $RANKS_PER_NODE ./sim &" >> $SFILE
+echo "mpirun -np \$RANKS --ppn $RANKS_PER_NODE python trainer.py" >> $SFILE
+echo "wait" >> $SFILE
+chmod u+x $SFILE
+

@@ -1,0 +1,63 @@
+#!/bin/bash
+set -a
+
+SYSTEM="aurora"
+DEPLOYMENT="colocated"
+NEKRS_HOME="/flare/datascience/balin/Nek/nekRSv24/exe/nekrsv24"
+VENV_PATH=""
+PROJ_ID="datascience"
+QUEUE="debug"
+
+if [ ${SYSTEM} == "aurora" ]; then
+  module load frameworks
+fi
+
+if [[ -z "$VENV_PATH" && ! -d ./_pyg ]]; then
+  echo -e "\033[35mA Python venv was not specified, building one now ...\033[m"
+  python -m venv --clear _pyg --system-site-packages
+  source _pyg/bin/activate
+  export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
+  export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
+  pip install torch_geometric==2.5.3
+  VENV_PATH=${PWD}/_pyg/bin/activate
+elif [ -d ./_pyg ]; then
+  echo -e "\033[35mA Python venv was not specified, but fuond ./_pyg \033[m"
+  VENV_PATH=${PWD}/_pyg/bin/activate
+fi
+
+echo "Setting up case:"
+echo "    system: ${SYSTEM}"
+echo "    deployment: ${DEPLOYMENT}"
+echo
+
+script_name=nrsrun_${SYSTEM}
+if [ ${DEPLOYMENT} == "colocated" ]; then
+  NODES=`cat $PBS_NODEFILE | wc -l`
+  NEKRS_HOME=$NEKRS_HOME \
+  PROJ_ID=$PROJ_ID \
+  QUEUE=$QUEUE \
+  DEPLOYMENT=$DEPLOYMENT \
+  VENV_PATH=$VENV_PATH \
+  SIM_NODES=$NODES TRAIN_NODES=$NODES \
+  ./${script_name} tgv $NODES 00:30
+elif [ ${DEPLOYMENT} == "clustered" ]; then
+  NODES=`cat $PBS_NODEFILE | wc -l`
+  echo "Running on $NODES total nodes"
+  echo "Enter the number of simulation nodes"
+  read SIM_NODES
+  echo "and trainer nodes to use"
+  read TRAIN_NODES
+  CPU_BIND_LIST="1:8:16:24:32:40:53:60:68:76:84:92"
+  NEKRS_HOME=$NEKRS_HOME \
+  PROJ_ID=$PROJ_ID \
+  QUEUE=$QUEUE \
+  DEPLOYMENT=$DEPLOYMENT \
+  VENV_PATH=$VENV_PATH \
+  SIM_NODES=$SIM_NODES TRAIN_NODES=$TRAIN_NODES \
+  SIM_CPU_BIND_LIST=$CPU_BIND_LIST TRAIN_CPU_BIND_LIST=$CPU_BIND_LIST \
+  SIM_RANKS_PER_NODE=12 TRAIN_RANKS_PER_NODE=12 \
+  ./${script_name} tgv $NODES 00:30
+else
+  echo Please select between clustered and colocated deployment of the workflow
+fi
+

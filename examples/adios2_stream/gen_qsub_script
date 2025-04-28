@@ -1,0 +1,27 @@
+#!/bin/bash
+set -a
+
+SYSTEM="aurora"
+NEKRS_HOME="/flare/datascience/balin/Nek/nekRSv24/exe/nekrsv24"
+PROJ_ID="datascience"
+QUEUE="debug-scaling"
+NODES=4
+TIME=1:00
+
+if [ ${SYSTEM} == "aurora" ]; then
+  module load frameworks
+fi
+
+echo -e "\033[35mA Building sim.cpp ...\033[m"
+export ADIOS2_DIR=${NEKRS_HOME}/lib/cmake/adios2/
+cmake ./
+make
+  
+echo 
+echo "Setting up case:"
+echo "    system: ${SYSTEM}"
+echo
+
+script_name=qsub_${SYSTEM} 
+NEKRS_HOME=$NEKRS_HOME PROJ_ID=$PROJ_ID QUEUE=$QUEUE ./${script_name}
+
