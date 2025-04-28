@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+# PROJ_ID=
+
 #--------------------------------------
 : ${QUEUE:="prod"}
 : ${NEKRS_GPU_MPI:=0}
@@ -54,11 +56,13 @@ echo "module list" >> $SFILE
 
 echo -e "\nexport NEKRS_HOME=$NEKRS_HOME" >>$SFILE
 echo "export NEKRS_GPU_MPI=$NEKRS_GPU_MPI" >>$SFILE
-#echo "export MPICH_GPU_SUPPORT_ENABLED=$NEKRS_GPU_MPI" >> $SFILE
 
 echo "export OCCA_DPCPP_COMPILER_FLAGS=\"$OCCA_DPCPP_COMPILER_FLAGS\"" >> $SFILE
 
 echo "export FI_CXI_RX_MATCH_MODE=hybrid" >> $SFILE # required by parRSB
+
+# Temporary workaround while waiting on bugfix in runtime
+echo "export UR_L0_USE_COPY_ENGINE=0" >> $SFILE
 
 CMD=.lhelper
 if [ ${ZE_FLAT_DEVICE_HIERARCHY} == "COMPOSITE" ] || [[ -z "${ZE_FLAT_DEVICE_HIERARCHY}" ]]; then
