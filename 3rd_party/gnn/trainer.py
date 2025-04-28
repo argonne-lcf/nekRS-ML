@@ -51,6 +51,7 @@ Tensor = torch.Tensor
 TORCH_FLOAT_DTYPE = torch.float32
 NP_FLOAT_DTYPE = np.float32
 SMALL = 1e-12
+GB_SIZE = 1024**3
 
 try:
     import mpi4py
@@ -138,6 +139,19 @@ class Trainer:
         
         # ~~~~ Init torch stuff 
         self.setup_torch()
+
+        # ~~~~ Setup timers
+        if self.cfg.timers:
+            self.timer_step = 0
+            self.timer_step_max = self.total_iterations - self.iteration
+            self.timers = self.setup_timers(self.timer_step_max)
+            self.timers_max = self.setup_timers(self.timer_step_max)
+            self.timers_min = self.setup_timers(self.timer_step_max)
+            self.timers_avg = self.setup_timers(self.timer_step_max)
+
+        # ~~~ Setup online timers
+        if self.cfg.online:
+            self.online_timers = self.setup_online_timers()
 
         # ~~~~ Setup local graph 
         self.data_reduced, \
@@ -242,15 +256,6 @@ class Trainer:
             if WITH_XPU: self.model.to('cpu')
             self.model = DDP(self.model, broadcast_buffers=False, gradient_as_bucket_view=True)
             if WITH_XPU: self.model.to(self.device)
-
-        # ~~~~ Setup train_step timers
-        if self.cfg.timers:
-            self.timer_step = 0
-            self.timer_step_max = self.total_iterations - self.iteration
-            self.timers = self.setup_timers(self.timer_step_max)
-            self.timers_max = self.setup_timers(self.timer_step_max)
-            self.timers_min = self.setup_timers(self.timer_step_max)
-            self.timers_avg = self.setup_timers(self.timer_step_max)
 
     def checkpoint(self):
         if RANK == 0:
@@ -559,10 +564,15 @@ class Trainer:
             graph_data = self.client.get_graph_data_from_stream()
             self.Np = graph_data['Np']
             pos = graph_data['pos']
+            
             gli = graph_data['global_ids']
-            ei = graph_data['edge_index']
+            
             local_unique_mask = graph_data['local_unique_mask']
+            
             halo_unique_mask = graph_data['halo_unique_mask']
+            
+            ei = graph_data['edge_index']
+            ei = ei.astype(np.int64)
         else:
             path_to_pos_full = main_path + 'pos_node_rank_%d_size_%d' %(RANK,SIZE)
             path_to_ei = main_path + 'edge_index_rank_%d_size_%d' %(RANK,SIZE)
@@ -590,7 +600,7 @@ class Trainer:
             ei = self.load_data(path_to_ei, dtype=np.int32, extension='.bin') 
             if not self.cfg.online:
                 ei = ei.reshape((-1,2)).T
-            ei = ei.astype(np.int64) # sb: int64 for edge_index 
+            ei = ei.astype(np.int64) # sb: int64 for edge_index
 
             # Local unique mask
             if self.cfg.verbose: log.info('[RANK %d]: Loading local unique mask' %(RANK))
@@ -751,8 +761,10 @@ class Trainer:
                             if (f'fld_{output_field}' in item) and (f'rank_{RANK}' in item)]
             output_files.sort(key=lambda x:int(x.split('.')[0].split('_')[-1]))
         else:
+            tic = time.time()
             output_files = self.client.get_file_list(f'outputs_rank_{RANK}')
             input_files = self.client.get_file_list(f'inputs_rank_{RANK}')
+            self.online_timers['metaData'].append(time.time()-tic)
         assert len(input_files) == len(output_files), \
             'ERROR: found different number of input and output files'
 
@@ -763,9 +775,17 @@ class Trainer:
             output_files = [path_prepend+output_file for output_file in output_files]
         log.info(f'[RANK {RANK}]: Found {len(output_files)} new field files in DB')
         for i in range(len(output_files)):
+            tic = time.time()
             data_x = self.load_data(input_files[i], dtype=np.float64).reshape((-1,3))
+            self.online_timers['trainDataTime'].append(time.time()-tic)
+            self.online_timers['trainDataThroughput'].append(data_x.nbytes/(time.time()-tic))
             data_x = self.prepare_snapshot_data(data_x)
+            
+            tic = time.time()
             data_y = self.load_data(output_files[i], dtype=np.float64).reshape((-1,1))
+            self.online_timers['trainDataTime'].append(time.time()-tic)
+            self.online_timers['trainDataThroughput'].append(data_y.nbytes/(time.time()-tic))
+            data_x = self.prepare_snapshot_data(data_x)
             data_y = self.prepare_snapshot_data(data_y)
             self.data_list.append({'x': data_x, 'y':data_y})
 
@@ -845,26 +865,42 @@ class Trainer:
                 )
         elif self.cfg.online and self.cfg.client.backend == 'smartredis':
             # Get the file list
+            tic = time.time()
             output_files = self.client.get_file_list(f'outputs_rank_{RANK}') # outputs must come first
             input_files = self.client.get_file_list(f'inputs_rank_{RANK}')
+            self.online_timers['metaData'].append(time.time()-tic)
 
             # Load files
             log.info(f'[RANK {RANK}]: Found {len(output_files)} trajectory files in DB')
             for i in range(len(output_files)):
+                tic = time.time()
                 data_x_i = self.client.get_array(input_files[i]).astype(NP_FLOAT_DTYPE).T
-                data_y_i = self.client.get_array(output_files[i]).astype(NP_FLOAT_DTYPE).T
+                self.online_timers['trainDataTime'].append(time.time()-tic)
+                self.online_timers['trainDataThroughput'].append(data_x_i.nbytes/(time.time()-tic))
                 data_x_i = self.prepare_snapshot_data(data_x_i)
+                
+                tic = time.time()
+                data_y_i = self.client.get_array(output_files[i]).astype(NP_FLOAT_DTYPE).T
+                self.online_timers['trainDataTime'].append(time.time()-tic)
+                self.online_timers['trainDataThroughput'].append(data_y_i.nbytes/(time.time()-tic))
                 data_y_i = self.prepare_snapshot_data(data_y_i)
                 self.data_list.append(
                         {'x': data_x_i, 'y':data_y_i}
                 )
         elif self.cfg.online and self.cfg.client.backend == 'adios':
-            data_x_i, data_y_i = self.client.get_train_data_from_stream()
-            data_x_i = self.prepare_snapshot_data(data_x_i)
-            data_y_i = self.prepare_snapshot_data(data_y_i)
-            self.data_list.append(
-                    {'x': data_x_i, 'y':data_y_i}
-            )
+            iter = 5 if self.cfg.target_loss != 0 else 1
+            for i in range(iter):
+                data_x_i, data_y_i, ttime = self.client.get_train_data_from_stream()
+                self.online_timers['trainDataTime'].append(ttime)
+                self.online_timers['trainDataSize'].append((data_x_i.nbytes+data_y_i.nbytes)/GB_SIZE)
+                self.online_timers['trainDataThroughput'].append(
+                            self.online_timers['trainDataSize'][-1]/(ttime)
+                )
+                data_x_i = self.prepare_snapshot_data(data_x_i)
+                data_y_i = self.prepare_snapshot_data(data_y_i)
+                self.data_list.append(
+                        {'x': data_x_i, 'y':data_y_i}
+                )
 
         # split into train/validation
         data = {'train': [], 'validation': []}
@@ -1072,23 +1108,39 @@ class Trainer:
 
         if self.cfg.client.backend == 'smartredis':
             # Check if new files are available to read
+            tic = time.time()
             num_files = self.client.get_file_list_length(f'outputs_rank_{RANK}')
+            self.online_timers['metaData'].append(time.time()-tic)
             num_new_files = num_files - len(self.data_list)
             if num_new_files <= 0:
                 if RANK == 0: log.info(f'[RANK {RANK}]: No new files to read, did not update dataloader')
                 return
             else:
                 if RANK == 0: log.info(f'[RANK {RANK}]: Found {num_new_files} new files to read, will update dataloader')
+                tic = time.time()
                 output_files = self.client.get_file_list(f'outputs_rank_{RANK}')
                 input_files = self.client.get_file_list(f'inputs_rank_{RANK}')
+                self.online_timers['metaData'].append(time.time()-tic)
                 for i in range(len(self.data_list),len(output_files)):
+                    tic = time.time()
                     data_x_i = self.client.get_array(input_files[i]).astype(NP_FLOAT_DTYPE).T
-                    data_y_i = self.client.get_array(output_files[i]).astype(NP_FLOAT_DTYPE).T
+                    self.online_timers['trainDataTime'].append(time.time()-tic)
+                    self.online_timers['trainDataThroughput'].append(data_x_i.nbytes/(time.time()-tic))
                     data_x_i = self.prepare_snapshot_data(data_x_i)
+                    
+                    tic = time.time()
+                    data_y_i = self.client.get_array(output_files[i]).astype(NP_FLOAT_DTYPE).T
+                    self.online_timers['trainDataTime'].append(time.time()-tic)
+                    self.online_timers['trainDataThroughput'].append(data_y_i.nbytes/(time.time()-tic))
                     data_y_i = self.prepare_snapshot_data(data_y_i)
                     self.data_list.append({'x': data_x_i, 'y': data_y_i})
         elif self.cfg.client.backend == 'adios':
-            data_x_i, data_y_i = self.client.get_train_data_from_stream()
+            data_x_i, data_y_i, ttime = self.client.get_train_data_from_stream()
+            self.online_timers['trainDataTime'].append(ttime)
+            self.online_timers['trainDataSize'].append((data_x_i.nbytes+data_y_i.nbytes)/GB_SIZE)
+            self.online_timers['trainDataThroughput'].append(
+                        self.online_timers['trainDataSize'][-1]/(ttime)
+            )
             data_x_i = self.prepare_snapshot_data(data_x_i)
             data_y_i = self.prepare_snapshot_data(data_y_i)
             self.data_list.append(
@@ -1135,6 +1187,15 @@ class Trainer:
         timers['dataTransfer'] = np.zeros(n_record)
         timers['bufferInit'] = np.zeros(n_record)
         timers['collectives'] = np.zeros(n_record)
+        timers['dataTransfer'] = np.zeros(n_record)
+        return timers
+    
+    def setup_online_timers(self) -> dict:
+        timers = {}
+        timers['metaData'] = []
+        timers['trainDataTime'] = []
+        timers['trainDataSize'] = []
+        timers['trainDataThroughput'] = []
         return timers
 
     def update_timer(self, key: str, tstep: int, time: float):

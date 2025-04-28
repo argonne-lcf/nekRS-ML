@@ -55,7 +55,6 @@ client:
     db_nodes: 1
     adios_engine: 'SST'
     adios_transport: 'WAN' # WAN, MPI, UCX, RDMA
-    adios_stream: 'sync' # sync, async
 
 
 hydra:

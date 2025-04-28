@@ -45,6 +45,7 @@ if WITH_DDP:
     RANK = COMM.Get_rank()
     LOCAL_RANK = int(os.getenv("PALS_LOCAL_RANKID"))
     LOCAL_SIZE = int(os.getenv("PALS_LOCAL_SIZE"))
+    HOST_NAME = MPI.Get_processor_name()
 
     try:
         WITH_CUDA = torch.cuda.is_available()
@@ -224,16 +225,16 @@ def inference_rollout(cfg: DictConfig,
 
     # Roll-out loop
     trainer.model.eval()
-    local_times = []
-    local_throughputs = []
+    local_time = []
+    local_throughput = []
     with torch.no_grad():
         while True:
             t_step = time.time()
             x = trainer.inference_step(x)
             t_step = time.time() - t_step
             if trainer.iteration > 0:
-                local_times.append(t_step)
-                local_throughputs.append(n_nodes_local/t_step/1.0e6)
+                local_time.append(t_step)
+                local_throughput.append(n_nodes_local/t_step/1.0e6)
             trainer.iteration += 1
 
             # Logging 
@@ -273,14 +274,32 @@ def inference_rollout(cfg: DictConfig,
     else:
         client.put_array(f'checkpt_u_rank_{RANK}_size_{SIZE}',x.numpy())
 
-    # Print timing and FOM
-    utils.print_fom(n_nodes_local, local_times, local_throughputs)
+    # Print performance stats
+    global_stats = utils.collect_stats(n_nodes_local, local_time, local_throughput)
+    if RANK == 0:
+        log.info('Performance metrics:')
+        log.info(f'\tTotal number of graph nodes: {global_stats["n_nodes"]}')
+        log.info(f'\tTotal number of iterations: {trainer.iteration-1}')
+        min_val, max_val, avg_val = utils.min_max_avg(global_stats["time"][0])
+        log.info(f'\tStep time [sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
+        min_val, max_val, avg_val = utils.min_max_avg(global_stats["throughput"][0])
+        log.info(f'\tStep throughput [million nodes / sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
+        min_val, max_val, avg_val = utils.min_max_avg(global_stats["glob_throughput"])
+        log.info(f'\tParallel throughput [million nodes / sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
+
+    # Print FOM
+    fom_local = (global_stats["n_nodes"] / 1.0e6) * (trainer.iteration-1) / sum(local_time)
+    fom_gather = COMM.gather(fom_local, root=0)
+    if RANK == 0:
+        log.info('FOM:')
+        min_val, max_val, avg_val = utils.min_max_avg(fom_gather)
+        log.info(f'\tFOM_inference [million graph nodes x inference steps / inference time]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
 
 
 @hydra.main(version_base=None, config_path='./conf', config_name='config')
 def main(cfg: DictConfig) -> None:
     if cfg.verbose:
-        log.info(f'Hello from rank {RANK}/{SIZE}, local rank {LOCAL_RANK}, on device {DEVICE}:{DEVICE_ID} out of {N_DEVICES}.')
+        log.info(f'Hello from rank {RANK}/{SIZE}, local rank {LOCAL_RANK}, on node {HOST_NAME} and device {DEVICE}:{DEVICE_ID+cfg.device_skip} out of {N_DEVICES}.')
     
     if RANK == 0:
         log.info('\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')

@@ -3,7 +3,7 @@ Utilities for training and inferencing
 """
 
 import sys
-from typing import Optional, Union, Callable
+from typing import Optional, Union, Callable, Tuple
 import time
 import logging
 import numpy as np
@@ -125,21 +125,50 @@ def average_list_times(a_list):
     avg = np.mean(sum_across_ranks)
     return avg
 
-def print_fom(n_nodes_local: int, local_times: list, local_throughputs: list):
-    n_nodes_global = COMM.reduce(n_nodes_local)
-    global_times = COMM.gather(local_times, root=0)
-    global_throughputs = COMM.gather(local_throughputs, root=0)
+def collect_stats(n_nodes_local: int, local_time: list, local_throughput: list) -> dict:
+    n_nodes_global = COMM.allreduce(n_nodes_local)
+    gather_time = COMM.gather(local_time, root=0)
+    gather_throughput = COMM.gather(local_throughput, root=0)
     if RANK == 0:
-        global_parallel_throughputs = np.zeros(len(local_throughputs))
+        global_throughput = np.zeros(len(local_throughput))
     else:
-        global_parallel_throughputs = None
-    COMM.Reduce(np.array(local_throughputs),
-                         global_parallel_throughputs, 
-                         op=MPI.SUM, root=0
-    )
+        global_time = None
+        global_throughput = None
+    global_throughput = COMM.reduce(np.array(local_throughput), op=MPI.SUM, root=0)
+    return {'n_nodes':n_nodes_global, 
+            'time':gather_time, 
+            'throughput':gather_throughput, 
+            'glob_throughput':global_throughput
+            }
+
+def collect_online_stats(local_time: list, local_throughput: list) -> dict:
+    gather_time = COMM.gather(local_time, root=0)
+    gather_time_tot = COMM.gather([sum(local_time)], root=0)
+    gather_throughput = COMM.gather(local_throughput, root=0)
     if RANK == 0:
-        log.info('Performance metrics:')
-        log.info(f'Total number of graph nodes: {n_nodes_global}')
-        log.info(f'Step time [sec]: min={min(global_times[0]):.4g}, max={max(global_times[0]):.4g}, mean={sum(global_times[0])/len(global_times[0]):.4g}')
-        log.info(f'Step throughput [million nodes/sec]: min={min(global_throughputs[0]):.4g}, max={max(global_throughputs[0]):.4g}, mean={sum(global_throughputs[0])/len(global_throughputs[0]):.4g}')
-        log.info(f'Parallel throughput [million nodes/sec]: min={np.amin(global_parallel_throughputs):.4g}, max={np.amax(global_parallel_throughputs):.4g}, mean={np.mean(global_parallel_throughputs):.4g}')
+        global_throughput = np.zeros(len(local_throughput))
+    else:
+        global_throughput = None
+    global_throughput = COMM.reduce(np.array(local_throughput), op=MPI.SUM, root=0)
+    return { 
+            'time':gather_time, 
+            'tot_time':gather_time_tot,
+            'throughput':gather_throughput, 
+            'glob_throughput':global_throughput
+            }
+
+def min_max_avg(data: Union[list, np.ndarray]) -> Tuple[float,float,float]:
+    if isinstance(data,list):
+        min_val = min(data)
+        max_val = max(data)
+        avg_val = sum(data) / len(data)
+    elif isinstance(data,np.ndarray):
+        min_val = np.amin(data)
+        max_val = np.amax(data)
+        avg_val = np.mean(data)
+    else:
+        min_val = max_val = avg_val = 0.
+    return min_val, max_val, avg_val
+
+
+    
