@@ -14,13 +14,21 @@ public:
   adios2::ADIOS *_adios;
   adios2::IO _stream_io;
   adios2::IO _write_io;
+  adios2::Engine _solWriter;
 
-  // solution variables
+  // solution variables and array sizes
+  unsigned long _num_dim;
+  unsigned long _N, _num_edges;
+  unsigned long _global_N, _global_num_edges;
+  unsigned long _offset_N, _offset_num_edges;
+  unsigned long _field_offset, _global_field_offset, _offset_field_offset;
   adios2::Variable<dfloat> uIn, uOut;
 
   // member functions
   int check_run();
   void checkpoint();
+  void openStream();
+  void closeStream();
 
 private:
   // Streamer parameters

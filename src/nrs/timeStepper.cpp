@@ -626,11 +626,11 @@ bool nrs_t::runInnerStep(std::function<bool(int)> convergenceCheck, int iter, bo
     checkpointStep = 1;
   }
 
-  platform->timer.tic("udfExecuteStep", 1);
+  platform->timer.hostTic("udfExecuteStep", 1);
   if (udf.executeStep) {
     udf.executeStep(timeNew, tstep);
   }
-  platform->timer.toc("udfExecuteStep");
+  platform->timer.hostToc("udfExecuteStep");
 
   return converged;
 }

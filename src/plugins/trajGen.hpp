@@ -54,7 +54,7 @@ private:
     int size;
 
     // for prints 
-    bool verbose = true; 
+    bool verbose = false; 
 
     // for writing 
     bool write = true;

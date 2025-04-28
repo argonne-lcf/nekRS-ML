@@ -3,7 +3,7 @@ set -a
 
 SYSTEM="aurora"
 DEPLOYMENT="colocated"
-NEKRS_HOME="/flare/datascience/balin/Nek/nekRSv24/exe/nekrsv24_simai_frameworks"
+NEKRS_HOME="/flare/datascience/balin/Nek/nekRSv24/exe/nekrsv24"
 VENV_PATH=""
 PROJ_ID="datascience"
 QUEUE="debug"
@@ -38,6 +38,7 @@ if [ ${DEPLOYMENT} == "colocated" ]; then
   QUEUE=$QUEUE \
   DEPLOYMENT=$DEPLOYMENT \
   VENV_PATH=$VENV_PATH \
+  SIM_NODES=$NODES TRAIN_NODES=$NODES \
   ./${script_name} turbChannel $NODES 00:30
 elif [ ${DEPLOYMENT} == "clustered" ]; then
   NODES=`cat $PBS_NODEFILE | wc -l`
@@ -46,12 +47,15 @@ elif [ ${DEPLOYMENT} == "clustered" ]; then
   read SIM_NODES
   echo "and trainer nodes to use"
   read TRAIN_NODES
+  CPU_BIND_LIST="1:8:16:24:32:40:53:60:68:76:84:92"
   NEKRS_HOME=$NEKRS_HOME \
   PROJ_ID=$PROJ_ID \
   QUEUE=$QUEUE \
   DEPLOYMENT=$DEPLOYMENT \
   VENV_PATH=$VENV_PATH \
   SIM_NODES=$SIM_NODES TRAIN_NODES=$TRAIN_NODES \
+  SIM_CPU_BIND_LIST=$CPU_BIND_LIST TRAIN_CPU_BIND_LIST=$CPU_BIND_LIST \
+  SIM_RANKS_PER_NODE=12 TRAIN_RANKS_PER_NODE=12 \
   ./${script_name} turbChannel $NODES 00:30
 else
   echo Please select between clustered and colocated deployment of the workflow

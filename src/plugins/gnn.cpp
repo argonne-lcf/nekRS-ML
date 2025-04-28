@@ -232,8 +232,30 @@ void gnn_t::gnnWriteADIOS(adios_client_t* client)
     MPI_Comm &comm = platform->comm.mpiComm;
     unsigned long _size = size;
     unsigned long _rank = rank;
-    unsigned long _N = N;
-    unsigned long _num_edges = num_edges;
+    client->_num_dim = nrs->mesh->dim;
+
+    // Get global size of data
+    int global_N, global_num_edges;
+    MPI_Allreduce(&N, &global_N, 1, MPI_INT, MPI_SUM, comm);
+    MPI_Allreduce(&num_edges, &global_num_edges, 1, MPI_INT, MPI_SUM, comm);
+    client->_N = N;
+    client->_global_N = global_N;
+    client->_num_edges = num_edges;
+    client->_global_num_edges = global_num_edges;
+
+    // Gather size of data
+    int* gathered_N = new int[size];
+    int* gathered_num_edges = new int[size];
+    int offset_N = 0;
+    int offset_num_edges = 0;
+    MPI_Allgather(&N, 1, MPI_INT, gathered_N, 1, MPI_INT, MPI_COMM_WORLD);
+    MPI_Allgather(&num_edges, 1, MPI_INT, gathered_num_edges, 1, MPI_INT, MPI_COMM_WORLD);
+    for (int i=0; i<rank; i++) {
+        offset_N += gathered_N[i];
+        offset_num_edges += gathered_num_edges[i];
+    }
+    client->_offset_N = offset_N;
+    client->_offset_num_edges = offset_num_edges;
 
     // Define ADIOS2 variables to send
     //auto posFloats = client->_stream_io.DefineVariable<dfloat>("pos_node", {_size * _N * 3}, {_rank * _N * 3}, {_N * 3});
@@ -242,18 +264,37 @@ void gnn_t::gnnWriteADIOS(adios_client_t* client)
     //auto globInts = client->_stream_io.DefineVariable<hlong>("global_ids", {_size * _N}, {_rank * _N}, {_N});
     //auto edgeInts = client->_stream_io.DefineVariable<dlong>("edge_index", {_size * 2 * _num_edges}, {_rank * 2 * _num_edges}, {2 * _num_edges});
     //auto NpInts = client->_stream_io.DefineVariable<dlong>("Np", {1}, {1}, {1});
-    auto posFloats = client->_write_io.DefineVariable<dfloat>("pos_node", {_size * _N * 3}, {_rank * _N * 3}, {_N * 3});
-    auto locInts = client->_write_io.DefineVariable<dlong>("local_unique_mask", {_size * _N}, {_rank * _N}, {_N});
-    auto haloInts = client->_write_io.DefineVariable<dlong>("halo_unique_mask", {_size * _N}, {_rank * _N}, {_N});
-    auto globInts = client->_write_io.DefineVariable<hlong>("global_ids", {_size * _N}, {_rank * _N}, {_N});
-    auto edgeInts = client->_write_io.DefineVariable<dlong>("edge_index", {_size * 2 * _num_edges}, {_rank * 2 * _num_edges}, {2 * _num_edges});
+    auto posFloats = client->_write_io.DefineVariable<dfloat>("pos_node", 
+                                                            {client->_global_N * client->_num_dim}, 
+                                                            {client->_offset_N * client->_num_dim}, 
+                                                            {client->_N * client->_num_dim});
+    auto locInts = client->_write_io.DefineVariable<dlong>("local_unique_mask", 
+                                                            {client->_global_N}, 
+                                                            {client->_offset_N}, 
+                                                            {client->_N});
+    auto haloInts = client->_write_io.DefineVariable<dlong>("halo_unique_mask", 
+                                                            {client->_global_N}, 
+                                                            {client->_offset_N}, 
+                                                            {client->_N});
+    auto globInts = client->_write_io.DefineVariable<hlong>("global_ids", 
+                                                            {client->_global_N}, 
+                                                            {client->_offset_N}, 
+                                                            {client->_N});
+    auto edgeInts = client->_write_io.DefineVariable<dlong>("edge_index", 
+                                                            {client->_global_num_edges * 2}, 
+                                                            {client->_offset_num_edges * 2}, 
+                                                            {client->_num_edges * 2});
     auto NpInts = client->_write_io.DefineVariable<dlong>("Np", {1}, {1}, {1});
+    auto NInts = client->_write_io.DefineVariable<dlong>("N", {_size}, {_rank}, {1});
+    auto numedgesInts = client->_write_io.DefineVariable<dlong>("num_edges", {_size}, {_rank}, {1});
 
     // Write the graph data
     //adios2::Engine graphWriter = client->_stream_io.Open("graphStream", adios2::Mode::Write);
     adios2::Engine graphWriter = client->_write_io.Open("graph.bp", adios2::Mode::Write);
     graphWriter.BeginStep();
 
+    graphWriter.Put<dlong>(NInts, N);
+    graphWriter.Put<dlong>(numedgesInts, static_cast<dlong>(num_edges));
     graphWriter.Put<dfloat>(posFloats, pos_node);
     graphWriter.Put<dlong>(locInts, local_unique_mask);
     graphWriter.Put<dlong>(haloInts, halo_unique_mask);
@@ -393,7 +434,7 @@ void gnn_t::get_node_masks()
         //     if (verbose) printf("[RANK %d] --- Local ID: %d \t Global ID: %d \t New ID: %d \n", 
         //             rank, localNodes[i].localId, localNodes[i].baseId, localNodes[i].newId);
         // }
-        std::cout << "[RANK  " << rank << "] -- NlocalGather: " << NlocalGather << std::endl;
+        if (verbose) std::cout << "[RANK  " << rank << "] -- NlocalGather: " << NlocalGather << std::endl;
    
         // ~~~~ get the mask to move from coincident to non-coincident representation.
         // first, sort based on local ids

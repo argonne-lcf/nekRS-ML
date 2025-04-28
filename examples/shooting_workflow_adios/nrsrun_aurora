@@ -20,11 +20,35 @@ set -e
 : ${VENV_PATH:=""}
 #--------------------------------------
 
-cp turbChannel.par.safe turbChannel.par
+#--------------------------------------
+# Copy the .par file
+cp ${1}.par.safe ${1}.par
 
+#--------------------------------------
+# Update the .box file to increase the mesh size linearly with the number of nodes
+SIM_PROCS=$(( SIM_NODES * SIM_RANKS_PER_NODE ))
+#NX=$(( 18*SIM_NODES ))
+#NZ=$(( 10*SIM_NODES ))
+NX=$(( 13 ))
+NZ=$(( 2*SIM_PROCS ))
+if [[ "$SIM_NODES" -gt 1 ]]; then
+    LZ=$SIM_NODES
+else
+    LZ=1
+fi
+cp ${1}_aurora.box ${1}.box
+sed -i "s/NX/${NX}/g" ${1}.box
+sed -i "s/NZ/${NZ}/g" ${1}.box
+sed -i "s/LZ/${LZ}/g" ${1}.box
+
+#--------------------------------------
+# Run genbox from Nek5000 to generate the .re2 mesh file
+/flare/datascience/balin/Nek/Nek5000/bin/genbox ${1}.box ${1}
+
+#--------------------------------------
+# Setup the case
 source $NEKRS_HOME/bin/nrsqsub_utils
 setup $# 1
-
 chk_case $TOTAL_RANKS
 
 #--------------------------------------
@@ -118,7 +142,7 @@ echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/main.py\"" >> $CFILE
 #echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
 echo "    affinity: \"\"" >> $CFILE
 if [ ${DEPLOYMENT} == "colocated"  ]; then
-  echo "    arguments: \"device_skip=${SIM_RANKS_PER_NODE} backend=ccl halo_swap_mode=all_to_all_opt online=True client.backend=adios consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
+  echo "    arguments: \"device_skip=${SIM_RANKS_PER_NODE} backend=ccl halo_swap_mode=all_to_all_opt online=True client.backend=adios client.adios_transport=RDMA consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
 elif [ ${DEPLOYMENT} == "clustered"  ]; then
   echo "    arguments: \"backend=ccl halo_swap_mode=all_to_all_opt online=True client.backend=adios consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
 fi
@@ -136,16 +160,8 @@ PFILE=${case}.par
 echo "" >> $PFILE
 echo "[ML]" >> $PFILE
 echo "adiosEngine = SST" >> $PFILE
-echo "adiosTransport = WAN" >> $PFILE
-echo "adiosStream = sync" >> $PFILE
-
-#--------------------------------------
-# Update the .box file to increase the mesh size linearly with the number of nodes
-NX=$(( 36*SIM_NODES ))
-NZ=$(( 18*SIM_NODES ))
-cp ${case}_1node.box ${case}.box
-sed -i "s/NX/${NX}/g" ${case}.box
-sed -i "s/NZ/${NZ}/g" ${case}.box
+echo "adiosTransport = RDMA" >> $PFILE
+echo "adiosStream = async" >> $PFILE
 
 #--------------------------------------
 # Generate the run script
@@ -206,7 +222,11 @@ echo "    echo Cleaning up old .bp files" >> $RFILE
 echo "    rm -r ./*.bp" >> $RFILE
 echo "fi" >> $RFILE
 
-echo -e "\n# precompilation" >>$RFILE
+echo -e "\n# precompilation" >> $RFILE
+echo "if [ ! -d .cache ]; then" >> $RFILE
+echo "  echo Cleaning up the cache" >> $RFILE
+echo "  rm -r .cache" >> $RFILE
+echo "fi" >> $RFILE
 CMD_build="mpiexec -n ${RANKS_FOR_BUILD} -ppn ${RANKS_FOR_BUILD} --cpu-bind list:1:8:16:24:32:40:53:60:68:76:84:92 -- ./${SAFF_FILE} ${RANKS_FOR_BUILD} $bin --setup ${case} --backend ${NEKRS_BACKEND} --device-id 0 $extra_args --build-only ${RANKS_FOR_BUILD}"
 add_build_CMD "$RFILE" "$CMD_build" "$TOTAL_RANKS"
 
