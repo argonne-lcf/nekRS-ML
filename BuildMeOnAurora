@@ -7,10 +7,21 @@ module load frameworks
 module list
 #...
 
+#... set the build and install directories
+export BUILD_DIR=$PWD
+echo -e "\033[32mInsert the path to NEKRS_HOME (i.e. the install directory) \033[m"
+echo -e "\033[32mIf okay with the default \$HOME/.local/nekrs, press ENTER to continue or wait 1 minute\033[m"
+read -r -s -t 60 KEY
+if [ -z "$KEY" ]; then
+  export NEKRS_HOME=$HOME/.local/nekrs
+else
+  export NEKRS_HOME=$KEY
+fi
+export INSTALL_DIR=$NEKRS_HOME
+#...
+
 #... set some environment variables
-NEKRS_BUILD_DIR=$PWD
-ENABLE_SMARTREDIS=ON
-export NEKRS_HOME=/flare/datascience/balin/Nek/nekRSv24/exe/nekrsv24_simai_frameworks
+export ENABLE_SMARTREDIS=ON
 export CC=mpicc
 export CXX=mpic++
 export FC=mpif77

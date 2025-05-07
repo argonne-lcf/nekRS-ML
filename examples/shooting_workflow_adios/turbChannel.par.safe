@@ -9,7 +9,7 @@ dt = targetCFL=2 + max=2e-2 + initial=5e-3
 timeStepper = tombo2
 
 checkpointControl = simulationTime 
-checkpointInterval = 20
+checkpointInterval = -1
 
 regularization = hpfrt + nModes=1 + scalingCoeff=5
 #constFlowRate = meanVelocity=1.0 + direction=X
@@ -30,5 +30,5 @@ zLength = 3.141592653
 betaY = 2.2
 
 [MESH]
-partitioner = uniformz
+#partitioner = uniformz
 
