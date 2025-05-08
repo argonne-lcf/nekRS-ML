@@ -6,7 +6,7 @@ if [ -z ${CC} ] || [ -z ${CXX}  ] || [ -z ${FC}  ]; then
   export CC=mpicc
   export CXX=mpic++
   export FC=mpif77
-  read -p         "Press ENTER to continue with CC=$CC CXX=$CXX FC=$FC or ctrl-c to cancel"
+  read -p "Press ENTER to continue with CC=$CC CXX=$CXX FC=$FC or ctrl-c to cancel"
 fi
 
 if [[ -z "$BUILD_DIR" ]]; then
@@ -14,7 +14,7 @@ if [[ -z "$BUILD_DIR" ]]; then
 fi
 if [ -d ${BUILD_DIR} ]; then
   #rm -r ${BUILD_DIR}
-  echo -e "\n\033[31mWARNING! Found a build directory already, you may want to clean it.\033[m\n"
+  echo -e "\n\033[31mWARNING! Found a build directory already at $BUILD_DIR, you may want to clean it.\033[m\n"
 fi
 
 if [[ -z "$INSTALL_DIR" ]]; then
@@ -22,11 +22,11 @@ if [[ -z "$INSTALL_DIR" ]]; then
 fi
 if [ -d ${INSTALL_DIR} ]; then
   #rm -r ${INSTALL_DIR}
-  echo -e "\n\033[31mWARNING! Found an install directory already, you may want to clean it.\033[m\n"
+  echo -e "\n\033[31mWARNING! Found an install directory already at $INSTALL_DIR, you may want to clean it.\033[m\n"
 fi
 
-cmake -S . -B ${BUILD_DIR} -DCMAKE_INSTALL_PREFIX=${INSTALL_DIR}  -Wfatal-errors && \
-cmake --build ${BUILD_DIR} --parallel 8 && \
+cmake -S . -B ${BUILD_DIR} -DCMAKE_INSTALL_PREFIX=${INSTALL_DIR}  -Wfatal-errors $@
+cmake --build ${BUILD_DIR} --parallel 8
 cmake --install ${BUILD_DIR}
 if [ $? -eq 0 ]; then
   echo ""

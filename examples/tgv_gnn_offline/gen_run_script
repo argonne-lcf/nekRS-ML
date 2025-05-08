@@ -1,8 +1,17 @@
 #!/bin/bash
 set -a
 
-SYSTEM="aurora"
-NEKRS_HOME="/flare/datascience/balin/Nek/nekRSv24/exe/nekrsv24_simai_frameworks"
+if [ "$#" -ne 1 ]; then
+  echo "Usage: $0 <system name>"
+  exit 1
+fi
+
+SYSTEM="${1,,}"
+if [ -z "$NEKRS_HOME" ]; then
+  echo -e "\033[35mInsert the path to NEKRS_HOME \033[m"
+  read -r -s NEKRS_HOME
+  echo -e "\033[35mUsing NEKRS_HOME=$NEKRS_HOME \033[m"
+fi
 VENV_PATH=""
 PROJ_ID="datascience"
 QUEUE="debug"
@@ -26,6 +35,7 @@ fi
 
 echo "Setting up case:"
 echo "    system: ${SYSTEM}"
+echo "    NEKRS_HOME: ${NEKRS_HOME}"
 echo "    venv: ${VENV_PATH}"
 echo
 

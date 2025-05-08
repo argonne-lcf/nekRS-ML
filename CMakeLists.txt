@@ -427,6 +427,9 @@ if(OCCA_OPENCL_ENABLED)
   message(NOTICE "OPENCL backend enabled (flags: ${OCCA_OPENCL_COMPILER_FLAGS})")
 endif()
 message(NOTICE "GPU aware MPI support: ${NEKRS_GPU_MPI}")
+if (ENABLE_SMARTREDIS)
+  message(NOTICE "Enable SmartRedis: True")
+endif()
 message(NOTICE "-------------------------------------------")
 
 #################################################################################

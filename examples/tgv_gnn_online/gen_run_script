@@ -1,15 +1,25 @@
 #!/bin/bash
 set -a
 
-SYSTEM="aurora"
+if [ "$#" -ne 1 ]; then
+  echo "Usage: $0 <system name>"
+  exit 1
+fi
+
+SYSTEM="${1,,}"
+if [ -z "$NEKRS_HOME" ]; then
+  echo -e "\033[35mInsert the path to NEKRS_HOME \033[m"
+  read -r -s NEKRS_HOME
+  echo -e "\033[35mUsing NEKRS_HOME=$NEKRS_HOME \033[m"
+fi
 DEPLOYMENT="colocated"
-NEKRS_HOME="/flare/datascience/balin/Nek/nekRSv24/exe/nekrsv24_simai_frameworks"
 VENV_PATH=""
 PROJ_ID="datascience"
 QUEUE="debug"
 
 if [ ${SYSTEM} == "aurora" ]; then
   module load frameworks
+  module load git-lfs/3.5.1
 fi
 
 if [[ -z "$VENV_PATH" && ! -d ./_ssim ]]; then
@@ -36,6 +46,7 @@ fi
 
 echo "Setting up case:"
 echo "    system: ${SYSTEM}"
+echo "    NEKRS_HOME: ${NEKRS_HOME}"
 echo "    deployment: ${DEPLOYMENT}"
 echo
 

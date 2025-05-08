@@ -8,13 +8,16 @@ module list
 #...
 
 #... set the build and install directories
-export BUILD_DIR=$PWD
-echo -e "\033[32mInsert the path to NEKRS_HOME (i.e. the install directory) \033[m"
-echo -e "\033[32mIf okay with the default \$HOME/.local/nekrs, press ENTER to continue or wait 1 minute\033[m"
+export BUILD_DIR=$PWD/build
+echo -e "\033[35mInsert the path to NEKRS_HOME (i.e. the install directory) \033[m"
+echo -e "\033[35mIf okay with the default \$HOME/.local/nekrs, press ENTER to continue or wait 1 minute\033[m"
 read -r -s -t 60 KEY
 if [ -z "$KEY" ]; then
   export NEKRS_HOME=$HOME/.local/nekrs
 else
+  echo ""
+  echo -e "\033[35mInstalling nekRS at $KEY\033[m"
+  echo ""
   export NEKRS_HOME=$KEY
 fi
 export INSTALL_DIR=$NEKRS_HOME
@@ -42,7 +45,7 @@ if [ ${ENABLE_SMARTREDIS} == "ON" ]; then
     cd $NEKRS_HOME
     git clone https://github.com/rickybalin/SmartRedis.git
     cd SmartRedis
-    pip install -e .
+    #pip install -e .
     make lib
     cd $NEKRS_BUILD_DIR
     echo -e "\033[35mDone building SmartRedis\033[m"
@@ -52,11 +55,12 @@ fi
 #...
 
 #... build nekRS
+echo ""
 echo -e "\033[35mBuilding nekRS ...\033[m"
 if [ ${ENABLE_SMARTREDIS} == "ON" ]; then
-  ./build.sh -DCMAKE_INSTALL_PREFIX=$NEKRS_HOME -DENABLE_SMARTREDIS=ON -DSMARTREDIS_INSTALL_DIR=$NEKRS_HOME/SmartRedis/install
+  ./build.sh -DENABLE_SMARTREDIS=ON -DSMARTREDIS_INSTALL_DIR=$NEKRS_HOME/SmartRedis/install
 else
-  ./build.sh -DCMAKE_INSTALL_PREFIX=$NEKRS_HOME
+  ./build.sh
 fi
 #...
 
