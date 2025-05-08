@@ -3,6 +3,7 @@ import os
 import sys 
 from omegaconf import DictConfig, OmegaConf
 import hydra
+import psutil
 
 # smartsim and smartredis imports
 from smartsim import Experiment
@@ -143,7 +144,7 @@ class ShootingWorkflow():
         coDB_manager_settings.set_tasks(self.num_nodes)
         coDB_manager_settings.set_tasks_per_node(1)
         coDB_manager_settings.set_hostlist(self.db_nodes)
-        coDB_manager_settings.set_cpu_binding_type("list:0")
+        coDB_manager_settings.set_cpu_binding_type(f"list:{psutil.cpu_count(logical=False)-1}")
 
         kwargs = {
             'maxclients': 100000,
@@ -154,7 +155,7 @@ class ShootingWorkflow():
         }
         self.coDB_model = self.exp.create_model(f"coDB", coDB_manager_settings)
         db_bind = None if self.cfg.run_args.db_cpu_bind=='None' else self.cfg.run_args.db_cpu_bind
-        if (self.cfg.database.network_interface=='uds'):
+        if (self.cfg.database.network_interface=='udf'):
             self.coDB_model.colocate_db_uds(
                     db_cpus=self.cfg.run_args.dbprocs_pn,
                     custom_pinning=db_bind,
