@@ -33,6 +33,7 @@ lr_phase23: 0.0001
 hidden_channels: 32
 n_mlp_hidden_layers: 5
 n_messagePassing_layers: 4
+layer_norm: False
 
 # Halo swap mode 
 halo_swap_mode : none
