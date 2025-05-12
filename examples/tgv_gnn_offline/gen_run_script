@@ -1,23 +1,24 @@
 #!/bin/bash
 set -a
 
-if [ "$#" -ne 1 ]; then
-  echo "Usage: $0 <system name>"
+if [ "$#" -ne 2 ]; then
+  echo "Usage: $0 <system name> <path to NEKRS_HOME>"
   exit 1
 fi
 
 SYSTEM="${1,,}"
-if [ -z "$NEKRS_HOME" ]; then
-  echo -e "\033[35mInsert the path to NEKRS_HOME \033[m"
-  read -r -s NEKRS_HOME
-  echo -e "\033[35mUsing NEKRS_HOME=$NEKRS_HOME \033[m"
-fi
+NEKRS_HOME=$2
 VENV_PATH=""
 PROJ_ID="datascience"
 QUEUE="debug"
 
 if [ ${SYSTEM} == "aurora" ]; then
   module load frameworks
+elif [ ${SYSTEM} == "polaris" ]; then
+  module use /soft/modulefiles/
+  module load conda
+  conda activate
+  module load spack-pe-base cmake
 fi
 
 if [[ -z "$VENV_PATH" && ! -d ./_pyg ]]; then

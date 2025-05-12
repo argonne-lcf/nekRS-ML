@@ -1,22 +1,38 @@
 #!/bin/bash
 set -a
 
-SYSTEM="aurora"
+if [ "$#" -ne 2 ]; then
+  echo "Usage: $0 <system name> <path to NEKRS_HOME>"
+  exit 1
+fi
+
+SYSTEM="${1,,}"
+NEKRS_HOME=$2
 DEPLOYMENT="colocated"
-NEKRS_HOME="/flare/datascience/balin/Nek/nekRSv24/exe/nekrsv24_simai_frameworks"
 VENV_PATH=""
 PROJ_ID="datascience"
 QUEUE="debug"
 
 if [ ${SYSTEM} == "aurora" ]; then
   module load frameworks
+elif [ ${SYSTEM} == "polaris" ]; then
+  module use /soft/modulefiles/
+  module load conda
+  conda activate
+  module load spack-pe-base cmake
 fi
 
 if [[ -z "$VENV_PATH" && ! -d ./_ssim ]]; then
   echo -e "\033[35mA Python venv was not specified, building one now ...\033[m"
   python -m venv --clear _ssim --system-site-packages
   source _ssim/bin/activate
-  
+ 
+  export CC=cc
+  export CXX=CC
+  export CUDNN_BASE=/soft/libraries/cudnn/cudnn-12-linux-x64-v9.1.0.70
+  export CUDNN_LIBRARY=$CUDNN_BASE/lib/
+  export CUDNN_INCLUDE_DIR=$CUDNN_BASE/include/
+  export LD_LIBRARY_PATH=$CUDNN_LIBRARY:$LD_LIBRARY_PATH 
   export TORCH_CMAKE_PATH=$( python -c 'import torch;print(torch.utils.cmake_prefix_path)' )
   export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
   export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
@@ -36,6 +52,7 @@ fi
 
 echo "Setting up case:"
 echo "    system: ${SYSTEM}"
+echo "    NEKRS_HOME: ${NEKRS_HOME}"
 echo "    deployment: ${DEPLOYMENT}"
 echo
 
