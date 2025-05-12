@@ -3,7 +3,7 @@
 This example builds off of the [online training of time dependent GNN surrogate](../tgv_gnn_traj_online/README.md), however it adds the step of performing inference with the GNN surrogate after online training has concluded. 
 The flow problem is based on the turbulence channel flow LES, for which the details are in the [turbChannel example](../turbChannel/README.md).
 
-The main differences between this example and simple online training of time dependent GNN surrogate are in the `ssim_driver.py` workflow driver script. 
+The main differences between this example and simple online training of time dependent GNN surrogate are in the `driver.py` workflow driver script. 
 Specifically, the workflow runner alternates between fine-tuning of the GNN and deploying the model for inference.
 During fine-tuning, both nekRS and GNN training are running concurrently.
 During inference, only the GNN is run advanding the velocity field in time.
@@ -49,7 +49,7 @@ The script generates the run script, which is executed with
 The `run.sh` script is composed of two steps:
 
 - First nekRS is run by itself with the `--build-only` flag. This is done such that the `.cache` directory can be built beforehand instead of during online training.
-- The online training workflow driver `ssim_driver.py` is executed with Python, setting up the SmartSim Orchestrator (the database), followed by fine-tuning involving nekRS and the GNN trainer, followed by inference once fine-tuning is over.
+- The online training workflow driver `driver.py` is executed with Python, setting up the SmartSim Orchestrator (the database), followed by fine-tuning involving nekRS and the GNN trainer, followed by inference once fine-tuning is over.
 
 The outputs of the nekRS, trainer and inference will be within the `./nekRS` directory created at runtime.
 
