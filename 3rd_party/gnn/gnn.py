@@ -33,17 +33,13 @@ class DistributedGNN(torch.nn.Module):
         self.layer_norm = layer_norm
         self.name = name
 
-        # ~~~~ set the norm layer if requested
-        if self.layer_norm:
-            norm_layer = torch.nn.LayerNorm(self.hidden_channels)
-
         # ~~~~ node encoder MLP
         self.node_encoder = MLP(
                 input_channels = self.input_node_channels,
                 hidden_channels = [self.hidden_channels]*(self.n_mlp_hidden_layers+1),
                 output_channels = self.hidden_channels,
                 activation_layer = torch.nn.ELU(),
-                norm_layer = norm_layer
+                norm_layer = torch.nn.LayerNorm(self.hidden_channels) if self.layer_norm else None
                 )
 
         # ~~~~ edge encoder MLP
@@ -52,7 +48,7 @@ class DistributedGNN(torch.nn.Module):
                 hidden_channels = [self.hidden_channels]*(self.n_mlp_hidden_layers+1),
                 output_channels = self.hidden_channels,
                 activation_layer = torch.nn.ELU(),
-                norm_layer = norm_layer
+                norm_layer = torch.nn.LayerNorm(self.hidden_channels) if self.layer_norm else None
                 )
 
         # ~~~~ node decoder MLP
@@ -71,6 +67,7 @@ class DistributedGNN(torch.nn.Module):
                                      channels = self.hidden_channels,
                                      n_mlp_hidden_layers = self.n_mlp_hidden_layers,
                                      halo_swap_mode = self.halo_swap_mode, 
+                                     layer_norm = self.layer_norm
                                      )
                                   )
 
@@ -350,17 +347,13 @@ class DistributedMessagePassingLayer(torch.nn.Module):
         self.halo_swap_mode = halo_swap_mode
         self.layer_norm = layer_norm
 
-        # ~~~~ set the norm layer if requested
-        if self.layer_norm:
-            norm_layer = torch.nn.LayerNorm(self.hidden_channels)
-
         # Edge update MLP 
         self.edge_updater = MLP(
                 input_channels = self.channels*3,
                 hidden_channels = [self.channels]*(self.n_mlp_hidden_layers+1),
                 output_channels = self.channels,
                 activation_layer = torch.nn.ELU(),
-                norm_layer = norm_layer
+                norm_layer = torch.nn.LayerNorm(self.channels) if self.layer_norm else None
                 )
 
         # Node update MLP
@@ -369,7 +362,7 @@ class DistributedMessagePassingLayer(torch.nn.Module):
                 hidden_channels = [self.channels]*(self.n_mlp_hidden_layers+1),
                 output_channels = self.channels,
                 activation_layer = torch.nn.ELU(),
-                norm_layer = norm_layer
+                norm_layer = torch.nn.LayerNorm(self.channels) if self.layer_norm else None
                 )
 
         self.reset_parameters()

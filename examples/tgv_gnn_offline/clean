@@ -1,4 +1,5 @@
 #!/bin/bash
 
-rm -r gnn_outputs_poly_3 outputs _pyg ckpt/ saved_models/
+rm -rf _pyg
+rm -r gnn_outputs_poly_3 outputs ckpt/ saved_models/
 rm run.sh
