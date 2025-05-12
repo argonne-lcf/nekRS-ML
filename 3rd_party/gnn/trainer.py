@@ -332,6 +332,7 @@ class Trainer:
         n_mlp_hidden_layers = self.cfg.n_mlp_hidden_layers
         n_messagePassing_layers = self.cfg.n_messagePassing_layers
         halo_swap_mode = self.cfg.halo_swap_mode
+        layer_norm = self.cfg.layer_norm
         #name = 'POLY_%d_RANK_%d_SIZE_%d_SEED_%d' %(poly,RANK,SIZE,self.cfg.seed)
         name = 'POLY_%d_SIZE_%d_SEED_%d' %(poly,SIZE,self.cfg.seed)
         if self.cfg.use_residual:
@@ -344,6 +345,7 @@ class Trainer:
                            n_mlp_hidden_layers,
                            n_messagePassing_layers,
                            halo_swap_mode,
+                           layer_norm,
                            name)
         return model
 

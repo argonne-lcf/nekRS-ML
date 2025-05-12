@@ -111,9 +111,9 @@ echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/main.py\"" >> $CFILE
 #echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
 echo "    affinity: \"\"" >> $CFILE
 if [ ${DEPLOYMENT} == "colocated"  ]; then
-  echo "    arguments: \"device_skip=${SIM_RANKS_PER_NODE} backend=nccl halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True target_loss=1.6206e-04 verbose=True\"" >> $CFILE
+  echo "    arguments: \"device_skip=${SIM_RANKS_PER_NODE} backend=nccl halo_swap_mode=all_to_all_opt layer_norm=True online=True client.db_nodes=${DB_NODES} consistency=True target_loss=1.6206e-04 verbose=True\"" >> $CFILE
 elif [ ${DEPLOYMENT} == "clustered"  ]; then
-  echo "    arguments: \"backend=nccl halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True target_loss=1.6206e-04 verbose=True\"" >> $CFILE
+  echo "    arguments: \"backend=nccl halo_swap_mode=all_to_all_opt layer_norm=True online=True client.db_nodes=${DB_NODES} consistency=True target_loss=1.6206e-04 verbose=True\"" >> $CFILE
 fi
 echo "    copy_files: []" >> $CFILE
 echo "    link_files: [\"./${TAFF_FILE}\"]" >> $CFILE
