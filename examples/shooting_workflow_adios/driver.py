@@ -213,8 +213,6 @@ class ShootingWorkflow():
         """Runner function for the workflow responsible for alternating
         between fine-tuning and inference and deploying the components
         """
-        # Start the workflow loop
-        #while True:
         # Fine-tune model
         self.fineTune()
 
