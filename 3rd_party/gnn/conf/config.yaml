@@ -9,6 +9,7 @@ logfreq: 10
 ckptfreq: 500
 batch_size: 1
 val_batch_size: 1
+precision: fp32
 fp16_allreduce: False
 restart: False
 master_addr: none
@@ -29,7 +30,7 @@ phase3_steps: 0
 lr_phase12: 0.0001
 lr_phase23: 0.0001
 
-# arch properties 
+# model arch properties 
 hidden_channels: 32
 n_mlp_hidden_layers: 5
 n_messagePassing_layers: 4
