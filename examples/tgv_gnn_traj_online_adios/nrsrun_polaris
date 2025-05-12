@@ -1,0 +1,162 @@
+#!/bin/bash
+set -e
+
+#--------------------------------------
+: ${QUEUE:="prod"}
+: ${NEKRS_GPU_MPI:=0}
+: ${NEKRS_BACKEND:="CUDA"}
+: ${RANKS_FOR_BUILD:=4}
+: ${SIM_RANKS_PER_NODE:=2}
+: ${TRAIN_RANKS_PER_NODE:=2}
+: ${DEPLOYMENT:="colocated"}
+: ${SIM_NODES:=1}
+: ${TRAIN_NODES:=1}
+: ${SIM_CPU_BIND_LIST:="24:16"}
+: ${TRAIN_CPU_BIND_LIST:="8:1"}
+: ${VENV_PATH:=""}
+#--------------------------------------
+
+#--------------------------------------
+# Copy the .par file
+cp ${1}.par.safe ${1}.par
+
+#--------------------------------------
+# Setup the case
+source $NEKRS_HOME/bin/nrsqsub_utils
+setup $# 1
+chk_case $TOTAL_RANKS
+
+#--------------------------------------
+# Generate the affinity scripts
+SAFF_FILE=affinity_nrs.sh
+TAFF_FILE=affinity_ml.sh
+echo "#!/bin/bash" > $SAFF_FILE
+echo "num_gpus=\$1" >> $SAFF_FILE
+echo "shift" >> $SAFF_FILE
+echo "gpu_id=\$((PALS_LOCAL_RANKID % \${num_gpus} ))" >> $SAFF_FILE
+echo "export CUDA_VISIBLE_DEVICES=\$gpu_id" >> $SAFF_FILE
+echo "exec \"\$@\"" >> $SAFF_FILE
+
+echo "#!/bin/bash" > $TAFF_FILE
+echo "num_gpus=\$1" >> $TAFF_FILE
+echo "offset=\$2" >> $TAFF_FILE
+echo "shift" >> $TAFF_FILE
+echo "shift" >> $TAFF_FILE
+echo "gpu_id=\$((PALS_LOCAL_RANKID % \${num_gpus} + \${offset} ))" >> $TAFF_FILE
+echo "export CUDA_VISIBLE_DEVICES=\$gpu_id" >> $TAFF_FILE
+echo "exec \"\$@\"" >> $TAFF_FILE
+chmod u+x $SAFF_FILE $TAFF_FILE
+
+#--------------------------------------
+# Generate the workflow config script
+CFILE=config.yaml
+echo "# Workflow config" > $CFILE
+echo "scheduler: pbs" >> $CFILE
+echo "deployment: \"${DEPLOYMENT}\"" >> $CFILE
+echo "" >> $CFILE
+echo "# Run config" >> $CFILE
+echo "run_args:" >> $CFILE
+echo "    nodes: ${qnodes}" >> $CFILE
+if [ ${DEPLOYMENT} == "colocated"  ]; then
+  SIM_NODES=$nodes
+  TRAIN_NODES=$nodes
+  SIM_PROCS=$(( SIM_NODES * SIM_RANKS_PER_NODE ))
+  TRAIN_PROCS=$(( TRAIN_NODES * TRAIN_RANKS_PER_NODE ))
+  echo "    sim_nodes: ${SIM_NODES}" >> $CFILE
+  echo "    ml_nodes: ${SIM_NODES}" >> $CFILE
+  echo "    simprocs: ${SIM_PROCS}" >> $CFILE
+  echo "    simprocs_pn: ${SIM_RANKS_PER_NODE}" >> $CFILE
+  echo "    mlprocs: ${TRAIN_PROCS}" >> $CFILE
+  echo "    mlprocs_pn: ${TRAIN_RANKS_PER_NODE}" >> $CFILE
+  echo "    sim_cpu_bind: \"list:${SIM_CPU_BIND_LIST}\"" >> $CFILE
+  echo "    ml_cpu_bind: \"list:${TRAIN_CPU_BIND_LIST}\"" >> $CFILE
+elif [ ${DEPLOYMENT} == "clustered"  ]; then
+  SIM_PROCS=$(( SIM_NODES * SIM_RANKS_PER_NODE ))
+  TRAIN_PROCS=$(( TRAIN_NODES * TRAIN_RANKS_PER_NODE ))
+  echo "    sim_nodes: ${SIM_NODES}" >> $CFILE
+  echo "    ml_nodes: ${TRAIN_NODES}" >> $CFILE
+  echo "    simprocs: ${SIM_PROCS}" >> $CFILE
+  echo "    simprocs_pn: ${SIM_RANKS_PER_NODE}" >> $CFILE
+  echo "    mlprocs: ${TRAIN_PROCS}" >> $CFILE
+  echo "    mlprocs_pn: ${TRAIN_RANKS_PER_NODE}" >> $CFILE
+  echo "    sim_cpu_bind: \"list:${SIM_CPU_BIND_LIST}\"" >> $CFILE
+  echo "    ml_cpu_bind: \"list:${SIM_CPU_BIND_LIST}\"" >> $CFILE
+fi
+echo "" >> $CFILE
+echo "# Simulation config" >> $CFILE
+echo "sim:" >> $CFILE
+echo "    executable: \"${NEKRS_HOME}/bin/nekrs\"" >> $CFILE
+echo "    arguments: \"--setup ${case}.par --backend ${NEKRS_BACKEND} --device-id 0\"" >> $CFILE
+echo "    affinity: \"./${SAFF_FILE}\"" >> $CFILE
+echo "" >> $CFILE
+echo "# Trainer config" >> $CFILE
+echo "train:" >> $CFILE
+echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/main.py\"" >> $CFILE
+#echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
+echo "    affinity: \"\"" >> $CFILE
+if [ ${DEPLOYMENT} == "colocated"  ]; then
+  echo "    arguments: \"device_skip=${SIM_RANKS_PER_NODE} backend=nccl halo_swap_mode=all_to_all_opt hidden_channels=32 n_mlp_hidden_layers=5 n_messagePassing_layers=4 online=True client.backend=adios client.adios_transport=WAN consistency=True time_dependency=time_dependent target_loss=6.9076e-01 online_update_freq=500 verbose=True\"" >> $CFILE
+elif [ ${DEPLOYMENT} == "clustered"  ]; then
+  echo "    arguments: \"backend=nccl halo_swap_mode=all_to_all_opt hidden_channels=32 n_mlp_hidden_layers=5 n_messagePassing_layers=4 online=True client.backend=adios consistency=True time_dependency=time_dependent target_loss=6.9076e-01 online_update_freq=500 verbose=True\"" >> $CFILE
+fi
+
+#--------------------------------------
+# Update the .par file with the ML options
+PFILE=${case}.par
+echo "" >> $PFILE
+echo "[ML]" >> $PFILE
+echo "adiosEngine = SST" >> $PFILE
+echo "adiosTransport = WAN" >> $PFILE
+echo "adiosStream = sync" >> $PFILE
+
+#--------------------------------------
+# Generate the run script
+RFILE=run.sh
+echo "#!/bin/bash" > $RFILE
+
+echo "export TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
+
+echo -e "\necho Jobid: \$PBS_JOBID" >>$RFILE
+echo "echo Running on host \`hostname\`" >>$RFILE
+echo "echo Running on nodes \`cat \$PBS_NODEFILE\`" >>$RFILE
+
+echo "module use /soft/modulefiles/" >> $RFILE
+echo "module load conda" >> $RFILE
+echo "conda activate" >> $RFILE
+echo "source ${VENV_PATH}" >> $RFILE
+echo "module list" >> $RFILE
+
+echo -e "\nexport NEKRS_HOME=$NEKRS_HOME" >>$RFILE
+echo "export NEKRS_CACHE_BCAST=$NEKRS_CACHE_BCAST" >>$RFILE
+echo "export NEKRS_LOCAL_TMP_DIR=/local/scratch" >>$RFILE
+echo "export NEKRS_GPU_MPI=$NEKRS_GPU_MPI" >>$RFILE
+echo "export MPICH_MPIIO_HINTS=$MPICH_MPIIO_HINTS" >>$RFILE
+echo "export MPICH_MPIIO_STATS=0" >>$RFILE
+echo "export MPICH_GPU_SUPPORT_ENABLED=0" >> $RFILE
+echo "export MPICH_OFI_NIC_POLICY=NUMA" >> $RFILE
+
+py_version=`python --version`
+parsed_version=$(echo ${py_version#Python } | awk -F. '{print $1"."$2}')
+echo -e "\nexport PYTHONPATH=\$PYTHONPATH:${NEKRS_HOME}/lib/python${parsed_version}/site-packages" >> $RFILE
+echo "#export SstVerbose=1" >> $RFILE
+echo "export OMP_PROC_BIND=spread" >> $RFILE
+echo "export OMP_PLACES=threads" >> $RFILE
+echo "if ls *.sst 1> /dev/null 2>&1" >> $RFILE
+echo "then" >> $RFILE 
+echo "    echo Cleaning up old .sst files" >> $RFILE
+echo "    rm *.sst" >> $RFILE
+echo "fi" >> $RFILE
+echo "if ls *.bp 1> /dev/null 2>&1" >> $RFILE
+echo "then" >> $RFILE
+echo "    echo Cleaning up old .bp files" >> $RFILE
+echo "    rm -r ./*.bp" >> $RFILE
+echo "fi" >> $RFILE
+
+echo -e "\n# precompilation" >>$RFILE
+CMD_build="mpiexec -n ${RANKS_FOR_BUILD} -ppn ${RANKS_FOR_BUILD} --cpu-bind list:24:16:8:1 -- ./${SAFF_FILE} ${RANKS_FOR_BUILD} $bin --setup ${case} --backend ${NEKRS_BACKEND} --device-id 0 $extra_args --build-only ${RANKS_FOR_BUILD}"
+add_build_CMD "$RFILE" "$CMD_build" "$TOTAL_RANKS"
+
+echo -e "\n# actual run" >>$RFILE
+echo "python driver.py" >> $RFILE
+chmod u+x $RFILE
+

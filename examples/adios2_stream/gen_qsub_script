@@ -1,8 +1,13 @@
 #!/bin/bash
 set -a
 
-SYSTEM="aurora"
-NEKRS_HOME="/flare/datascience/balin/Nek/nekRSv24/exe/nekrsv24"
+if [ "$#" -ne 2 ]; then
+  echo "Usage: $0 <system name> <path to NEKRS_HOME>"
+  exit 1
+fi
+
+SYSTEM="${1,,}"
+NEKRS_HOME=$2
 PROJ_ID="datascience"
 QUEUE="debug-scaling"
 NODES=4
@@ -10,6 +15,11 @@ TIME=1:00
 
 if [ ${SYSTEM} == "aurora" ]; then
   module load frameworks
+elif [ ${SYSTEM} == "polaris" ]; then
+  module use /soft/modulefiles/
+  module load conda
+  conda activate
+  module load spack-pe-base cmake
 fi
 
 echo -e "\033[35mA Building sim.cpp ...\033[m"
@@ -20,6 +30,7 @@ make
 echo 
 echo "Setting up case:"
 echo "    system: ${SYSTEM}"
+echo "    NEKRS_HOME: ${NEKRS_HOME}"
 echo
 
 script_name=qsub_${SYSTEM} 
