@@ -421,8 +421,8 @@ class Trainer:
         """
         Builds index masks for facilitating halo swap of nodes 
         """
-        mask_send = [torch.tensor([])] * SIZE
-        mask_recv = [torch.tensor([])] * SIZE
+        mask_send = [torch.tensor([], dtype=self.torch_dtype)] * SIZE
+        mask_recv = [torch.tensor([], dtype=self.torch_dtype)] * SIZE
 
         if SIZE > 1 and self.cfg.consistency: 
             #n_nodes_local = self.data.n_nodes_internal + self.data.n_nodes_halo
@@ -446,8 +446,8 @@ class Trainer:
         n_max = 0
         
         if SIZE == 1:
-            buff_send = [torch.tensor([])] * SIZE
-            buff_recv = [torch.tensor([])] * SIZE 
+            buff_send = [torch.tensor([], dtype=self.torch_dtype)] * SIZE
+            buff_recv = [torch.tensor([], dtype=self.torch_dtype)] * SIZE 
         else: 
             # Get the maximum number of nodes that will be exchanged (required for all_to_all halo swap)
             n_nodes_to_exchange = torch.zeros(SIZE)
@@ -461,29 +461,29 @@ class Trainer:
 
             # fill the buffers -- make all buffer sizes the same (required for all_to_all) 
             if self.cfg.halo_swap_mode == "none":
-                buff_send = [torch.empty(0, device=DEVICE)] * SIZE
-                buff_recv = [torch.empty(0, device=DEVICE)] * SIZE
+                buff_send = [torch.empty(0, device=DEVICE, dtype=self.torch_dtype)] * SIZE
+                buff_recv = [torch.empty(0, device=DEVICE, dtype=self.torch_dtype)] * SIZE
             elif self.cfg.halo_swap_mode == "all_to_all":
-                buff_send = [torch.empty(0, device=DEVICE)] * SIZE
-                buff_recv = [torch.empty(0, device=DEVICE)] * SIZE
+                buff_send = [torch.empty(0, device=DEVICE, dtype=self.torch_dtype)] * SIZE
+                buff_recv = [torch.empty(0, device=DEVICE, dtype=self.torch_dtype)] * SIZE
                 for i in range(SIZE): 
                     buff_send[i] = torch.empty([n_max, n_features], dtype=self.torch_dtype, device=DEVICE) 
                     buff_recv[i] = torch.empty([n_max, n_features], dtype=self.torch_dtype, device=DEVICE)
             elif self.cfg.halo_swap_mode == "all_to_all_opt":
-                buff_send = [torch.empty(0, device=DEVICE)] * SIZE
-                buff_recv = [torch.empty(0, device=DEVICE)] * SIZE
+                buff_send = [torch.empty(0, device=DEVICE, dtype=self.torch_dtype)] * SIZE
+                buff_recv = [torch.empty(0, device=DEVICE, dtype=self.torch_dtype)] * SIZE
                 for i in self.neighboring_procs:
                     buff_send[i] = torch.empty([int(n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE) 
                     buff_recv[i] = torch.empty([int(n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE)
             elif self.cfg.halo_swap_mode == "all_to_all_opt_intel":
-                buff_send = [torch.zeros(1, device=DEVICE)] * SIZE
-                buff_recv = [torch.zeros(1, device=DEVICE)] * SIZE
+                buff_send = [torch.zeros(1, device=DEVICE, dtype=self.torch_dtype)] * SIZE
+                buff_recv = [torch.zeros(1, device=DEVICE, dtype=self.torch_dtype)] * SIZE
                 for i in self.neighboring_procs:
                     buff_send[i] = torch.zeros([int(n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE) 
                     buff_recv[i] = torch.zeros([int(n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE)
             elif self.cfg.halo_swap_mode == "send_recv":
-                buff_send = [torch.empty(0, device=DEVICE)] * SIZE
-                buff_recv = [torch.empty(0, device=DEVICE)] * SIZE
+                buff_send = [torch.empty(0, device=DEVICE, dtype=self.torch_dtype)] * SIZE
+                buff_recv = [torch.empty(0, device=DEVICE, dtype=self.torch_dtype)] * SIZE
                 for i in self.neighboring_procs:
                     buff_send[i] = torch.empty([int(n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE) 
                     buff_recv[i] = torch.empty([int(n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE)
@@ -717,13 +717,13 @@ class Trainer:
 
         # get data in reduced format 
         data_x_reduced = data_x[self.idx_full2reduced, :] 
-        x = torch.tensor(data_x_reduced)
+        x = torch.tensor(data_x_reduced, dtype=torch.float32)
 
         # Add halo nodes by appending the end of the node arrays
         if self.cfg.consistency:
             n_nodes_halo = self.data_reduced.n_nodes_halo
             n_features_x = data_x_reduced.shape[1]
-            data_x_halo = torch.zeros((n_nodes_halo, n_features_x), dtype=self.torch_dtype)
+            data_x_halo = torch.zeros((n_nodes_halo, n_features_x), dtype=torch.float32)
             x = torch.cat((x, data_x_halo), dim=0)
         return x
 
@@ -1053,7 +1053,7 @@ class Trainer:
         distance = data_graph.edge_attr[:,-1]
         distance_max_ = distance.max().to(self.device)
         distance_max = distnn.all_reduce(distance_max_, op=distnn.ReduceOp.MAX).to(device_for_loading)
-        data_graph.edge_attr = data_graph.edge_attr/distance_max
+        data_graph.edge_attr = (data_graph.edge_attr/distance_max).to(self.torch_dtype)
 
         # No need for distributed sampler -- create standard dataset loader  
         # We can use the standard pytorch dataloader on (x,y) 
@@ -1072,8 +1072,8 @@ class Trainer:
         train_data_scaled = []
         for item in  data['train']:
             tdict = {}
-            tdict['x'] = (item['x'] - stats['x'][0])/(stats['x'][1] + SMALL)
-            tdict['y'] = (item['y'] - stats['y'][0])/(stats['y'][1] + SMALL)
+            tdict['x'] = ((item['x'] - stats['x'][0])/(stats['x'][1] + SMALL)).to(self.torch_dtype)
+            tdict['y'] = ((item['y'] - stats['y'][0])/(stats['y'][1] + SMALL)).to(self.torch_dtype)
             train_data_scaled.append(tdict)
         train_loader = DataLoader(dataset=train_data_scaled,
                                      batch_size=self.cfg.batch_size,
@@ -1083,8 +1083,8 @@ class Trainer:
         if val_data_scaled[0]:
             for item in  val_data_scaled:
                 tdict = {}
-                tdict['x'] = (item['x'] - stats['x'][0])/(stats['x'][1] + SMALL)
-                tdict['y'] = (item['y'] - stats['y'][0])/(stats['y'][1] + SMALL)
+                tdict['x'] = ((item['x'] - stats['x'][0])/(stats['x'][1] + SMALL)).to(self.torch_dtype)
+                tdict['y'] = ((item['y'] - stats['y'][0])/(stats['y'][1] + SMALL)).to(self.torch_dtype)
                 val_data_scaled.append(tdict)
         valid_loader = DataLoader(dataset=val_data_scaled,
                                             batch_size=self.cfg.val_batch_size,
