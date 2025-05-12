@@ -3,6 +3,8 @@ import os
 import sys 
 from omegaconf import DictConfig, OmegaConf
 import hydra
+from typing import Optional, Tuple
+from statistics import harmonic_mean
 
 # smartsim and smartredis imports
 from smartsim import Experiment
@@ -133,7 +135,7 @@ class ShootingWorkflow():
               "        break\n" + \
               "    else:\n" + \
               "        sleep(5)\n"
-        fname = '/tmp/launch_db.py'
+        fname = self.run_dir + '/launch_db.py'
         with open(fname,'w') as f:
             f.write(cmd)
 
@@ -187,7 +189,7 @@ class ShootingWorkflow():
               "SSDB = os.getenv('SSDB')\n" + \
               "client = Client(address=SSDB,cluster=False)\n" + \
               "client.put_tensor('stop-coDB',np.array([1]))\n"
-        fname = '/tmp/stop_db.py'
+        fname = self.run_dir + '/stop_db.py'
         with open(fname,'w') as f:
             f.write(cmd)
 
@@ -364,7 +366,7 @@ class ShootingWorkflow():
     def compute_fom_nekrs(self) -> float:
         """Compute the nekRS FOM from reading input and log files
         """
-        with open(f'{self.log_dir}/nekrs_0/nekrs.out','r') as fh:
+        with open(f'{self.log_dir}/nekrs_0/nekrs_0.out','r') as fh:
             for l in fh:
                 if 'runtime statistics' in l:
                     nekrs_steps = int(l.split('(')[-1].split(' ')[0].split('=')[-1])
@@ -388,7 +390,7 @@ class ShootingWorkflow():
     def compute_fom_train(self) -> Tuple[float,float]:
         """Compute the triaing and transfer FOM from reading log files
         """
-        with open(f'{self.log_dir}/train_0/train.out','r') as fh:
+        with open(f'{self.log_dir}/train_0/train_0.out','r') as fh:
             for l in fh:
                 if 'FOM_train' in l:
                     fom_train = float(l.split(']:')[-1].split(',')[-1].split('=')[-1])
@@ -399,7 +401,7 @@ class ShootingWorkflow():
     def compute_fom_inference(self) -> float:
         """Compute the inference FOM from reading log files
         """
-        with open(f'{self.log_dir}/infer_0/infer.out','r') as fh:
+        with open(f'{self.log_dir}/infer_0/infer_0.out','r') as fh:
             for l in fh:
                 if 'FOM_inference' in l:
                     fom_inference = float(l.split(']:')[-1].split(',')[-1].split('=')[-1])

@@ -151,7 +151,7 @@ echo "# Inference config" >> $CFILE
 echo "inference:" >> $CFILE
 echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/inference.py\"" >> $CFILE
 echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
-echo "    arguments: \"model_task=inference rollout_steps=100 backend=ccl halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
+echo "    arguments: \"model_task=inference rollout_steps=100 backend=nccl halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
 echo "    copy_files: []" >> $CFILE
 echo "    link_files: [\"./${TAFF_FILE}\"]" >> $CFILE
 
