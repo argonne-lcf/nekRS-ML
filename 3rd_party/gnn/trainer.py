@@ -1,6 +1,7 @@
 """
 Trainer for distributed, consistent graph neural network
 """
+import sys
 import os
 import socket
 from typing import Optional, Union, Callable
@@ -48,7 +49,6 @@ import create_halo_info_par
 
 log = logging.getLogger(__name__)
 Tensor = torch.Tensor
-TORCH_FLOAT_DTYPE = torch.float32
 NP_FLOAT_DTYPE = np.float32
 SMALL = 1e-12
 GB_SIZE = 1024**3
@@ -181,7 +181,7 @@ class Trainer:
         if RANK==0: 
             log.info('Built model with %i trainable parameters' %(self.count_weights(self.model)))
         self.model.to(self.device)
-        self.model.to(TORCH_FLOAT_DTYPE)
+        self.model.to(self.torch_dtype)
         if RANK == 0: log.info('Done with build_model')
 
         # ~~~~ Set the total number of training iterations 
@@ -365,13 +365,24 @@ class Trainer:
         return scheduler
 
     def setup_torch(self):
+        # Random seeds
+        torch.manual_seed(self.cfg.seed)
+        np.random.seed(self.cfg.seed)
+
+        # Device and intra-op threads
         if WITH_CUDA:
             torch.cuda.set_device(DEVICE_ID)
         elif WITH_XPU:
             torch.xpu.set_device(DEVICE_ID+self.cfg.device_skip)
-        torch.manual_seed(self.cfg.seed)
-        np.random.seed(self.cfg.seed)
         torch.set_num_threads(self.cfg.num_threads)
+
+        # Precision
+        if self.cfg.precision == 'fp32':
+            self.torch_dtype = torch.float32
+        elif self.cfg.precision == 'bf16':
+            self.torch_dtype = torch.bfloat16
+        else:
+            sys.exit('Only fp32 and bf16 data types are currently supported')
 
     def halo_swap(self, input_tensor, buff_send, buff_recv):
         """
@@ -456,26 +467,26 @@ class Trainer:
                 buff_send = [torch.empty(0, device=DEVICE)] * SIZE
                 buff_recv = [torch.empty(0, device=DEVICE)] * SIZE
                 for i in range(SIZE): 
-                    buff_send[i] = torch.empty([n_max, n_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE) 
-                    buff_recv[i] = torch.empty([n_max, n_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE)
+                    buff_send[i] = torch.empty([n_max, n_features], dtype=self.torch_dtype, device=DEVICE) 
+                    buff_recv[i] = torch.empty([n_max, n_features], dtype=self.torch_dtype, device=DEVICE)
             elif self.cfg.halo_swap_mode == "all_to_all_opt":
                 buff_send = [torch.empty(0, device=DEVICE)] * SIZE
                 buff_recv = [torch.empty(0, device=DEVICE)] * SIZE
                 for i in self.neighboring_procs:
-                    buff_send[i] = torch.empty([int(n_nodes_to_exchange[i]), n_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE) 
-                    buff_recv[i] = torch.empty([int(n_nodes_to_exchange[i]), n_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE)
+                    buff_send[i] = torch.empty([int(n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE) 
+                    buff_recv[i] = torch.empty([int(n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE)
             elif self.cfg.halo_swap_mode == "all_to_all_opt_intel":
                 buff_send = [torch.zeros(1, device=DEVICE)] * SIZE
                 buff_recv = [torch.zeros(1, device=DEVICE)] * SIZE
                 for i in self.neighboring_procs:
-                    buff_send[i] = torch.zeros([int(n_nodes_to_exchange[i]), n_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE) 
-                    buff_recv[i] = torch.zeros([int(n_nodes_to_exchange[i]), n_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE)
+                    buff_send[i] = torch.zeros([int(n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE) 
+                    buff_recv[i] = torch.zeros([int(n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE)
             elif self.cfg.halo_swap_mode == "send_recv":
                 buff_send = [torch.empty(0, device=DEVICE)] * SIZE
                 buff_recv = [torch.empty(0, device=DEVICE)] * SIZE
                 for i in self.neighboring_procs:
-                    buff_send[i] = torch.empty([int(n_nodes_to_exchange[i]), n_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE) 
-                    buff_recv[i] = torch.empty([int(n_nodes_to_exchange[i]), n_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE)
+                    buff_send[i] = torch.empty([int(n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE) 
+                    buff_recv[i] = torch.empty([int(n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE)
 
             #for i in self.neighboring_procs:
             #    buff_send[i] = torch.empty([len(self.mask_send[i]), n_features], dtype=torch.float32, device=DEVICE_ID) 
@@ -500,7 +511,7 @@ class Trainer:
         buff_send = [torch.tensor([])] * SIZE
         if SIZE > 1: 
             for i in range(SIZE): 
-                buff_send[i] = torch.empty([n_buffer_rows, n_features], dtype=TORCH_FLOAT_DTYPE, device=device) 
+                buff_send[i] = torch.empty([n_buffer_rows, n_features], dtype=self.torch_dtype, device=device) 
         return buff_send 
 
     def gather_node_tensor(self, input_tensor, dst=0, dtype=torch.float32):
@@ -667,9 +678,9 @@ class Trainer:
                 path_to_ew = self.cfg.gnn_outputs_path + '/edge_weights_rank_%d_size_%d' %(RANK,SIZE)
                 path_to_node_degree = self.cfg.gnn_outputs_path + '/node_degree_rank_%d_size_%d' %(RANK,SIZE)
                 path_to_halo_info = self.cfg.gnn_outputs_path + '/halo_info_rank_%d_size_%d' %(RANK,SIZE)
-                edge_freq = torch.tensor(self.load_data(path_to_ew,extension='.npy'), dtype=TORCH_FLOAT_DTYPE)
+                edge_freq = torch.tensor(self.load_data(path_to_ew,extension='.npy'), dtype=self.torch_dtype)
                 edge_weight = 1.0/edge_freq 
-                node_degree = torch.tensor(self.load_data(path_to_node_degree,extension='.npy'), dtype=TORCH_FLOAT_DTYPE)
+                node_degree = torch.tensor(self.load_data(path_to_node_degree,extension='.npy'), dtype=self.torch_dtype)
                 halo_info = torch.tensor(self.load_data(path_to_halo_info,extension='.npy'))
             else:
                 halo_ids = create_halo_info_par.get_reduced_halo_ids(self.data_reduced)
@@ -712,7 +723,7 @@ class Trainer:
         if self.cfg.consistency:
             n_nodes_halo = self.data_reduced.n_nodes_halo
             n_features_x = data_x_reduced.shape[1]
-            data_x_halo = torch.zeros((n_nodes_halo, n_features_x), dtype=TORCH_FLOAT_DTYPE)
+            data_x_halo = torch.zeros((n_nodes_halo, n_features_x), dtype=self.torch_dtype)
             x = torch.cat((x, data_x_halo), dim=0)
         return x
 
@@ -721,20 +732,20 @@ class Trainer:
         n_features = data_list[0][var].shape[1]
         n_nodes_local = self.data_reduced.n_nodes_local
         n_snaps = len(data_list)
-        x_full = torch.zeros((n_snaps, n_nodes_local, n_features), dtype=TORCH_FLOAT_DTYPE)
+        x_full = torch.zeros((n_snaps, n_nodes_local, n_features), dtype=self.torch_dtype)
         for i in range(len(data_list)):
             x_full[i,:,:] = data_list[i][var][:n_nodes_local, :]
         data_mean_ = x_full.mean(axis=(0,1)).to(device)
         data_var_ = x_full.var(axis=(0,1)).to(device)
-        n_scale_ = torch.tensor([n_nodes_local * n_snaps], dtype=TORCH_FLOAT_DTYPE, device=device)
+        n_scale_ = torch.tensor([n_nodes_local * n_snaps], dtype=self.torch_dtype, device=device)
 
-        data_mean_gather = [torch.zeros(n_features, dtype=TORCH_FLOAT_DTYPE, device=device) for _ in range(SIZE)]
+        data_mean_gather = [torch.zeros(n_features, dtype=self.torch_dtype, device=device) for _ in range(SIZE)]
         data_mean_gather = utils.mpi_all_gather(data_mean_)
 
-        data_var_gather = [torch.zeros(n_features, dtype=TORCH_FLOAT_DTYPE, device=device) for _ in range(SIZE)]
+        data_var_gather = [torch.zeros(n_features, dtype=self.torch_dtype, device=device) for _ in range(SIZE)]
         data_var_gather = utils.mpi_all_gather(data_var_)
 
-        n_scale_gather = [torch.zeros(1, dtype=TORCH_FLOAT_DTYPE, device=device) for _ in range(SIZE)]
+        n_scale_gather = [torch.zeros(1, dtype=self.torch_dtype, device=device) for _ in range(SIZE)]
         n_scale_gather = utils.mpi_all_gather(n_scale_)
 
         data_mean_gather = torch.stack(data_mean_gather)
@@ -1022,7 +1033,7 @@ class Trainer:
         if self.cfg.consistency:
             n_nodes_halo = self.data_reduced.n_nodes_halo 
             n_features_pos = self.data_reduced.pos.shape[1]
-            pos_halo = torch.zeros((n_nodes_halo, n_features_pos), dtype=TORCH_FLOAT_DTYPE)
+            pos_halo = torch.zeros((n_nodes_halo, n_features_pos), dtype=self.torch_dtype)
             data_graph.pos = torch.cat((data_graph.pos, pos_halo), dim=0)
         else:
             data_graph.pos = data_graph.pos
