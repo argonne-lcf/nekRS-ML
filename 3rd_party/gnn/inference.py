@@ -272,7 +272,7 @@ def inference_rollout(cfg: DictConfig,
             np.save(save_path + f"/x_{trainer.iteration}", x_gathered)
             np.save(save_path + f"/pos_{trainer.iteration}", pos_gathered)
     else:
-        client.put_array(f'checkpt_u_rank_{RANK}_size_{SIZE}',x.numpy())
+        client.put_array(f'checkpt_u_rank_{RANK}_size_{SIZE}',x.to(torch.float32).numpy())
 
     # Print performance stats
     global_stats = utils.collect_stats(n_nodes_local, local_time, local_throughput)

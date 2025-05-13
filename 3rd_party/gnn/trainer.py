@@ -688,7 +688,7 @@ class Trainer:
                 halo_info = halo_info_glob[RANK]
                 node_degree = create_halo_info_par.get_node_degree(self.data_reduced, halo_info)
                 edge_freq = create_halo_info_par.get_edge_weights(self.data_reduced, halo_info_glob)
-                edge_weight = 1.0/edge_freq
+                edge_weight = (1.0/edge_freq).to(self.torch_dtype)
 
             self.neighboring_procs = np.unique(halo_info[:,3])
             n_nodes_local = self.data_reduced.pos.shape[0]
@@ -1167,8 +1167,8 @@ class Trainer:
         train_data_scaled = []
         for item in  data['train']:
             tdict = {}
-            tdict['x'] = (item['x'] - stats['x_mean'])/(stats['x_std'] + SMALL)
-            tdict['y'] = (item['y'] - stats['y_mean'])/(stats['y_std'] + SMALL)
+            tdict['x'] = ((item['x'] - stats['x_mean'])/(stats['x_std'] + SMALL)).to(self.torch_dtype)
+            tdict['y'] = ((item['y'] - stats['y_mean'])/(stats['y_std'] + SMALL)).to(self.torch_dtype)
             train_data_scaled.append(tdict)
         train_loader = DataLoader(dataset=train_data_scaled,
                                      batch_size=self.cfg.batch_size,
