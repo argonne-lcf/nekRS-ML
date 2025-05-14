@@ -1,7 +1,5 @@
 set(NEK5000_PPLIST "PARRSB DPROCMAP" CACHE STRING "Preprocessor macros for Nek5000")
 
-function(add_nek5000)
-
 message(CHECK_START "Checking for a supported Nek5000 Fortran compiler")
 
 string(COMPARE EQUAL "${CMAKE_Fortran_COMPILER_ID}" "GNU" USING_Fortran_GNU)
@@ -26,10 +24,13 @@ endif()
 # Nek5000
 # =======
 
-  # Since Nek5000 is compiled in-source, we copy it to the build 
+# Since Nek5000 is compiled in-source, we copy it to the build
 FetchContent_Declare(
   nek5000_content
-  URL ${CMAKE_CURRENT_SOURCE_DIR}/3rd_party/nek5000)
+  # URL ${CMAKE_CURRENT_SOURCE_DIR}/3rd_party/nek5000
+  GIT_REPOSITORY https://github.com/thilinarmtb/Nek5000.git
+  GIT_TAG general_graph
+)
 FetchContent_GetProperties(nek5000_content)
 if (NOT nek5000_content_POPULATED)
   FetchContent_MakeAvailable(nek5000_content)
@@ -50,7 +51,9 @@ set(NEK5000_GS_DIR ${NEK5000_SOURCE_DIR}/3rd_party/gslib/gslib)
 
 FetchContent_Declare(
   nek5000_gs_content
-  URL ${NEK5000_GS_SUBTREE}
+  # URL ${NEK5000_GS_SUBTREE}
+  GIT_REPOSITORY https://github.com/Nek5000/gslib.git
+  GIT_TAG v1.0.9
   SOURCE_DIR ${NEK5000_GS_DIR}
 )
 if (NOT nek5000_gs_content_POPULATED)
@@ -70,7 +73,9 @@ set(PARRSB_DIR ${NEK5000_SOURCE_DIR}/3rd_party/parRSB/parRSB)
 
 FetchContent_Declare(
   parrsb_content
-  URL ${PARRSB_SUBTREE}
+  # URL ${PARRSB_SUBTREE}
+  GIT_REPOSITORY https://github.com/thilinarmtb/parRSB.git
+  GIT_TAG general_graph
   SOURCE_DIR ${PARRSB_DIR}
 )
 FetchContent_GetProperties(parrsb_content)
@@ -185,7 +190,7 @@ add_dependencies(blasLapack nek5000_deps)
 
 if (${USE_PARRSB})
   add_library(parRSB STATIC IMPORTED)
-  set_target_properties(parRSB PROPERTIES IMPORTED_LOCATION ${PARRSB_DIR}/lib/libparRSB.a)
+  set_target_properties(parRSB PROPERTIES IMPORTED_LOCATION ${PARRSB_LIB_DIR}/libparRSB.a)
   add_dependencies(parRSB nek5000_deps)
 endif()
 
@@ -211,5 +216,3 @@ if (${USE_PARRSB})
   install(FILES ${PARRSB_LIB_DIR}/libparRSB.a DESTINATION nek5000/3rd_party/parRSB/lib)
   install(DIRECTORY ${PARRSB_INCLUDE_DIR} DESTINATION nek5000/3rd_party/parRSB)
 endif()
-
-endfunction()
