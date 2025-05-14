@@ -56,6 +56,7 @@ If you're on an HPC system, ensure you log in to a compute node. Check if there'
 CC=mpicc CXX=mpic++ FC=mpif77 ./build.sh [-DCMAKE_INSTALL_PREFIX=$HOME/.local/nekrs] [<options>]
 ```
 Adjust the compilers as necessary. Make sure to remove the previous build and installation directory if updating.
+Two helper scripts: `BuildMeOnAurora` and `BuildMeOnCrux` are provided to build on Aurora and Crux at ALCF.
 
 ## Setting the Environment
 

@@ -1,8 +1,15 @@
 #include <gnn.hpp>
 #include <gslib.h>
 
+typedef struct {
+  size_t num_nodes;
+  hlong *nodes;
+  size_t *offsets;
+  hlong *neighbors;
+} gnnGraph_t;
+
 static void
-setup_node_graph(gnnGraph_t *graph, const hlong *const global_ids, unsigned E, unsigned N, MPI_Comm comm)
+setup_node_graph(gnnGraph_t *graph, const hlong *global_ids, hlong E, dlong N, const struct comm *c)
 {
   const uint max_nbrs_per_dof = 27;
   const uint dofs_per_element = (uint)N * (uint)N * (uint)N;
@@ -36,9 +43,6 @@ setup_node_graph(gnnGraph_t *graph, const hlong *const global_ids, unsigned E, u
     }
   }
 
-  struct comm c;
-  comm_init(&c, comm);
-
   typedef struct {
     ulong src_id;
     ulong nbr_id;
@@ -52,7 +56,7 @@ setup_node_graph(gnnGraph_t *graph, const hlong *const global_ids, unsigned E, u
   index = 0;
   for (uint d = 0; d < dofs; d++) {
     nbr.src_id = global_ids[d];
-    nbr.p = nbr.src_id % c.np;
+    nbr.p = nbr.src_id % c->np;
     for (uint i = 0; i < (uint)max_nbrs_per_dof; i++) {
       if (neighbors[index] != -1) {
         nbr.nbr_id = neighbors[index];
@@ -64,7 +68,7 @@ setup_node_graph(gnnGraph_t *graph, const hlong *const global_ids, unsigned E, u
   free(neighbors);
 
   struct crystal cr;
-  crystal_init(&cr, &c);
+  crystal_init(&cr, c);
 
   buffer bfr;
   buffer_init(&bfr, 1024);
@@ -132,5 +136,27 @@ setup_node_graph(gnnGraph_t *graph, const hlong *const global_ids, unsigned E, u
   assert(graph->offsets[num_nodes] == nnzs.n);
 
   array_free(&nnzs);
+}
+
+void free_node_graph(gnnGraph_t *g)
+{
+  if (!g) {
+    return;
+  }
+  free(g->nodes), g->nodes = 0;
+  free(g->offsets), g->offsets = 0;
+  free(g->neighbors), g->neighbors = 0;
+}
+
+void repartition_node_graph(int *proc, const hlong *global_ids, hlong E, dlong N, MPI_Comm comm)
+{
+
+  struct comm c;
+  comm_init(&c, comm);
+
+  gnnGraph_t graph;
+  setup_node_graph(&graph, global_ids, E, N, &c);
+
+  free_node_graph(&graph);
   comm_free(&c);
 }
