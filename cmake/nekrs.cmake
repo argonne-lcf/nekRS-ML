@@ -157,6 +157,7 @@ set(NRS_INCLUDE
     ${ELLIPTIC_SOURCE_DIR}/amgSolver/hypre
     ${ELLIPTIC_SOURCE_DIR}/amgSolver/amgx
     ${ELLIPTIC_SOURCE_DIR}/MG
+    ${PARRSB_INCLUDE_DIR}
 )
 
 add_library(nekrs-lib SHARED ${NRS_SRC})
@@ -199,4 +200,9 @@ set_target_properties(nekrs-bin PROPERTIES LINKER_LANGUAGE CXX OUTPUT_NAME nekrs
 if (NEKRS_BUILD_FLOAT)
   target_include_directories(nekrs-bin-fp32 PRIVATE src/lib src/utils)
   set_target_properties(nekrs-bin-fp32 PROPERTIES LINKER_LANGUAGE CXX OUTPUT_NAME nekrs-fp32)
+endif()
+
+target_link_libraries(nekrs-lib PRIVATE parRSB)
+if (NEKRS_BUILD_FLOAT)
+  target_link_libraries(nekrs-lib-fp32 PRIVATE parRSB)
 endif()

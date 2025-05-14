@@ -4,8 +4,10 @@ set(GS_LIB 3rd_party/gslib/libgs.a)
 # Copy source into CMake build dir.  We do this since gslib is built in-source,
 # and we want to keep source tree clean.
 FetchContent_Declare(
-    gs_content
-    URL ${GS_SOURCE_DIR} 
+  gs_content
+  # URL ${GS_SOURCE_DIR}
+  GIT_REPOSITORY https://github.com/Nek5000/gslib.git
+  GIT_TAG v1.0.9
 )
 FetchContent_GetProperties(gs_content)
 if (NOT gs_content_POPULATED)
