@@ -1,5 +1,5 @@
 #include <gnn.hpp>
-#include <gslib.h>
+#include <parrsb.h>
 
 typedef struct {
   unsigned num_nodes;
@@ -141,6 +141,15 @@ void repartition_node_graph(int *proc, const hlong *global_ids, hlong E, dlong N
 
   gnnGraph_t graph;
   setup_node_graph(&graph, global_ids, E, N, &c);
+
+  int *part = tcalloc(int, graph.num_nodes);
+
+  parrsb_options_t options;
+  parrsb_options_get_default(&options);
+  parrsb_part_graph(part, graph.num_nodes, graph.nodes, graph.offsets, graph.neighbors, options, comm);
+  parrsb_options_free(&options);
+
+  free(part);
 
   free_node_graph(&graph);
   comm_free(&c);
