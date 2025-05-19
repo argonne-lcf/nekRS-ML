@@ -1,0 +1,65 @@
+#!/bin/bash
+set -e
+
+#--------------------------------------
+: ${QUEUE:="prod"}
+: ${NEKRS_GPU_MPI:=0}
+: ${NEKRS_BACKEND:="CUDA"}
+: ${RANKS_PER_NODE:=4}
+: ${CPU_BIND_LIST:="24:16:8:1"}
+: ${VENV_PATH:=""}
+#--------------------------------------
+
+source $NEKRS_HOME/bin/nrsqsub_utils
+setup $# 1
+
+TOTAL_RANKS=$(( nodes * RANKS_PER_NODE ))
+chk_case $TOTAL_RANKS
+
+#--------------------------------------
+# Generate the run script
+RFILE=run.sh
+echo "#!/bin/bash" > $RFILE
+
+echo -e "\nexport TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
+
+echo -e "\necho Jobid: \$PBS_JOBID" >>$RFILE
+echo "echo Running on host \`hostname\`" >>$RFILE
+echo "echo Running on nodes \`cat \$PBS_NODEFILE\`" >>$RFILE
+
+echo "module restore" >> $RFILE
+echo "module use /soft/modulefiles/" >> $RFILE
+echo "module load conda" >> $RFILE
+echo "conda activate" >> $RFILE
+echo "source ${VENV_PATH}" >> $RFILE
+echo "module list" >> $RFILE
+
+echo -e "\nexport NEKRS_HOME=$NEKRS_HOME" >>$RFILE
+echo "export NEKRS_CACHE_BCAST=$NEKRS_CACHE_BCAST" >>$RFILE
+echo "export NEKRS_LOCAL_TMP_DIR=/local/scratch" >>$RFILE
+echo "export NEKRS_GPU_MPI=$NEKRS_GPU_MPI" >>$RFILE
+echo "export MPICH_MPIIO_HINTS=$MPICH_MPIIO_HINTS" >>$RFILE
+echo "export MPICH_MPIIO_STATS=0" >>$RFILE
+echo "export MPICH_GPU_SUPPORT_ENABLED=0" >> $RFILE
+echo "export MPICH_OFI_NIC_POLICY=NUMA" >> $RFILE
+
+echo -e "\n# Run nekRS" >>$RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND}" >> $RFILE
+
+echo -e "\n# Generate the halo_info, edge_weights and node_degree files" >>$RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/create_halo_info_par.py --POLY 7 --PATH ./gnn_outputs_poly_7" >> $RFILE
+
+echo -e "\n# Check the GNN input files" >>$RFILE
+echo "echo \"Checking GNN graph input files ...\"" >>$RFILE
+echo "python ${NEKRS_HOME}/3rd_party/gnn/check_input_files.py --REF ./ref/gnn_outputs_poly_7 --PATH ./gnn_outputs_poly_7" >>$RFILE
+
+echo -e "\n# Check the GNN trajectory files" >>$RFILE
+echo "echo \"Checking GNN trajectory files ...\"" >>$RFILE
+echo "for RANK in {0..$(( TOTAL_RANKS - 1 ))}; do" >>$RFILE
+echo "  python ${NEKRS_HOME}/3rd_party/gnn/check_input_files.py --REF ./ref/traj_poly_7/tinit_0.000000_dtfactor_10/data_rank_\${RANK}_size_${TOTAL_RANKS} --PATH ./traj_poly_7/tinit_0.000000_dtfactor_10/data_rank_\${RANK}_size_${TOTAL_RANKS}" >>$RFILE
+echo "done" >>$RFILE
+
+echo -e "\n# Train the GNN" >>$RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/main.py backend=nccl halo_swap_mode=all_to_all_opt layer_norm=True gnn_outputs_path=${PWD}/gnn_outputs_poly_7 traj_data_path=${PWD}/traj_poly_7/tinit_0.000000_dtfactor_10 time_dependency=time_dependent target_loss=6.9076e-01" >> $RFILE
+chmod u+x $RFILE
+

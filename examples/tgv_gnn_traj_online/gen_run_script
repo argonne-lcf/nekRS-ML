@@ -1,17 +1,13 @@
 #!/bin/bash
 set -a
 
-if [ "$#" -ne 1 ]; then
-  echo "Usage: $0 <system name>"
+if [ "$#" -ne 2 ]; then
+  echo "Usage: $0 <system name> <path to NEKRS_HOME>"
   exit 1
 fi
 
 SYSTEM="${1,,}"
-if [ -z "$NEKRS_HOME" ]; then
-  echo -e "\033[35mInsert the path to NEKRS_HOME \033[m"
-  read -r -s NEKRS_HOME
-  echo -e "\033[35mUsing NEKRS_HOME=$NEKRS_HOME \033[m"
-fi
+NEKRS_HOME=$2
 DEPLOYMENT="colocated"
 VENV_PATH=""
 PROJ_ID="datascience"
@@ -20,13 +16,26 @@ QUEUE="debug"
 if [ ${SYSTEM} == "aurora" ]; then
   module load frameworks
   module load git-lfs/3.5.1
+elif [ ${SYSTEM} == "polaris" ]; then
+  module use /soft/modulefiles/
+  module load conda
+  conda activate
+  module load spack-pe-base cmake
 fi
 
 if [[ -z "$VENV_PATH" && ! -d ./_ssim ]]; then
   echo -e "\033[35mA Python venv was not specified, building one now ...\033[m"
   python -m venv --clear _ssim --system-site-packages
   source _ssim/bin/activate
-  
+
+  if [ ${SYSTEM} == "polaris" ]; then 
+    export CC=cc
+    export CXX=CC
+    export CUDNN_BASE=/soft/libraries/cudnn/cudnn-12-linux-x64-v9.1.0.70
+    export CUDNN_LIBRARY=$CUDNN_BASE/lib/
+    export CUDNN_INCLUDE_DIR=$CUDNN_BASE/include/
+    export LD_LIBRARY_PATH=$CUDNN_LIBRARY:$LD_LIBRARY_PATH 
+  fi
   export TORCH_CMAKE_PATH=$( python -c 'import torch;print(torch.utils.cmake_prefix_path)' )
   export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
   export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
@@ -34,7 +43,12 @@ if [[ -z "$VENV_PATH" && ! -d ./_ssim ]]; then
   cd SmartSim
   git checkout rollback_aurora
   pip install -e .
-  smart build -v --device cpu --torch_dir $TORCH_CMAKE_PATH --no_tf
+  if [ ${SYSTEM} == "aurora" ]; then
+    DEVICE="cpu"
+  elif [ ${SYSTEM} == "polaris" ]; then
+    DEVICE="gpu"
+  fi
+  smart build -v --device $DEVICE --torch_dir $TORCH_CMAKE_PATH --no_tf
   smart validate
   cd ..
   pip install torch_geometric==2.5.3

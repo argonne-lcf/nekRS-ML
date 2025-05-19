@@ -21,11 +21,39 @@ set -e
 : ${VENV_PATH:=""}
 #--------------------------------------
 
-cp turbChannel.par.safe turbChannel.par
+cp ${1}.par.safe ${1}.par
 
+#--------------------------------------
+# Update the .box file to increase the mesh size linearly with the number of nodes
+SIM_PROCS=$(( SIM_NODES * SIM_RANKS_PER_NODE ))
+NX=$(( 13 ))
+NZ=$(( 2*SIM_PROCS ))
+if [[ "$SIM_NODES" -gt 1 ]]; then
+    LZ=$SIM_NODES
+else
+    LZ=1
+fi
+cp ${1}_safe.box ${1}.box
+sed -i "s/NX/${NX}/g" ${1}.box
+sed -i "s/NZ/${NZ}/g" ${1}.box
+sed -i "s/LZ/${LZ}/g" ${1}.box
+
+#--------------------------------------
+# Run genbox from Nek5000 to generate the .re2 mesh file
+if [ ! -d $NEKRS_HOME/Nek5000 ]; then
+  CWD=$PWD
+  cd $NEKRS_HOME
+  git clone https://github.com/rickybalin/Nek5000.git
+  cd Nek5000/tools
+  FC=ftn ./maketools genbox
+  cd $CWD
+fi
+$NEKRS_HOME/Nek5000/bin/genbox ${1}.box ${1}
+
+#--------------------------------------
+# Setup the case
 source $NEKRS_HOME/bin/nrsqsub_utils
 setup $# 1
-
 chk_case $TOTAL_RANKS
 
 #--------------------------------------
@@ -73,7 +101,7 @@ chmod u+x $SAFF_FILE $TAFF_FILE
 
 #--------------------------------------
 # Generate the workflow config script
-CFILE=ssim_config.yaml
+CFILE=config.yaml
 echo "# Database config" > $CFILE
 echo "database:" >> $CFILE
 echo "    launch: True" >> $CFILE
@@ -161,14 +189,6 @@ echo "ssimDeployment = ${DEPLOYMENT}" >> $PFILE
 echo "ssimDbNodes = ${DB_NODES}" >> $PFILE
 
 #--------------------------------------
-# Update the .box file to increase the mesh size linearly with the number of nodes
-NX=$(( 36*SIM_NODES ))
-NZ=$(( 18*SIM_NODES ))
-cp ${case}_1node.box ${case}.box
-sed -i "s/NX/${NX}/g" ${case}.box
-sed -i "s/NZ/${NZ}/g" ${case}.box
-
-#--------------------------------------
 # Generate the run script
 RFILE=run.sh
 echo "#!/bin/bash" > $RFILE
@@ -224,6 +244,6 @@ CMD_build="mpiexec -n ${RANKS_FOR_BUILD} -ppn ${RANKS_FOR_BUILD} --cpu-bind list
 add_build_CMD "$RFILE" "$CMD_build" "$TOTAL_RANKS"
 
 echo -e "\n# actual run" >>$RFILE
-echo "python ssim_driver.py" >> $RFILE
+echo "python driver.py" >> $RFILE
 chmod u+x $RFILE
 

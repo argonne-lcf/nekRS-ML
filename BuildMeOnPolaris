@@ -13,7 +13,10 @@ fi
 
 #... load the necessary modules here ...
 module restore
-module load frameworks
+module use /soft/modulefiles/
+module load conda
+conda activate
+module load spack-pe-base cmake
 module list
 #...
 
@@ -25,12 +28,9 @@ export INSTALL_DIR=$NEKRS_HOME
 
 #... set some environment variables
 export ENABLE_SMARTREDIS=ON
-export CC=mpicc
-export CXX=mpic++
-export FC=mpif77
-OCCA_CXX=icpx
-OCCA_CXXFLAGS="-O3 -g -fdebug-info-for-profiling -gline-tables-only"
-export SYCL_ROOT=${CMPROOT}/linux
+export CC=cc
+export CXX=CC
+export FC=ftn
 #...
 
 #... build SmartRedis if enabled

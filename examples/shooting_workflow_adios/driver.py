@@ -292,6 +292,9 @@ def main(cfg: DictConfig):
     # Run the workflow
     workflow.runner()
 
+    # Compute and print the FOM
+    workflow.compute_fom()
+
     # Quit
     print("Quitting")
 

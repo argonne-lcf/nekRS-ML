@@ -4,6 +4,8 @@ import sys
 from omegaconf import DictConfig, OmegaConf
 import hydra
 import psutil
+from typing import Optional, Tuple
+from statistics import harmonic_mean
 
 # smartsim and smartredis imports
 from smartsim import Experiment
@@ -27,6 +29,8 @@ class ShootingWorkflow():
         self.inference_nodes = ''
         self.fine_tune_iter = -1
         self.inference_iter = -1
+        self.run_dir = os.getcwd()
+        self.log_dir = os.path.join(self.run_dir,'nekRS-ML')
 
         # Parse the node list from the scheduler
         self.parseNodeList()
@@ -132,7 +136,7 @@ class ShootingWorkflow():
               "        break\n" + \
               "    else:\n" + \
               "        sleep(5)\n"
-        fname = '/tmp/launch_db.py'
+        fname = self.run_dir + '/launch_db.py'
         with open(fname,'w') as f:
             f.write(cmd)
 
@@ -186,7 +190,7 @@ class ShootingWorkflow():
               "SSDB = os.getenv('SSDB')\n" + \
               "client = Client(address=SSDB,cluster=False)\n" + \
               "client.put_tensor('stop-coDB',np.array([1]))\n"
-        fname = '/tmp/stop_db.py'
+        fname = self.run_dir + '/stop_db.py'
         with open(fname,'w') as f:
             f.write(cmd)
 
@@ -360,15 +364,79 @@ class ShootingWorkflow():
         # Stop DB
         self.stopDatabase()
 
+    def compute_fom_nekrs(self) -> float:
+        """Compute the nekRS FOM from reading input and log files
+        """
+        with open(f'{self.log_dir}/nekrs_0/nekrs_0.out','r') as fh:
+            for l in fh:
+                if 'runtime statistics' in l:
+                    nekrs_steps = int(l.split('(')[-1].split(' ')[0].split('=')[-1])
+                if ' solve ' in l:
+                    nekrs_time = float(l.split('solve')[-1].split('s')[0].strip())
+                if ' udfExecuteStep ' in l:
+                    udf_time = float(l.split('udfExecuteStep')[-1].split('s')[0].strip())
+        with open(f'{self.run_dir}/turbChannel.box','r') as fh:
+            for l in fh:
+                if 'nelx' in l:
+                    elms = l.split()
+        elms = elms[:3]
+        elms = [int(item)*-1 for item in elms]
+        with open(f'{self.run_dir}/turbChannel.par','r') as fh:
+            for l in fh:
+                if 'polynomialOrder' in l:
+                    p = int(l.split()[-1].strip())
+        num_nodes = elms[0] * elms[1] * elms[2] * (p+1)**3 / 1.0e6
+        return num_nodes * nekrs_steps / (nekrs_time - udf_time)
+    
+    def compute_fom_train(self) -> Tuple[float,float]:
+        """Compute the triaing and transfer FOM from reading log files
+        """
+        with open(f'{self.log_dir}/train_0/train_0.out','r') as fh:
+            for l in fh:
+                if 'FOM_train' in l:
+                    fom_train = float(l.split(']:')[-1].split(',')[-1].split('=')[-1])
+                if 'FOM_transfer' in l:
+                    fom_transfer = float(l.split(']:')[-1].split(',')[-1].split('=')[-1])
+        return fom_train, fom_transfer
+    
+    def compute_fom_inference(self) -> float:
+        """Compute the inference FOM from reading log files
+        """
+        with open(f'{self.log_dir}/infer_0/infer_0.out','r') as fh:
+            for l in fh:
+                if 'FOM_inference' in l:
+                    fom_inference = float(l.split(']:')[-1].split(',')[-1].split('=')[-1])
+        return fom_inference
+    
+    def compute_fom(self) -> None:
+        """Compute the workflow FOM for the fine tuning and shooting stages
+        """
+        fom_nekrs = self.compute_fom_nekrs()
+        fom_train, fom_transfer = self.compute_fom_train()
+        fom_inference = self.compute_fom_inference()
+        print('\n\nWorkflow FOM:')
+        print(f'\tFOM_nekrs [million mesh nodes x nekRS steps / nekRS time] = {fom_nekrs:.4g}')
+        print(f'\tFOM_train [million graph nodes x train steps / train time] = {fom_train:.4g}')
+        print(f'\tFOM_transfer [TB / transfer time] = {fom_transfer:.4g}')
+        print(f'\tFOM_inference [million graph nodes x inference steps / inference time] = {fom_inference:.4g}')
+        fom_finetune = harmonic_mean([fom_nekrs,fom_train,fom_transfer])
+        print(f'\tFOM_finetune = {fom_finetune:.4g}')
+        fom_shoot = fom_inference / fom_nekrs
+        print(f'\tFOM_shoot = {fom_shoot:.4g}')
+        print('\n',flush=True)
+
 
 ## Main function
-@hydra.main(version_base=None, config_path="./", config_name="ssim_config")
+@hydra.main(version_base=None, config_path="./", config_name="config")
 def main(cfg: DictConfig):
     # Initialize workflow class
     workflow = ShootingWorkflow(cfg)
 
     # Run the workflow
     workflow.runner()
+
+    # Compute and print the FOM
+    workflow.compute_fom()
 
     # Quit
     print("Quitting")
