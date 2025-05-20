@@ -13,7 +13,7 @@ precision: fp32
 fp16_allreduce: False
 restart: False
 master_addr: none
-master_port: none
+master_port: 2345
 device_skip: 0 # temporary workaround to skip GPU on a node
 
 # Modeling task
