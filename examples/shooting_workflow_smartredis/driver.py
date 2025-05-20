@@ -148,7 +148,9 @@ class ShootingWorkflow():
         coDB_manager_settings.set_tasks(self.num_nodes)
         coDB_manager_settings.set_tasks_per_node(1)
         coDB_manager_settings.set_hostlist(self.db_nodes)
-        coDB_manager_settings.set_cpu_binding_type(f"list:{psutil.cpu_count(logical=False)-1}")
+        db_bind = None if self.cfg.run_args.db_cpu_bind=='None' else self.cfg.run_args.db_cpu_bind
+        db_bind_cores = 0 if db_bind is None else len(db_bind)
+        coDB_manager_settings.set_cpu_binding_type(f"list:{psutil.cpu_count(logical=False)-db_bind_cores-1}")
 
         kwargs = {
             'maxclients': 100000,
