@@ -823,11 +823,11 @@ class Trainer:
         stats = {'x': [], 'y': []}
         if 'stats' not in self.data.keys():
             if os.path.exists(data_dir + f"/data_stats.npz"):
-                if RANK == 0:
-                    npzfile = np.load(data_dir + f"/data_stats.npz")
-                    stats['x'] = [npzfile['x_mean'], npzfile['x_std']]
-                    stats['y'] = [npzfile['y_mean'], npzfile['y_std']]
-                stats = COMM.bcast(stats, root=0)
+                #if RANK == 0:
+                npzfile = np.load(data_dir + f"/data_stats.npz")
+                stats['x'] = [npzfile['x_mean'], npzfile['x_std']]
+                stats['y'] = [npzfile['y_mean'], npzfile['y_std']]
+                #stats = COMM.bcast(stats, root=0)
                 if RANK == 0: log.info(f"Read training data statistics from {data_dir}/data_stats.npz")
             else: 
                 x_mean, x_std = self.compute_statistics(data['train'],'x')
@@ -936,11 +936,11 @@ class Trainer:
         stats = {'x': [], 'y': []} 
         if 'stats' not in self.data.keys():
             if os.path.exists(data_dir + "/data_stats.npz"):
-                if RANK == 0:
-                    npzfile = np.load(data_dir + "/data_stats.npz")
-                    stats['x'] = [npzfile['x_mean'], npzfile['x_std']]
-                    stats['y'] = [npzfile['y_mean'], npzfile['y_std']]
-                stats = COMM.bcast(stats, root=0)
+                #if RANK == 0:
+                npzfile = np.load(data_dir + "/data_stats.npz")
+                stats['x'] = [npzfile['x_mean'], npzfile['x_std']]
+                stats['y'] = [npzfile['y_mean'], npzfile['y_std']]
+                #stats = COMM.bcast(stats, root=0)
                 if RANK == 0: log.info(f"Read training data statistics from {data_dir}/data_stats.npz")
             else: 
                 if RANK == 0: log.info(f"Computing training data statistics")
@@ -981,11 +981,11 @@ class Trainer:
         stats = {'x': [], 'y': []} 
         if 'stats' not in self.data.keys():
             if os.path.exists(data_dir + "/data_stats.npz"):
-                if RANK == 0:
-                    npzfile = np.load(data_dir + "/data_stats.npz")
-                    stats['x'] = [npzfile['x_mean'], npzfile['x_std']]
-                    stats['y'] = [npzfile['y_mean'], npzfile['y_std']]
-                stats = COMM.bcast(stats, root=0)
+                #if RANK == 0:
+                npzfile = np.load(data_dir + "/data_stats.npz")
+                stats['x'] = [npzfile['x_mean'], npzfile['x_std']]
+                stats['y'] = [npzfile['y_mean'], npzfile['y_std']]
+                #stats = COMM.bcast(stats, root=0)
                 if RANK == 0: log.info(f"Read training data statistics from {data_dir}/data_stats.npz")
             else: 
                 x_mean, x_std = self.compute_statistics(data['train'],'x')
