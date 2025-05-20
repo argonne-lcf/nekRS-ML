@@ -45,7 +45,7 @@ if [ ! -d $NEKRS_HOME/Nek5000 ]; then
   cd $NEKRS_HOME
   git clone https://github.com/rickybalin/Nek5000.git
   cd Nek5000/tools
-  FC=ftn ./maketools genbox
+  FC=`which gfortran` ./maketools genbox
   cd $CWD
 fi
 $NEKRS_HOME/Nek5000/bin/genbox ${1}.box ${1}
