@@ -127,14 +127,11 @@ class Trainer:
             os.environ['WORLD_SIZE'] = str(SIZE)
             if self.cfg.master_addr=='none':
                 MASTER_ADDR = socket.gethostname() if RANK == 0 else None
+                MASTER_ADDR = COMM.bcast(MASTER_ADDR, root=0)
             else:
-                MASTER_ADDR = str(cfg.master_addr) if RANK == 0 else None
-            MASTER_ADDR = MPI.COMM_WORLD.bcast(MASTER_ADDR, root=0)
+                MASTER_ADDR = str(cfg.master_addr)
             os.environ['MASTER_ADDR'] = MASTER_ADDR
-            if self.cfg.master_port=='none':
-                os.environ['MASTER_PORT'] = str(2345)
-            else:
-                os.environ['MASTER_PORT'] = str(cfg.master_port)
+            os.environ['MASTER_PORT'] = str(cfg.master_port)
             utils.init_process_group(RANK, SIZE, backend=self.backend)
         
         # ~~~~ Init torch stuff 
@@ -826,11 +823,11 @@ class Trainer:
         stats = {'x': [], 'y': []}
         if 'stats' not in self.data.keys():
             if os.path.exists(data_dir + f"/data_stats.npz"):
-                if RANK == 0:
-                    npzfile = np.load(data_dir + f"/data_stats.npz")
-                    stats['x'] = [npzfile['x_mean'], npzfile['x_std']]
-                    stats['y'] = [npzfile['y_mean'], npzfile['y_std']]
-                stats = COMM.bcast(stats, root=0)
+                #if RANK == 0:
+                npzfile = np.load(data_dir + f"/data_stats.npz")
+                stats['x'] = [npzfile['x_mean'], npzfile['x_std']]
+                stats['y'] = [npzfile['y_mean'], npzfile['y_std']]
+                #stats = COMM.bcast(stats, root=0)
                 if RANK == 0: log.info(f"Read training data statistics from {data_dir}/data_stats.npz")
             else: 
                 x_mean, x_std = self.compute_statistics(data['train'],'x')
@@ -939,11 +936,11 @@ class Trainer:
         stats = {'x': [], 'y': []} 
         if 'stats' not in self.data.keys():
             if os.path.exists(data_dir + "/data_stats.npz"):
-                if RANK == 0:
-                    npzfile = np.load(data_dir + "/data_stats.npz")
-                    stats['x'] = [npzfile['x_mean'], npzfile['x_std']]
-                    stats['y'] = [npzfile['y_mean'], npzfile['y_std']]
-                stats = COMM.bcast(stats, root=0)
+                #if RANK == 0:
+                npzfile = np.load(data_dir + "/data_stats.npz")
+                stats['x'] = [npzfile['x_mean'], npzfile['x_std']]
+                stats['y'] = [npzfile['y_mean'], npzfile['y_std']]
+                #stats = COMM.bcast(stats, root=0)
                 if RANK == 0: log.info(f"Read training data statistics from {data_dir}/data_stats.npz")
             else: 
                 if RANK == 0: log.info(f"Computing training data statistics")
@@ -984,11 +981,11 @@ class Trainer:
         stats = {'x': [], 'y': []} 
         if 'stats' not in self.data.keys():
             if os.path.exists(data_dir + "/data_stats.npz"):
-                if RANK == 0:
-                    npzfile = np.load(data_dir + "/data_stats.npz")
-                    stats['x'] = [npzfile['x_mean'], npzfile['x_std']]
-                    stats['y'] = [npzfile['y_mean'], npzfile['y_std']]
-                stats = COMM.bcast(stats, root=0)
+                #if RANK == 0:
+                npzfile = np.load(data_dir + "/data_stats.npz")
+                stats['x'] = [npzfile['x_mean'], npzfile['x_std']]
+                stats['y'] = [npzfile['y_mean'], npzfile['y_std']]
+                #stats = COMM.bcast(stats, root=0)
                 if RANK == 0: log.info(f"Read training data statistics from {data_dir}/data_stats.npz")
             else: 
                 x_mean, x_std = self.compute_statistics(data['train'],'x')

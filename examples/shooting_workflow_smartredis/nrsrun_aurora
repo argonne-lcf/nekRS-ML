@@ -45,7 +45,7 @@ if [ ! -d $NEKRS_HOME/Nek5000 ]; then
   cd $NEKRS_HOME
   git clone https://github.com/rickybalin/Nek5000.git
   cd Nek5000/tools
-  FC=ftn ./maketools genbox
+  FC=`which gfortran` ./maketools genbox
   cd $CWD
 fi
 $NEKRS_HOME/Nek5000/bin/genbox ${1}.box ${1}
@@ -101,6 +101,7 @@ chmod u+x $SAFF_FILE $TAFF_FILE
 
 #--------------------------------------
 # Generate the workflow config script
+head_node=`head -1 $PBS_NODEFILE | cut -d'.' -f1`
 CFILE=config.yaml
 echo "# Database config" > $CFILE
 echo "database:" >> $CFILE
@@ -165,9 +166,9 @@ echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/main.py\"" >> $CFILE
 #echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
 echo "    affinity: \"\"" >> $CFILE
 if [ ${DEPLOYMENT} == "colocated"  ]; then
-  echo "    arguments: \"device_skip=${SIM_RANKS_PER_NODE} backend=ccl halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
+  echo "    arguments: \"master_addr=$head_node device_skip=${SIM_RANKS_PER_NODE} backend=ccl halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
 elif [ ${DEPLOYMENT} == "clustered"  ]; then
-  echo "    arguments: \"backend=ccl halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
+  echo "    arguments: \"master_addr=$head_node backend=ccl halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
 fi
 echo "    copy_files: []" >> $CFILE
 echo "    link_files: [\"./${TAFF_FILE}\"]" >> $CFILE
@@ -176,7 +177,7 @@ echo "# Inference config" >> $CFILE
 echo "inference:" >> $CFILE
 echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/inference.py\"" >> $CFILE
 echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
-echo "    arguments: \"model_task=inference rollout_steps=100 backend=ccl halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
+echo "    arguments: \"master_addr=$head_node model_task=inference rollout_steps=100 backend=ccl halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
 echo "    copy_files: []" >> $CFILE
 echo "    link_files: [\"./${TAFF_FILE}\"]" >> $CFILE
 

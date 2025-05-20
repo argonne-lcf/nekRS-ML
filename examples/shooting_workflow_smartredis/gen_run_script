@@ -72,6 +72,7 @@ if [ ${DEPLOYMENT} == "colocated" ]; then
   QUEUE=$QUEUE \
   DEPLOYMENT=$DEPLOYMENT \
   VENV_PATH=$VENV_PATH \
+  SIM_NODES=$NODES TRAIN_NODES=$NODES \
   ./${script_name} turbChannel $NODES 00:30
 elif [ ${DEPLOYMENT} == "clustered" ]; then
   NODES=`cat $PBS_NODEFILE | wc -l`
