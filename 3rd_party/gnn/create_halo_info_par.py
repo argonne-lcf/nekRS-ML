@@ -475,7 +475,7 @@ if __name__ == '__main__':
 
     # Write files
     if RANK == 0: print('Writing halo_info, edge_weights, node_degree ...', flush=True)
-    np.save(main_path + 'halo_info_new_rank_%d_size_%d.npy' %(RANK,SIZE), halo_info_glob[RANK].numpy())
+    np.save(main_path + 'halo_info_rank_%d_size_%d.npy' %(RANK,SIZE), halo_info_glob[RANK].numpy())
     np.save(main_path + 'node_degree_rank_%d_size_%d.npy' %(RANK,SIZE), node_degree.numpy())
     np.save(main_path + 'edge_weights_rank_%d_size_%d.npy' %(RANK,SIZE), edge_weights.numpy())
     COMM.Barrier()
