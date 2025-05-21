@@ -677,12 +677,18 @@ class Trainer:
                 node_degree = torch.tensor(self.load_data(path_to_node_degree,extension='.npy'), dtype=self.torch_dtype)
                 halo_info = torch.tensor(self.load_data(path_to_halo_info,extension='.npy'))
             else:
+                tic = time.time()
                 halo_ids = create_halo_info_par.get_reduced_halo_ids(self.data_reduced)
                 halo_info_glob = create_halo_info_par.get_halo_info(self.data_reduced, halo_ids)
+                if RANK ==0 and self.cfg.verbose: log.info('[RANK %d]: computed halo info in %f sec' %(RANK,time.time()-tic))
                 halo_info = halo_info_glob[RANK]
+                tic = time.time()
                 node_degree = create_halo_info_par.get_node_degree(self.data_reduced, halo_info)
+                if RANK ==0 and self.cfg.verbose: log.info('[RANK %d]: computed node degree in %f sec' %(RANK,time.time()-tic))
+                tic = time.time()
                 edge_freq = create_halo_info_par.get_edge_weights(self.data_reduced, halo_info_glob)
                 edge_weight = (1.0/edge_freq).to(self.torch_dtype)
+                if RANK ==0 and self.cfg.verbose: log.info('[RANK %d]: computed edge weights in %f sec' %(RANK,time.time()-tic))
 
             self.neighboring_procs = np.unique(halo_info[:,3])
             n_nodes_local = self.data_reduced.pos.shape[0]
