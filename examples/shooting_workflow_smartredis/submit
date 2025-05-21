@@ -13,5 +13,6 @@ cd $PBS_O_WORKDIR
 
 SYSTEM="aurora"
 NEKRS_HOME=/flare/datascience/balin/Nek/nekRS-ML/exe/nekRS
-./gen_run_script $SYSTEM $NEKRS_HOME 
+VENV_PATH=""
+./gen_run_script $SYSTEM $NEKRS_HOME $VENV_PATH
 ./run.sh
