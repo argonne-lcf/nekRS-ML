@@ -175,7 +175,7 @@ class Trainer:
 
         # ~~~~ Build model and move to gpu 
         self.model = self.build_model()
-        if RANK==0: 
+        if RANK == 0: 
             log.info('Built model with %i trainable parameters' %(self.count_weights(self.model)))
         self.model.to(self.device)
         self.model.to(self.torch_dtype)
@@ -552,10 +552,7 @@ class Trainer:
             else:
                 data = np.loadtxt(file_name, dtype=dtype)
         else:
-            tic = time.time()
             data = self.client.get_array(file_name).astype(dtype)
-            self.online_timers['trainDataTime'].append(time.time()-tic)
-            self.online_timers['trainDataThroughput'].append(data.nbytes/(time.time()-tic))
             if isinstance(file_name, str):
                 if 'edge_index' not in file_name:
                     data = data.T
@@ -882,13 +879,13 @@ class Trainer:
                 tic = time.time()
                 data_x_i = self.client.get_array(input_files[i]).astype(NP_FLOAT_DTYPE).T
                 self.online_timers['trainDataTime'].append(time.time()-tic)
-                self.online_timers['trainDataThroughput'].append(data_x_i.nbytes/(time.time()-tic))
+                self.online_timers['trainDataThroughput'].append(data_x_i.nbytes/GB_SIZE/(time.time()-tic))
                 data_x_i = self.prepare_snapshot_data(data_x_i)
                 
                 tic = time.time()
                 data_y_i = self.client.get_array(output_files[i]).astype(NP_FLOAT_DTYPE).T
                 self.online_timers['trainDataTime'].append(time.time()-tic)
-                self.online_timers['trainDataThroughput'].append(data_y_i.nbytes/(time.time()-tic))
+                self.online_timers['trainDataThroughput'].append(data_y_i.nbytes/GB_SIZE/(time.time()-tic))
                 data_y_i = self.prepare_snapshot_data(data_y_i)
                 self.data_list.append(
                         {'x': data_x_i, 'y':data_y_i}
@@ -1131,13 +1128,13 @@ class Trainer:
                     tic = time.time()
                     data_x_i = self.client.get_array(input_files[i]).astype(NP_FLOAT_DTYPE).T
                     self.online_timers['trainDataTime'].append(time.time()-tic)
-                    self.online_timers['trainDataThroughput'].append(data_x_i.nbytes/(time.time()-tic))
+                    self.online_timers['trainDataThroughput'].append(data_x_i.nbytes/GB_SIZE/(time.time()-tic))
                     data_x_i = self.prepare_snapshot_data(data_x_i)
                     
                     tic = time.time()
                     data_y_i = self.client.get_array(output_files[i]).astype(NP_FLOAT_DTYPE).T
                     self.online_timers['trainDataTime'].append(time.time()-tic)
-                    self.online_timers['trainDataThroughput'].append(data_y_i.nbytes/(time.time()-tic))
+                    self.online_timers['trainDataThroughput'].append(data_y_i.nbytes/GB_SIZE/(time.time()-tic))
                     data_y_i = self.prepare_snapshot_data(data_y_i)
                     self.data_list.append({'x': data_x_i, 'y': data_y_i})
         elif self.cfg.client.backend == 'adios':
