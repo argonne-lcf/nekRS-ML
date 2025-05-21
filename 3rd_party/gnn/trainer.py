@@ -236,8 +236,8 @@ class Trainer:
                 log.info(astr)
         
         # ~~~ IPEX optimizations
-        if WITH_XPU:
-            self.model, self.optimizer = ipex.optimize(self.model, optimizer=self.optimizer)
+        #if WITH_XPU:
+        #    self.model, self.optimizer = ipex.optimize(self.model, optimizer=self.optimizer)
 
         # ~~~~ Set scheduler:
         self.s_optimizer = ScheduledOptim(self.optimizer, 
@@ -679,7 +679,7 @@ class Trainer:
             else:
                 tic = time.time()
                 halo_ids = create_halo_info_par.get_reduced_halo_ids(self.data_reduced)
-                halo_info_glob = create_halo_info_par.get_halo_info(self.data_reduced, halo_ids)
+                halo_info_glob = create_halo_info_par.get_halo_info_fast(self.data_reduced, halo_ids)
                 if RANK ==0: log.info('[RANK %d]: computed halo info in %f sec' %(RANK,time.time()-tic))
                 halo_info = halo_info_glob[RANK]
                 tic = time.time()
