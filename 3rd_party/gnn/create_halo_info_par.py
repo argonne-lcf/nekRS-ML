@@ -189,16 +189,22 @@ def get_halo_info(data_reduced, halo_ids_full) -> list:
         counts_unique = output[2]
         counts = output[2][output[1]]
         counts = counts.reshape((-1,1))
+        if RANK == 0: print(f'global_ids shape = {global_ids.shape}', flush=True)
+        if RANK == 0: print(f'counts_unique shape = {counts_unique.shape}', flush=True)
+        if RANK == 0: print(f'counts shape = {counts.shape}', flush=True)
 
         # append the counts to halo_ids_full
         halo_ids_full = torch.cat([halo_ids_full, counts], dim=1)
-
+        if RANK == 0: print(f'halo_ids_full shape = {halo_ids_full.shape}', flush=True)
         # Get the number of halo nodes for each rank
         #halo_info = []
         halo_ids_rank = halo_ids_full[halo_ids_full[:,2] == RANK]
         Nhalo_rank = torch.sum(halo_ids_rank[:,3] - 1)
         #halo_info.append(torch.zeros((Nhalo_rank,4), dtype=torch.int64))
         #halo_info_glob = COMM.allgather(halo_info[0])
+
+        # Halo_info_glob is a list of tensors. Each element is a tensor of shape (Nhalo_rank_glob[i],4).
+        # Columns in each element:[local_id of non halo nodes, local_id of halo nodes, global_id of nodes (same for local and halo), neighboring rank]
         Nhalo_rank_glob = COMM.allgather(Nhalo_rank)
         halo_info_glob = [torch.zeros((Nhalo_rank_glob[i],4), dtype=torch.int64) for i in range(SIZE)]
 
@@ -242,6 +248,63 @@ def get_halo_info(data_reduced, halo_ids_full) -> list:
             idx+=count
     return halo_info_glob
 
+def get_halo_info_fast(data_reduced, halo_ids_full):
+    if SIZE == 1:
+        return [torch.zeros((0,4), dtype=torch.int64)]
+    # — 1) sort by global_id and extract the three columns into separate vectors
+    halo_ids_full[:,1] = torch.abs(halo_ids_full[:,1])
+    _, idx_sort = torch.sort(halo_ids_full[:,1])
+    halo_ids_full = halo_ids_full[idx_sort]
+    local_ids  = halo_ids_full[:,0]
+    global_ids = halo_ids_full[:,1]
+    ranks      = halo_ids_full[:,2]
+
+    # — 2) find consecutive runs of the same global_id
+    _, inverse_idx, counts = torch.unique_consecutive(
+        global_ids,
+        return_inverse=True,
+        return_counts=True
+    )
+    # compute the start index of each run
+    starts = torch.cat((torch.tensor([0], device=counts.device),
+                        torch.cumsum(counts, dim=0)[:-1]), dim=0)
+
+    # — 3) build ALL (owner_idx, neighbor_idx) pairs for each run at once
+    pair_list = []
+    for start, cnt in zip(starts.tolist(), counts.tolist()):
+        idx = torch.arange(start, start+cnt, device=halo_ids_full.device)
+        I, J = torch.meshgrid(idx, idx, indexing='ij')
+        mask = I != J
+        pair_list.append(torch.stack((I[mask], J[mask]), dim=1))
+    pairs = torch.cat(pair_list, dim=0)   # [M,2] where M = Σ (cnt*(cnt-1))
+
+    # — 4) pull out the columns we need
+    owner_idx, nbr_idx = pairs[:,0], pairs[:,1]
+    owner_ranks   = ranks[owner_idx]
+    owner_locals  = local_ids[owner_idx]
+    owner_globals = global_ids[owner_idx]
+    neighbor_ranks = ranks[nbr_idx]
+
+    # — 5) build a big halo‐info tensor [M×4] with a placeholder in col 1
+    halo_flat = torch.zeros((pairs.size(0), 4), dtype=torch.int64, device=halo_ids_full.device)
+    halo_flat[:,0] = owner_locals
+    halo_flat[:,2] = owner_globals
+    halo_flat[:,3] = neighbor_ranks
+
+    # — 6) split out each rank’s rows, and assign the proper halo‐node IDs
+    #     (they start at n_nodes_glob[r] and count up by 1)
+    n_nodes_glob = COMM.allgather(data_reduced.pos.shape[0])
+    halo_info_glob = []
+    for r in range(SIZE):
+        mask_r = (owner_ranks == r)
+        Hr = halo_flat[mask_r]
+        cnt_r = Hr.size(0)
+        if cnt_r:
+            Hr[:,1] = torch.arange(cnt_r, dtype=torch.int64, device=Hr.device) \
+                      + n_nodes_glob[r]
+        halo_info_glob.append(Hr)
+
+    return halo_info_glob
 
 # ~~~~ Get node degree from halo_info
 def get_node_degree(data_reduced, halo_info_rank) -> torch.Tensor:
@@ -383,7 +446,8 @@ if __name__ == '__main__':
     if RANK == 0: print('Computing halo_info ...', flush=True)
     COMM.Barrier()
     t_start = MPI.Wtime()
-    halo_info_glob = get_halo_info(data_reduced, halo_ids_full)
+    # halo_info_glob = get_halo_info(data_reduced, halo_ids_full)
+    halo_info_glob = get_halo_info_fast(data_reduced, halo_ids_full)
     t_end = MPI.Wtime()
     local_time = t_end - t_start
     max_time = COMM.allreduce(local_time, op=MPI.MAX)
@@ -411,7 +475,7 @@ if __name__ == '__main__':
 
     # Write files
     if RANK == 0: print('Writing halo_info, edge_weights, node_degree ...', flush=True)
-    np.save(main_path + 'halo_info_rank_%d_size_%d.npy' %(RANK,SIZE), halo_info_glob[RANK].numpy())
+    np.save(main_path + 'halo_info_new_rank_%d_size_%d.npy' %(RANK,SIZE), halo_info_glob[RANK].numpy())
     np.save(main_path + 'node_degree_rank_%d_size_%d.npy' %(RANK,SIZE), node_degree.numpy())
     np.save(main_path + 'edge_weights_rank_%d_size_%d.npy' %(RANK,SIZE), edge_weights.numpy())
     COMM.Barrier()
