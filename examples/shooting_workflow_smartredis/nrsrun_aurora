@@ -240,7 +240,9 @@ echo "export CCL_ALLREDUCE_SCALEOUT=direct:0-1048576,rabenseifner:1048577-max" >
 echo "export CCL_KVS_CONNECTION_TIMEOUT=300" >> $RFILE
 echo "export CCL_ALLTOALLV_MONOLITHIC_KERNEL=0" >> $RFILE
 
-echo -e "\nexport TORCH_PATH=\$( python -c 'import torch; print(torch.__path__[0])' )" >> $RFILE
+echo -e "\nexport SR_LOG_FILE=stdout" >> $RFILE
+echo "export SR_LOG_LEVEL=QUIET" >> $RFILE
+echo "export TORCH_PATH=\$( python -c 'import torch; print(torch.__path__[0])' )" >> $RFILE
 echo "export LD_LIBRARY_PATH=\$TORCH_PATH/lib:\$LD_LIBRARY_PATH" >> $RFILE
 echo "export SR_SOCKET_TIMEOUT=10000" >> $RFILE
 
