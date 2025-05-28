@@ -7,25 +7,31 @@
 (c) 2019-2024 UCHICAGO ARGONNE, LLC
 ```
 
-[![Build Status](https://travis-ci.com/Nek5000/nekRS.svg?branch=master)](https://travis-ci.com/Nek5000/nekRS)
 [![License](https://img.shields.io/badge/License-BSD%203--Clause-orange.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
-**nekRS** is a fast and scalable computational fluid dynamics (CFD) solver targeting HPC applications. The code started as an early fork of [libParanumal](https://github.com/paranumal/libparanumal) in 2019, with the intention of supplanting its precursor, [nek5000](https://github.com/Nek5000/Nek5000).
+nekRS-ML is a fork of the ALCF managed [nekRS v24](https://github.com/argonne-lcf/nekRS) computational fluid dynamics (CFD) solver augmented to provides examples and capabilities for AI-enabled CFD research on HPC systems. 
+It is meant to be a sandbox showcasing ways in which ML methods and *in-situ* workflows can be used to integrate AI with traditional CFD simulations on HPC systems.
 
-Capabilities:
+Some key functionalities of nekRS-ML are:
 
-* Incompressible and low Mach-number Navier-Stokes + scalar transport 
-* High-order curvilinear conformal Hex spectral elements in space 
-* Variable time step 2nd/3rd order semi-implicit time integration
-* MPI + [OCCA](https://github.com/libocca/occa) supporting CUDA, HIP, DPC++, SERIAL (C++)
-* LES and RANS turbulence models
-* Arbitrary-Lagrangian-Eulerian moving mesh
-* Lagrangian phase model
-* Overlapping overset grids
-* Conjugate fluid-solid heat transfer
-* Various boundary conditions
-* VisIt & Paraview for data analysis and visualization including in-situ support through Ascent
-* Legacy interface
+* [Graph neural network (GNN) modeling](./3rd_party/gnn/): [Dist-GNN](https://ieeexplore.ieee.org/abstract/document/10820662) is a scalable and consistent GNN for mesh-modeling of dynamical systems on very large graphs. It relies on tailored neural message passing layers and loss constructions to guarantee arithmetic consistency on domain-decomposed graphs partitioned similarly to a CFD mesh. It can be used to perform both time dependent modeling (e.g., advance the solution field) and time independent modeling (e.g., predict a flow quantity from another). 
+* [Conversion tools for mesh-based distributed GNN modeling](./src/plugins/gnn.hpp): NekRS-ML provides a GNN plugin capable of extracting the necessary information from nekRS to contruct the partitioned graph needed by Dist-GNN. The same GNN plugin and the [trajectory generation plugin](./src/plugins/trajGen.hpp) can be used to extract the field information from nekRS to produce training data for the Dist-GNN. 
+* [Data streaming with ADIOS2](./src/plugins/adiosStreamer.hpp): nekRS v24 comes with ADIOS2 for I/O, thus nekRS-ML expands the usage of ADIOS2 to enable data streaming between nekRS and GNN training, enabling online (or *in-situ*) training/fine-tuning of the ML models.  
+* [In-memory data staging with SmartSim](./src/plugins/smartRedis.hpp): nekRS-ML can also be linked to the [SmartRedis](https://github.com/CrayLabs/SmartRedis) library, which when coupled with a [SmartSim](https://github.com/CrayLabs/SmartSim) workflow enables online training and inference with in-memory data-staging. 
+
+### Progression of AI-enabled examples
+
+nekRS-ML hosts a series of AI-enabled examples listed below in order of complexity to provide a smooth learning progression. 
+Users can find more details on each of the examples in the  README files contained within the respective directories. 
+
+* [tgv_gnn_offline](./examples/tgv_gnn_offline/): Offline training pipeline to generate data and perform time independent training of the Dist-GNN model.
+* [tgv_gnn_traj_offline](./examples/tgv_gnn_traj_offline/): Offline training pipeline to generate data and perform time dependent training of the Dist-GNN model.
+* [tgv_gnn_online](./examples/tgv_gnn_online/): Online training workflow using SmartSim to cuncurrently generate data and perform time independent training of the Dist-GNN model.
+* [tgv_gnn_traj_online](./examples/tgv_gnn_traj_online/): Online training workflow using SmartSim to cuncurrently generate data and perform time dependent training of the Dist-GNN model.
+* [tgv_gnn_traj_online_adios](./examples/tgv_gnn_traj_online_adios/): Online training workflow using ADIOS2 to cuncurrently generate data and perform time dependent training of the Dist-GNN model.
+* [shooting_workflow_smartredis](./examples/shooting_workflow_smartredis/): Online training workflow using SmartSim to shoot the nekRS solution forward in time leveraging the Dist-GNN model.
+* [shooting_workflow_adios](./examples/shooting_workflow_adios/): Online training workflow using ADIOS2 to shoot the nekRS solution forward in time leveraging the Dist-GNN model.
+
 
 ## Build Instructions
 
@@ -35,70 +41,70 @@ Requirements:
 * MPI-3.1 or later
 * CMake version 3.21 or later 
 
-Download the latest [release](https://github.com/Nek5000/nekRS/releases) available under
+Optional requirements:
+* PyTorch and PyTorch Geometric (for the examples using the GNN)
+* SmartSim and SmartRedis (for the examples using SmartSim as a workflow driver)
+
+To build nekRS and the required dependencoes, first clone our GitHub repository:
 
 ```sh
-https://github.com/Nek5000/nekRS/archive/refs/tags/v24.0.tar.gz 
+https://github.com/argonne-lcf/nekRS-ML.git
 ```
 
-or clone our GitHub repository:
+The `main` (default) branch always points to the latest stable version of the code. 
+Other branches available in the repository should be considered experimental. 
+
+Then, simply execute one of the build scripts contained in the reposotory. 
+The HPC systems currently supported are:
+* Polaris (Argonne LCF)
+* Aurora (Argonne LCF) 
+
+For example, to build nekRS-ML on Aurora without the SmartRedis client, execute from a compute node
 
 ```sh
-https://github.com/Nek5000/nekRS.git
+./BuildMeOnAurora
 ```
-The [master](https://github.com/Nek5000/nekRS) branch always points to the latest stable release while [next](https://github.com/Nek5000/nekRS/tree/next) 
-provides an early preview of the next upcoming release (do not use in a production environment).
 
-#
-If you're on an HPC system, ensure you log in to a compute node. Check if there's an `nrsqsub` script in the `scripts` directory for your system and load the same modules. Now, just run:
+If istead the SmartRedis client is desired, execute
 
 ```sh
-CC=mpicc CXX=mpic++ FC=mpif77 ./build.sh [-DCMAKE_INSTALL_PREFIX=$HOME/.local/nekrs] [<options>]
+ENABLE_SMARTREDIS=ON ./BuildMeOnAurora
 ```
-Adjust the compilers as necessary. Make sure to remove the previous build and installation directory if updating.
 
-## Setting the Environment
+If a build script for a specific HPC system is not available, please submit an issue or feel free to contribute a PR (see below for details on both).
 
-Assuming you run `bash` and your install directory is $HOME/.local/nekrs, 
-add the following line to your $HOME/.bash_profile:
+
+## Running the AI-enabled Examples
+
+To run any of the AI-enabled examples listed above, simply `cd` to the example directory of interest and **from a compute node** execute
 
 ```sh
-export NEKRS_HOME=$HOME/.local/nekrs
-export PATH=$NEKRS_HOME/bin:$PATH
+./gen_run_script <system_name> </path/to/nekRS>
 ```
-then type `source $HOME/.bash_profile` in the current terminal window. 
 
-## Run the Code
+The script will produce a `run.sh` script specifically tailored for the desired system and using the desired nekRS install directory. 
 
-We try hard not to break userland but the code is evolving quickly so things might change from one version to another without being backward compatible. Please consult `RELEASE.md` *before* using the code.  
+Fially, the examples are run **from the compute nodes** executing
 
 ```sh
-cd <directory outside of installation/source folder>
-cp -a $NEKRS_HOME/examples/turbPipePeriodic .
-mpirun -np 2 nekrs --setup turbPipe.par
+./run.sh
 ```
-For convenience we provide various launch scripts in the `bin` directory.
 
 ## Documentation 
-For documentation, see our [readthedocs page](https://nekrs.readthedocs.io/en/latest/). For now it's just a dummy. We recognize the importance of having comprehensive documentation to support our users. Creating such documentation requires initiative and collaboration and we hope to improve it soon. 
-
-The manual pages for the `par` file and environment variables can be accessed through `nrsman`
+For documentation on the nekRS solver, see the [readthedocs page](https://nekrs.readthedocs.io/en/latest/). Please note these pages are a work in progress. For documentation on the specific nekRS-ML examples, we encourage users to follow the README files within each example directory.
 
 ## Discussion Group
-Please visit [GitHub Discussions](https://github.com/Nek5000/nekRS/discussions). Here we help, find solutions, share ideas, and follow discussions.
+For nekRS specific questions, please visit the [GitHub Discussions](https://github.com/Nek5000/nekRS/discussions). Here nekRS developers help, find solutions, share ideas, and follow discussions.
 
 ## Contributing
-Our project is hosted on [GitHub](https://github.com/Nek5000/nekRS). To learn how to contribute, see `CONTRIBUTING.md`.
+Our project is hosted on [GitHub](https://github.com/argonne-lcf/nekRS-ML). To learn how to contribute, see `CONTRIBUTING.md`.
 
 ## Reporting Bugs
-All bugs are reported and tracked through [Issues](https://github.com/Nek5000/nekRS/issues). If you are having trouble installing the code or getting your case to run properly, you should first visit our discussion group.
+All bugs are reported and tracked through [Issues](https://github.com/argonne-lcf/nekRS-ML/issues). If you are having trouble installing the code or getting your case to run properly, please submit an issue.
 
 ## License
 nekRS is released under the BSD 3-clause license (see `LICENSE` file). 
 All new contributions must be made under the BSD 3-clause license.
-
-## Citing
-If you find our project useful, please cite [NekRS, a GPU-Accelerated Spectral Element Navier-Stokes Solver](https://www.sciencedirect.com/science/article/abs/pii/S0167819122000710) 
 
 ## Acknowledgment
 This research was supported by the Exascale Computing Project (17-SC-20-SC), 

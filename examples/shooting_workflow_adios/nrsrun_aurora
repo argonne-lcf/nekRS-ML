@@ -48,7 +48,7 @@ if [ ! -d $NEKRS_HOME/Nek5000 ]; then
   cd $NEKRS_HOME
   git clone https://github.com/rickybalin/Nek5000.git
   cd Nek5000/tools
-  FC=ftn ./maketools genbox
+  FC=`which gfortran` ./maketools genbox
   cd $CWD
 fi
 $NEKRS_HOME/Nek5000/bin/genbox ${1}.box ${1}
@@ -187,7 +187,7 @@ echo "source ${VENV_PATH}" >> $RFILE
 echo "module list" >> $RFILE
 
 echo -e "\nexport NEKRS_HOME=$NEKRS_HOME" >>$RFILE
-echo "export NEKRS_GPU_MPI=$NEKRS_GPU_MPI" >>$RFILE
+#echo "export NEKRS_GPU_MPI=$NEKRS_GPU_MPI" >>$RFILE
 #echo "export MPICH_GPU_SUPPORT_ENABLED=$NEKRS_GPU_MPI" >> $RFILE
 
 echo "export OCCA_DPCPP_COMPILER_FLAGS=\"$OCCA_DPCPP_COMPILER_FLAGS\"" >> $RFILE
@@ -198,20 +198,23 @@ echo "export OCCA_DPCPP_COMPILER_FLAGS=\"$OCCA_DPCPP_COMPILER_FLAGS\"" >> $RFILE
 #echo "unset MPIR_CVAR_CH4_POSIX_COLL_SELECTION_TUNING_JSON_FILE" >> $RFILE
 
 # Cray MPI libfabric defaults
-echo "export FI_CXI_RDZV_THRESHOLD=16384" >> $RFILE
-echo "export FI_CXI_RDZV_EAGER_SIZE=2048" >> $RFILE
-echo "export FI_CXI_DEFAULT_CQ_SIZE=131072" >> $RFILE
-echo "export FI_CXI_DEFAULT_TX_SIZE=1024" >> $RFILE
-echo "export FI_CXI_OFLOW_BUF_SIZE=12582912" >> $RFILE
-echo "export FI_CXI_OFLOW_BUF_COUNT=3" >> $RFILE
-echo "export FI_CXI_REQ_BUF_MIN_POSTED=6" >> $RFILE
-echo "export FI_CXI_REQ_BUF_SIZE=12582912" >> $RFILE
-echo "export FI_MR_CACHE_MAX_SIZE=-1" >> $RFILE
-echo "export FI_MR_CACHE_MAX_COUNT=524288" >> $RFILE
-echo "export FI_CXI_REQ_BUF_MAX_CACHED=0" >> $RFILE
-echo "export FI_CXI_REQ_BUF_MIN_POSTED=6" >> $RFILE
+#echo "export FI_CXI_RDZV_THRESHOLD=16384" >> $RFILE
+#echo "export FI_CXI_RDZV_EAGER_SIZE=2048" >> $RFILE
+#echo "export FI_CXI_DEFAULT_CQ_SIZE=131072" >> $RFILE
+#echo "export FI_CXI_DEFAULT_TX_SIZE=1024" >> $RFILE
+#echo "export FI_CXI_OFLOW_BUF_SIZE=12582912" >> $RFILE
+#echo "export FI_CXI_OFLOW_BUF_COUNT=3" >> $RFILE
+#echo "export FI_CXI_REQ_BUF_MIN_POSTED=6" >> $RFILE
+#echo "export FI_CXI_REQ_BUF_SIZE=12582912" >> $RFILE
+#echo "export FI_MR_CACHE_MAX_SIZE=-1" >> $RFILE
+#echo "export FI_MR_CACHE_MAX_COUNT=524288" >> $RFILE
+#echo "export FI_CXI_REQ_BUF_MAX_CACHED=0" >> $RFILE
+#echo "export FI_CXI_REQ_BUF_MIN_POSTED=6" >> $RFILE
 # echo "export FI_CXI_RX_MATCH_MODE=hardware" >> $RFILE
 echo "export FI_CXI_RX_MATCH_MODE=hybrid" >> $RFILE # required by parRSB
+
+# Temporary workaround while waiting on bugfix in runtime
+echo "export UR_L0_USE_COPY_ENGINE=0" >> $RFILE
 
 echo -e "\nexport CCL_ALLTOALLV_MONOLITHIC_KERNEL=0" >> $RFILE
 

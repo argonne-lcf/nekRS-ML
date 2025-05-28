@@ -7,6 +7,8 @@ if [ "$#" -ne 1 ]; then
   echo "Or press Ctrl+C to quit"
   read -r -s KEY
   export NEKRS_HOME=$HOME/.local/nekrs
+else
+  export NEKRS_HOME=$1
 fi
 
 #... load the necessary modules here ...
@@ -20,13 +22,12 @@ module list
 
 #... set the build and install directories
 CWD=$PWD
-echo -e "\033[35mInstalling nekRS at $1\033[m"
-export NEKRS_HOME=$1
+echo -e "\033[35mInstalling nekRS at $NEKRS_HOME\033[m"
 export INSTALL_DIR=$NEKRS_HOME
 #...
 
 #... set some environment variables
-export ENABLE_SMARTREDIS=ON
+: ${ENABLE_SMARTREDIS:="OFF"}
 export CC=cc
 export CXX=CC
 export FC=ftn
@@ -55,10 +56,11 @@ fi
 
 #... build nekRS
 echo ""
-echo -e "\033[35mBuilding nekRS ...\033[m"
 if [ ${ENABLE_SMARTREDIS} == "ON" ]; then
+  echo -e "\033[35mBuilding nekRS WITH SmartRedis ...\033[m"
   ./build.sh -DENABLE_SMARTREDIS=ON -DSMARTREDIS_INSTALL_DIR=$NEKRS_HOME/SmartRedis/install
 else
+  echo -e "\033[35mBuilding nekRS WITHOUT SmartRedis ...\033[m"
   ./build.sh
 fi
 #...

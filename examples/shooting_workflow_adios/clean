@@ -2,7 +2,7 @@
 
 rm -rf _pyg
 rm affinity_* config.yaml run.sh
-rm -r outputs logs* saved_models
+rm -r outputs logs_* saved_models
 rm turbChannel.par turbChannel.box turbChannel.re2
 rm -r *.bp *.sst
 
