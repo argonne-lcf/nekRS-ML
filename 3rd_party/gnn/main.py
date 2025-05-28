@@ -220,7 +220,7 @@ def train(cfg: DictConfig,
         log.info(f'\tFOM_train [million graph nodes x train steps / train time]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
         if cfg.online:
             min_val, max_val, avg_val = utils.min_max_avg(data_transfer_fom)
-            log.info(f'\tFOM_transfer [TB / transfer time]: min={min_val/1024:.4g}, max={max_val/1024:.4g}, mean={avg_val/1024:.4g}')
+            log.info(f'\tFOM_transfer [GB / transfer time]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
 
 
 @hydra.main(version_base=None, config_path='./conf', config_name='config')

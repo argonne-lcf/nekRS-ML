@@ -272,11 +272,12 @@ class ShootingWorkflow():
         print('\n\nWorkflow FOM:')
         print(f'\tFOM_nekrs [million mesh nodes x nekRS steps / nekRS time] = {fom_nekrs:.4g}')
         print(f'\tFOM_train [million graph nodes x train steps / train time] = {fom_train:.4g}')
-        print(f'\tFOM_transfer [TB / transfer time] = {fom_transfer:.4g}')
+        print(f'\tFOM_transfer [GB / transfer time] = {fom_transfer:.4g}')
         print(f'\tFOM_inference [million graph nodes x inference steps / inference time] = {fom_inference:.4g}')
         fom_finetune = harmonic_mean([fom_nekrs,fom_train,fom_transfer])
         print(f'\tFOM_finetune = {fom_finetune:.4g}')
-        fom_shoot = fom_inference / fom_nekrs
+        dt_ratio = 10.
+        fom_shoot = fom_inference * dt_ratio / fom_nekrs
         print(f'\tFOM_shoot = {fom_shoot:.4g}')
         print('\n',flush=True)
         
