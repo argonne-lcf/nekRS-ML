@@ -70,6 +70,8 @@ If istead the SmartRedis client is desired, execute
 ```sh
 ENABLE_SMARTREDIS=ON ./BuildMeOnAurora
 ```
+Adjust the compilers as necessary. Make sure to remove the previous build and installation directory if updating.
+Two helper scripts: `BuildMeOnAurora` and `BuildMeOnCrux` are provided to build on Aurora and Crux at ALCF.
 
 If a build script for a specific HPC system is not available, please submit an issue or feel free to contribute a PR (see below for details on both).
 

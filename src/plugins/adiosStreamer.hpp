@@ -2,7 +2,9 @@
 #define nekrs_adiosstreamer_hpp_
 
 #include "nrs.hpp"
+#if defined(NEKRS_ENABLE_ADIOS)
 #include "adios2.h"
+#endif
 
 class adios_client_t
 {
@@ -10,6 +12,7 @@ public:
   adios_client_t(MPI_Comm& comm, nrs_t *nrs);
   ~adios_client_t();
 
+#if defined(NEKRS_ENABLE_ADIOS)
   // adios objects
   adios2::ADIOS *_adios;
   adios2::IO _stream_io;
@@ -41,11 +44,11 @@ private:
 
   // nekrs objects 
   nrs_t *_nrs;
+#endif
 
   // MPI stuff
   int _rank, _size;
   MPI_Comm& _comm;
-
 };
 
 #endif

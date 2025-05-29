@@ -184,6 +184,7 @@ void trajGen_t::trajGenWriteADIOS(adios_client_t* client,
     const std::string& field_name) 
 {
     MPI_Comm &comm = platform->comm.mpiComm;
+#if defined(NEKRS_ENABLE_ADIOS)
     dlong num_dim = nrs->mesh->dim;
     dlong field_offset = nrs->fieldOffset;
     bool store_inputs = false;
@@ -259,4 +260,9 @@ void trajGen_t::trajGenWriteADIOS(adios_client_t* client,
     if (store_inputs) {
         nrs->o_U.copyTo(previous_U, num_dim * field_offset);
     }
+#else
+    if (rank == 0) printf("[RANK %d] -- Error: Adios is not enabled!\n", rank);
+    fflush(stdout);
+    MPI_Abort(comm, 1);
+#endif
 }
