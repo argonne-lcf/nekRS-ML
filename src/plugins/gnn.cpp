@@ -228,8 +228,9 @@ void gnn_t::gnnWriteDB(smartredis_client_t* client)
 
 void gnn_t::gnnWriteADIOS(adios_client_t* client)
 {
-    if (verbose) printf("[RANK %d] -- in gnnWriteADIOS() \n", rank);
     MPI_Comm &comm = platform->comm.mpiComm;
+#if defined(NEKRS_ENABLE_ADIOS)
+    if (verbose) printf("[RANK %d] -- in gnnWriteADIOS() \n", rank);
     unsigned long _size = size;
     unsigned long _rank = rank;
     client->_num_dim = nrs->mesh->dim;
@@ -308,6 +309,11 @@ void gnn_t::gnnWriteADIOS(adios_client_t* client)
     graphWriter.Close();
     MPI_Barrier(comm);
     if (verbose and rank == 0) printf("[RANK %d] -- done sending graph data \n", rank);
+#else
+    if (verbose and rank == 0) printf("[RANK %d] -- Error: Adios is not enabled!\n", rank);
+    fflush(stdout);
+    MPI_Abort(comm, 1);
+#endif
 }
 
 void gnn_t::get_node_positions()
