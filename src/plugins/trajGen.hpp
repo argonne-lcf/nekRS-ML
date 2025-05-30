@@ -25,8 +25,8 @@ public:
     int skip;
     bool first_step = true;
     std::string irank, nranks;
-    dfloat *previous_U, *U;
-    //dfloat *previous_P;
+    dfloat *previous_U = 0, *U = 0;
+    dfloat /* *previous_P, */ *P = 0;
     //int previous_tstep;
     
     // member functions 
