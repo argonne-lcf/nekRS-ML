@@ -40,6 +40,9 @@ trajGen_t::trajGen_t(nrs_t *nrs_, int dt_factor_, int skip_, dfloat time_init_)
 trajGen_t::~trajGen_t()
 {
     if (verbose) printf("[RANK %d] -- trajGen_t destructor\n", rank);
+    if (previous_U) delete[] previous_U;
+    if (U) delete[] U;
+    if (P) delete[] P;
 }
 
 void trajGen_t::trajGenSetup()
@@ -72,6 +75,12 @@ void trajGen_t::trajGenSetup()
 
 void trajGen_t::trajGenWrite(dfloat time, int tstep, const std::string& field_name)
 {
+    if (first_step) {
+        U = new dfloat[nrs->mesh->dim * nrs->fieldOffset]();
+        P = new dfloat[nrs->fieldOffset]();
+        first_step = false;
+    }
+
     if (write)
     {
         if (verbose) printf("[RANK %d] -- in trajGenWrite() \n", rank);
@@ -79,8 +88,6 @@ void trajGen_t::trajGenWrite(dfloat time, int tstep, const std::string& field_na
         // ~~~~ Write the data
         if ((tstep%dt_factor)==0)
         {
-            dfloat *U = new dfloat[nrs->mesh->dim * nrs->fieldOffset]();
-            dfloat *P = new dfloat[nrs->fieldOffset]();
             nrs->o_U.copyTo(U, nrs->mesh->dim * nrs->fieldOffset);
             nrs->o_P.copyTo(P, nrs->fieldOffset);
             
