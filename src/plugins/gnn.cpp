@@ -152,22 +152,14 @@ void gnn_t::gnnWrite()
     std::string irank = "_rank_" + std::to_string(rank);
     std::string nranks = "_size_" + std::to_string(size);
 
-    // // Writing as text files:
-    // write_edge_index(writePath + "/edge_index" + irank + nranks);
-    // writeToFile(writePath + "/pos_node" + irank + nranks, pos_node, N, 3);
-    // writeToFile(writePath + "/node_element_ids" + irank + nranks, node_element_ids, N, 1); 
-    // writeToFile(writePath + "/local_unique_mask" + irank + nranks, local_unique_mask, N, 1); 
-    // writeToFile(writePath + "/halo_unique_mask" + irank + nranks, halo_unique_mask, N, 1); 
-    // writeToFile(writePath + "/global_ids" + irank + nranks, mesh->globalIds, N, 1);
-
     // Writing as binary files: 
     //write_edge_index_binary(writePath + "/edge_index" + irank + nranks + ".bin");
-    writeToFileBinary(writePath + "/edge_index" + irank + nranks + ".bin", edge_index, num_edges, 2);
     writeToFileBinary(writePath + "/pos_node" + irank + nranks + ".bin", pos_node, N, 3);
-    writeToFileBinary(writePath + "/node_element_ids" + irank + nranks + ".bin", node_element_ids, N, 1); 
     writeToFileBinary(writePath + "/local_unique_mask" + irank + nranks + ".bin", local_unique_mask, N, 1); 
     writeToFileBinary(writePath + "/halo_unique_mask" + irank + nranks + ".bin", halo_unique_mask, N, 1); 
     writeToFileBinary(writePath + "/global_ids" + irank + nranks + ".bin", mesh->globalIds, N, 1);
+    writeToFileBinary(writePath + "/edge_index" + irank + nranks + ".bin", edge_index, num_edges, 2);
+    writeToFileBinary(writePath + "/node_element_ids" + irank + nranks + ".bin", node_element_ids, N, 1);
 
     // Writing number of elements, gll points per element, and product of the two  
     writeToFile(writePath + "/Nelements" + irank + nranks, &mesh->Nelements, 1, 1);
@@ -259,12 +251,6 @@ void gnn_t::gnnWriteADIOS(adios_client_t* client)
     client->_offset_num_edges = offset_num_edges;
 
     // Define ADIOS2 variables to send
-    //auto posFloats = client->_stream_io.DefineVariable<dfloat>("pos_node", {_size * _N * 3}, {_rank * _N * 3}, {_N * 3});
-    //auto locInts = client->_stream_io.DefineVariable<dlong>("local_unique_mask", {_size * _N}, {_rank * _N}, {_N});
-    //auto haloInts = client->_stream_io.DefineVariable<dlong>("halo_unique_mask", {_size * _N}, {_rank * _N}, {_N});
-    //auto globInts = client->_stream_io.DefineVariable<hlong>("global_ids", {_size * _N}, {_rank * _N}, {_N});
-    //auto edgeInts = client->_stream_io.DefineVariable<dlong>("edge_index", {_size * 2 * _num_edges}, {_rank * 2 * _num_edges}, {2 * _num_edges});
-    //auto NpInts = client->_stream_io.DefineVariable<dlong>("Np", {1}, {1}, {1});
     auto posFloats = client->_write_io.DefineVariable<dfloat>("pos_node", 
                                                             {client->_global_N * client->_num_dim}, 
                                                             {client->_offset_N * client->_num_dim}, 
@@ -310,9 +296,9 @@ void gnn_t::gnnWriteADIOS(adios_client_t* client)
     MPI_Barrier(comm);
     if (verbose and rank == 0) printf("[RANK %d] -- done sending graph data \n", rank);
 #else
-    if (verbose and rank == 0) printf("[RANK %d] -- Error: Adios is not enabled!\n", rank);
+    if (verbose and rank == 0) printf("[RANK %d] -- ADIOS is not enabled!, Falling back to binary write.\n", rank);
     fflush(stdout);
-    MPI_Abort(comm, 1);
+    gnnWrite();
 #endif
 }
 
