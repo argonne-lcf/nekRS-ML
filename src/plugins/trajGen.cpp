@@ -219,14 +219,14 @@ void trajGen_t::trajGenWriteADIOS(adios_client_t* client,
 
 #if defined(NEKRS_ENABLE_ADIOS)
         // Get global size of data
-        int global;
-        MPI_Allreduce(&field_offset, &global, 1, MPI_INT, MPI_SUM, comm);
+        hlong global = field_offset;
+        MPI_Allreduce(MPI_IN_PLACE, &global, 1, MPI_HLONG, MPI_SUM, comm);
         client->_field_offset = field_offset;
         client->_global_field_offset = global;
 
         // Gather size of data
         int* gathered = new int[size];
-        int offset = 0;
+        hlong offset = 0;
         MPI_Allgather(&field_offset, 1, MPI_INT, gathered, 1, MPI_INT, MPI_COMM_WORLD);
         for (int i=0; i<rank; i++) {
             offset += gathered[i];
