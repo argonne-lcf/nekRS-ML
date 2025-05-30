@@ -184,7 +184,6 @@ void trajGen_t::trajGenWriteADIOS(adios_client_t* client,
     const std::string& field_name) 
 {
     MPI_Comm &comm = platform->comm.mpiComm;
-#if defined(NEKRS_ENABLE_ADIOS)
     dlong num_dim = nrs->mesh->dim;
     dlong field_offset = nrs->fieldOffset;
     bool store_inputs = false;
@@ -209,7 +208,9 @@ void trajGen_t::trajGenWriteADIOS(adios_client_t* client,
     if (first_step) {
         first_step = false;
         previous_U = new dfloat[num_dim * field_offset]();
+        U = new dfloat[num_dim * field_offset]();
 
+#if defined(NEKRS_ENABLE_ADIOS)
         // Get global size of data
         int global;
         MPI_Allreduce(&field_offset, &global, 1, MPI_INT, MPI_SUM, comm);
@@ -237,32 +238,36 @@ void trajGen_t::trajGenWriteADIOS(adios_client_t* client,
 
         // Open the stream for transfering the solution data
         client->openStream();
+#endif
     }
 
     if (send_data) {
+        if (field_name == "velocity") {
+            nrs->o_U.copyTo(U, num_dim * field_offset);
+        }
+
+#if defined(NEKRS_ENABLE_ADIOS)
         if (rank == 0) {
             printf("[TRAJ WRITE ADIOS] -- Writing data at tstep %d and physical time %g \n", tstep, time);
         }
+
         client->_solWriter.BeginStep();
         if (field_name == "velocity") {
-            dfloat *U = new dfloat[num_dim * field_offset]();
-            nrs->o_U.copyTo(U, num_dim * field_offset);
             client->_solWriter.Put<dfloat>(client->uIn, previous_U);
             client->_solWriter.Put<dfloat>(client->uOut, U);
         }
         client->_solWriter.EndStep();
+
         MPI_Barrier(comm);
         if (rank == 0) {
             printf("[TRAJ WRITE ADIOS] -- Done writing data\n");
         }
+#else
+        trajGenWrite(time, tstep, field_name);
+#endif
     }
 
     if (store_inputs) {
         nrs->o_U.copyTo(previous_U, num_dim * field_offset);
     }
-#else
-    if (rank == 0) printf("[RANK %d] -- Error: Adios is not enabled!\n", rank);
-    fflush(stdout);
-    MPI_Abort(comm, 1);
-#endif
 }
