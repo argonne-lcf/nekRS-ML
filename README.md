@@ -84,7 +84,7 @@ To run any of the AI-enabled examples listed above, simply `cd` to the example d
 
 The script will produce a `run.sh` script specifically tailored for the desired system and using the desired nekRS install directory. 
 
-Fially, the examples are run **from the compute nodes** executing
+Finally, the examples are run **from the compute nodes** executing
 
 ```sh
 ./run.sh

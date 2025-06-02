@@ -7,6 +7,7 @@
 adios_client_t::adios_client_t(MPI_Comm& comm, nrs_t *nrs)
                                : _comm(comm)
 {
+#if defined(NEKRS_ENABLE_ADIOS)
     // Set nekrs object
     _nrs = nrs;
 
@@ -64,15 +65,19 @@ adios_client_t::adios_client_t(MPI_Comm& comm, nrs_t *nrs)
     if (_rank == 0)
         printf("All done\n");
     fflush(stdout);
+#endif
 }
 
 // destructor
 adios_client_t::~adios_client_t()
 {
+#if defined(NEKRS_ENABLE_ADIOS)
     // Close the stream for transfering the solution data
     closeStream();
+#endif
 }
 
+#if defined(NEKRS_ENABLE_ADIOS)
 // check if nekRS should quit
 int adios_client_t::check_run()
 {
@@ -168,3 +173,5 @@ void adios_client_t::checkpoint()
     writer.EndStep();
     writer.Close();
 }
+
+#endif // NEKRS_ENABLE_ADIOS

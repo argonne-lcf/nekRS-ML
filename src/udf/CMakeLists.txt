@@ -14,6 +14,7 @@ set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
 #set(CMAKE_VERBOSE_MAKEFILE on)
 
 set(ENABLE_SMARTREDIS OFF CACHE BOOL "Enable SmartRedis support")
+set(ENABLE_ADIOS ON CACHE BOOL "Enable ADIOS support")
 
 set(INCLUDE_DIRS
   ${CASE_DIR}
@@ -70,6 +71,9 @@ endif()
 
 if (ENABLE_SMARTREDIS)
   target_compile_definitions(udf PUBLIC NEKRS_ENABLE_SMARTREDIS)
+endif()
+if (ENABLE_ADIOS)
+  target_compile_definitions(udf PUBLIC NEKRS_ENABLE_ADIOS)
 endif()
 
 foreach(LIB $ENV{NEKRS_UDF_LIBS})
