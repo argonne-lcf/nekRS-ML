@@ -126,15 +126,14 @@ def average_list_times(a_list):
     return avg
 
 def collect_stats(n_nodes_local: int, local_time: list, local_throughput: list) -> dict:
-    n_nodes_global = COMM.allreduce(n_nodes_local)
-    gather_time = COMM.gather(local_time, root=0)
-    gather_throughput = COMM.gather(local_throughput, root=0)
-    if RANK == 0:
-        global_throughput = np.zeros(len(local_throughput))
-    else:
-        global_time = None
-        global_throughput = None
-    global_throughput = COMM.reduce(np.array(local_throughput), op=MPI.SUM, root=0)
+    n_nodes_global = np.array(0)
+    gather_time = np.zeros(len(local_time)*SIZE)
+    gather_throughput = np.zeros(len(local_throughput)*SIZE)
+    COMM.Allreduce(np.array(n_nodes_local),n_nodes_global)
+    COMM.Allgather(np.array(local_time), gather_time)
+    COMM.Allgather(np.array(local_throughput), gather_throughput)
+    global_throughput = np.zeros(len(local_throughput), dtype=np.float32)
+    COMM.Allreduce(np.array(local_throughput).astype(np.float32), global_throughput, op=MPI.SUM)
     return {'n_nodes':n_nodes_global, 
             'time':gather_time, 
             'throughput':gather_throughput, 
@@ -142,14 +141,14 @@ def collect_stats(n_nodes_local: int, local_time: list, local_throughput: list) 
             }
 
 def collect_online_stats(local_time: list, local_throughput: list) -> dict:
-    gather_time = COMM.gather(local_time, root=0)
-    gather_time_tot = COMM.gather([sum(local_time)], root=0)
-    gather_throughput = COMM.gather(local_throughput, root=0)
-    if RANK == 0:
-        global_throughput = np.zeros(len(local_throughput))
-    else:
-        global_throughput = None
-    global_throughput = COMM.reduce(np.array(local_throughput), op=MPI.SUM, root=0)
+    gather_time = np.zeros(len(local_time)*SIZE)
+    gather_time_tot = np.zeros(SIZE)
+    gather_throughput = np.zeros(len(local_throughput)*SIZE)
+    COMM.Allgather(np.array(local_time), gather_time)
+    COMM.Allgather(np.array(sum(local_time)), gather_time_tot)
+    COMM.Allgather(np.array(local_throughput), gather_throughput)
+    global_throughput = np.zeros(len(local_throughput))
+    COMM.Allreduce(np.array(local_throughput), global_throughput, op=MPI.SUM)
     return { 
             'time':gather_time, 
             'tot_time':gather_time_tot,
