@@ -249,8 +249,6 @@ endif()
 add_subdirectory(3rd_party/lapack)
 
 include(cmake/nek5000.cmake)
-add_nek5000()
-
 include(cmake/nekrs.cmake)
 
 ###### Link dependencies ######
