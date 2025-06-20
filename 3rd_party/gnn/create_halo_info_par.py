@@ -4,10 +4,9 @@ Create halo swap info.
 import argparse 
 import numpy as np
 from typing import Tuple
+import time
 
 import mpi4py
-#from mpi4py.util import pkl5
-#COMM = pkl5.Intracomm(MPI.COMM_WORLD)
 mpi4py.rc.initialize = False
 from mpi4py import MPI
 if not MPI.Is_initialized():
@@ -292,19 +291,22 @@ def get_halo_info_fast(data_reduced, halo_ids_full):
     halo_flat[:,0] = owner_locals
     halo_flat[:,2] = owner_globals
     halo_flat[:,3] = neighbor_ranks
+    halo_info = halo_flat[owner_ranks == RANK]
 
     # — 6) split out each rank’s rows, and assign the proper halo‐node IDs
     #     (they start at n_nodes_glob[r] and count up by 1)
     n_nodes_glob = COMM.allgather(data_reduced.pos.shape[0])
-    halo_info_glob = []
-    for r in range(SIZE):
+    neighboring_procs = np.unique(halo_flat[owner_ranks == RANK,3])
+    halo_info_glob = [torch.empty(0)] * SIZE
+    halo_info_glob[RANK] = halo_info
+    for r in neighboring_procs:
         mask_r = (owner_ranks == r)
         Hr = halo_flat[mask_r]
         cnt_r = Hr.size(0)
         if cnt_r:
             Hr[:,1] = torch.arange(cnt_r, dtype=torch.int64, device=Hr.device) \
                       + n_nodes_glob[r]
-        halo_info_glob.append(Hr)
+        halo_info_glob[r] = Hr
 
     return halo_info_glob
 

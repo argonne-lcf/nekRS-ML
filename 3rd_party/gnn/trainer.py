@@ -497,7 +497,11 @@ class Trainer:
                 buff_recv_sz[i] = torch.numel(buff_recv[i])*buff_recv[i].element_size()/1024
         
             # Print information about the buffers
-            if self.cfg.verbose: 
+            if RANK == 0:
+                log.info('[RANK %d]: Created send and receive buffers for %s halo exchange:' %(RANK,self.cfg.halo_swap_mode))
+                log.info(f'[RANK {RANK}]: Send buffers of size [KB]: {buff_send_sz}')
+                log.info(f'[RANK {RANK}]: Receive buffers of size [KB]: {buff_recv_sz}')
+            elif self.cfg.verbose: 
                 log.info('[RANK %d]: Created send and receive buffers for %s halo exchange:' %(RANK,self.cfg.halo_swap_mode))
                 log.info(f'[RANK {RANK}]: Send buffers of size [KB]: {buff_send_sz}')
                 log.info(f'[RANK {RANK}]: Receive buffers of size [KB]: {buff_recv_sz}')
@@ -677,23 +681,36 @@ class Trainer:
                 node_degree = torch.tensor(self.load_data(path_to_node_degree,extension='.npy'), dtype=self.torch_dtype)
                 halo_info = torch.tensor(self.load_data(path_to_halo_info,extension='.npy'))
             else:
-                tic = time.time()
-                halo_ids = create_halo_info_par.get_reduced_halo_ids(self.data_reduced)
-                halo_info_glob = create_halo_info_par.get_halo_info_fast(self.data_reduced, halo_ids)
-                if RANK ==0: log.info('[RANK %d]: computed halo info in %f sec' %(RANK,time.time()-tic))
-                halo_info = halo_info_glob[RANK]
-                tic = time.time()
-                node_degree = create_halo_info_par.get_node_degree(self.data_reduced, halo_info)
-                if RANK ==0: log.info('[RANK %d]: computed node degree in %f sec' %(RANK,time.time()-tic))
-                tic = time.time()
-                edge_freq = create_halo_info_par.get_edge_weights(self.data_reduced, halo_info_glob)
-                edge_weight = (1.0/edge_freq).to(self.torch_dtype)
-                if RANK ==0: log.info('[RANK %d]: computed edge weights in %f sec' %(RANK,time.time()-tic))
+                if self.client.file_exists(f'halo_info_rank_{RANK}_size_{SIZE}'):
+                    halo_info = torch.tensor(self.client.get_array(f'halo_info_rank_{RANK}_size_{SIZE}'))
+                    node_degree = torch.tensor(self.client.get_array(f'node_degree_rank_{RANK}_size_{SIZE}'))
+                    edge_weight = torch.tensor(self.client.get_array(f'edge_weight_rank_{RANK}_size_{SIZE}'))
+                else:
+                    tic = time.time()
+                    halo_ids = create_halo_info_par.get_reduced_halo_ids(self.data_reduced)
+                    halo_info_glob = create_halo_info_par.get_halo_info_fast(self.data_reduced, halo_ids)
+                    if RANK ==0: log.info('[RANK %d]: computed halo info in %f sec' %(RANK,time.time()-tic))
+                    halo_info = halo_info_glob[RANK]
+                    self.client.put_array(f'halo_info_rank_{RANK}_size_{SIZE}', halo_info.numpy())
+
+                    tic = time.time()
+                    node_degree = create_halo_info_par.get_node_degree(self.data_reduced, halo_info)
+                    if RANK ==0: log.info('[RANK %d]: computed node degree in %f sec' %(RANK,time.time()-tic))
+                    self.client.put_array(f'node_degree_rank_{RANK}_size_{SIZE}', node_degree.numpy())
+
+                    tic = time.time()
+                    edge_freq = create_halo_info_par.get_edge_weights(self.data_reduced, halo_info_glob)
+                    edge_weight = (1.0/edge_freq).to(self.torch_dtype)
+                    if RANK ==0: log.info('[RANK %d]: computed edge weights in %f sec' %(RANK,time.time()-tic))
+                    self.client.put_array(f'edge_weight_rank_{RANK}_size_{SIZE}', edge_weight.numpy())
 
             self.neighboring_procs = np.unique(halo_info[:,3])
             n_nodes_local = self.data_reduced.pos.shape[0]
             n_nodes_halo = halo_info.shape[0]
-            if self.cfg.verbose: log.info(f'[RANK {RANK}]: Found {len(self.neighboring_procs)} neighboring processes: {self.neighboring_procs}')
+            if self.cfg.verbose: 
+                log.info(f'[RANK {RANK}]: Found {len(self.neighboring_procs)} neighboring processes: {self.neighboring_procs}')
+            else:
+                if RANK == 0: log.info(f'[RANK {RANK}]: Found {len(self.neighboring_procs)} neighboring processes: {self.neighboring_procs}')
         else:
             halo_info = torch.Tensor([0])
             n_nodes_local = self.data_reduced.pos.shape[0]
@@ -880,7 +897,7 @@ class Trainer:
             self.online_timers['metaData'].append(time.time()-tic)
 
             # Load files
-            log.info(f'[RANK {RANK}]: Found {len(output_files)} trajectory files in DB')
+            if self.cfg.verbose: log.info(f'[RANK {RANK}]: Found {len(output_files)} trajectory files in DB')
             for i in range(len(output_files)):
                 tic = time.time()
                 data_x_i = self.client.get_array(input_files[i]).astype(NP_FLOAT_DTYPE).T
@@ -1528,7 +1545,10 @@ class Trainer:
         n_nodes_halo = self.data_reduced.n_nodes_halo if self.cfg.consistency else 0
         n_edges = self.data_reduced.edge_index.shape[1]
 
-        log.info(f"[RANK {RANK}] -- number of local nodes: {n_nodes_local}, number of halo nodes: {n_nodes_halo}, number of edges: {n_edges}")
+        if self.cfg.verbose:
+            log.info(f"[RANK {RANK}] -- number of local nodes: {n_nodes_local}, number of halo nodes: {n_nodes_halo}, number of edges: {n_edges}")
+        else:
+            if RANK == 0: log.info(f"[RANK {RANK}] -- number of local nodes: {n_nodes_local}, number of halo nodes: {n_nodes_halo}, number of edges: {n_edges}")
 
         a = {} 
         a['n_nodes_local'] = n_nodes_local
