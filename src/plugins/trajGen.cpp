@@ -40,6 +40,9 @@ trajGen_t::trajGen_t(nrs_t *nrs_, int dt_factor_, int skip_, dfloat time_init_)
 trajGen_t::~trajGen_t()
 {
     if (verbose) printf("[RANK %d] -- trajGen_t destructor\n", rank);
+    if (previous_U) delete[] previous_U;
+    if (U) delete[] U;
+    if (P) delete[] P;
 }
 
 void trajGen_t::trajGenSetup()
@@ -72,6 +75,12 @@ void trajGen_t::trajGenSetup()
 
 void trajGen_t::trajGenWrite(dfloat time, int tstep, const std::string& field_name)
 {
+    if (first_step) {
+        U = new dfloat[nrs->mesh->dim * nrs->fieldOffset]();
+        P = new dfloat[nrs->fieldOffset]();
+        first_step = false;
+    }
+
     if (write)
     {
         if (verbose) printf("[RANK %d] -- in trajGenWrite() \n", rank);
@@ -79,8 +88,6 @@ void trajGen_t::trajGenWrite(dfloat time, int tstep, const std::string& field_na
         // ~~~~ Write the data
         if ((tstep%dt_factor)==0)
         {
-            dfloat *U = new dfloat[nrs->mesh->dim * nrs->fieldOffset]();
-            dfloat *P = new dfloat[nrs->fieldOffset]();
             nrs->o_U.copyTo(U, nrs->mesh->dim * nrs->fieldOffset);
             nrs->o_P.copyTo(P, nrs->fieldOffset);
             
@@ -209,16 +216,18 @@ void trajGen_t::trajGenWriteADIOS(adios_client_t* client,
     if (first_step) {
         first_step = false;
         previous_U = new dfloat[num_dim * field_offset]();
+        U = new dfloat[num_dim * field_offset]();
 
+#if defined(NEKRS_ENABLE_ADIOS)
         // Get global size of data
-        int global;
-        MPI_Allreduce(&field_offset, &global, 1, MPI_INT, MPI_SUM, comm);
+        hlong global = field_offset;
+        MPI_Allreduce(MPI_IN_PLACE, &global, 1, MPI_HLONG, MPI_SUM, comm);
         client->_field_offset = field_offset;
         client->_global_field_offset = global;
 
         // Gather size of data
         int* gathered = new int[size];
-        int offset = 0;
+        hlong offset = 0;
         MPI_Allgather(&field_offset, 1, MPI_INT, gathered, 1, MPI_INT, MPI_COMM_WORLD);
         for (int i=0; i<rank; i++) {
             offset += gathered[i];
@@ -237,24 +246,33 @@ void trajGen_t::trajGenWriteADIOS(adios_client_t* client,
 
         // Open the stream for transfering the solution data
         client->openStream();
+#endif
     }
 
     if (send_data) {
+        if (field_name == "velocity") {
+            nrs->o_U.copyTo(U, num_dim * field_offset);
+        }
+
+#if defined(NEKRS_ENABLE_ADIOS)
         if (rank == 0) {
             printf("[TRAJ WRITE ADIOS] -- Writing data at tstep %d and physical time %g \n", tstep, time);
         }
+
         client->_solWriter.BeginStep();
         if (field_name == "velocity") {
-            dfloat *U = new dfloat[num_dim * field_offset]();
-            nrs->o_U.copyTo(U, num_dim * field_offset);
             client->_solWriter.Put<dfloat>(client->uIn, previous_U);
             client->_solWriter.Put<dfloat>(client->uOut, U);
         }
         client->_solWriter.EndStep();
+
         MPI_Barrier(comm);
         if (rank == 0) {
             printf("[TRAJ WRITE ADIOS] -- Done writing data\n");
         }
+#else
+        trajGenWrite(time, tstep, field_name);
+#endif
     }
 
     if (store_inputs) {
