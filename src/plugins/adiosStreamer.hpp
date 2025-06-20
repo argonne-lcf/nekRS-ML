@@ -25,6 +25,7 @@ public:
   unsigned long _global_N, _global_num_edges;
   unsigned long _offset_N, _offset_num_edges;
   unsigned long _field_offset, _global_field_offset, _offset_field_offset;
+  // adios objects
   adios2::Variable<dfloat> uIn, uOut;
 
   // member functions
