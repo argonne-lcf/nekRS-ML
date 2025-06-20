@@ -127,14 +127,11 @@ class Trainer:
             os.environ['WORLD_SIZE'] = str(SIZE)
             if self.cfg.master_addr=='none':
                 MASTER_ADDR = socket.gethostname() if RANK == 0 else None
+                MASTER_ADDR = COMM.bcast(MASTER_ADDR, root=0)
             else:
-                MASTER_ADDR = str(cfg.master_addr) if RANK == 0 else None
-            MASTER_ADDR = MPI.COMM_WORLD.bcast(MASTER_ADDR, root=0)
+                MASTER_ADDR = str(cfg.master_addr)
             os.environ['MASTER_ADDR'] = MASTER_ADDR
-            if self.cfg.master_port=='none':
-                os.environ['MASTER_PORT'] = str(2345)
-            else:
-                os.environ['MASTER_PORT'] = str(cfg.master_port)
+            os.environ['MASTER_PORT'] = str(cfg.master_port)
             utils.init_process_group(RANK, SIZE, backend=self.backend)
         
         # ~~~~ Init torch stuff 
@@ -178,7 +175,7 @@ class Trainer:
 
         # ~~~~ Build model and move to gpu 
         self.model = self.build_model()
-        if RANK==0: 
+        if RANK == 0: 
             log.info('Built model with %i trainable parameters' %(self.count_weights(self.model)))
         self.model.to(self.device)
         self.model.to(self.torch_dtype)
@@ -239,8 +236,8 @@ class Trainer:
                 log.info(astr)
         
         # ~~~ IPEX optimizations
-        if WITH_XPU:
-            self.model, self.optimizer = ipex.optimize(self.model, optimizer=self.optimizer)
+        #if WITH_XPU:
+        #    self.model, self.optimizer = ipex.optimize(self.model, optimizer=self.optimizer)
 
         # ~~~~ Set scheduler:
         self.s_optimizer = ScheduledOptim(self.optimizer, 
@@ -555,10 +552,7 @@ class Trainer:
             else:
                 data = np.loadtxt(file_name, dtype=dtype)
         else:
-            tic = time.time()
             data = self.client.get_array(file_name).astype(dtype)
-            self.online_timers['trainDataTime'].append(time.time()-tic)
-            self.online_timers['trainDataThroughput'].append(data.nbytes/(time.time()-tic))
             if isinstance(file_name, str):
                 if 'edge_index' not in file_name:
                     data = data.T
@@ -683,12 +677,18 @@ class Trainer:
                 node_degree = torch.tensor(self.load_data(path_to_node_degree,extension='.npy'), dtype=self.torch_dtype)
                 halo_info = torch.tensor(self.load_data(path_to_halo_info,extension='.npy'))
             else:
+                tic = time.time()
                 halo_ids = create_halo_info_par.get_reduced_halo_ids(self.data_reduced)
-                halo_info_glob = create_halo_info_par.get_halo_info(self.data_reduced, halo_ids)
+                halo_info_glob = create_halo_info_par.get_halo_info_fast(self.data_reduced, halo_ids)
+                if RANK ==0: log.info('[RANK %d]: computed halo info in %f sec' %(RANK,time.time()-tic))
                 halo_info = halo_info_glob[RANK]
+                tic = time.time()
                 node_degree = create_halo_info_par.get_node_degree(self.data_reduced, halo_info)
+                if RANK ==0: log.info('[RANK %d]: computed node degree in %f sec' %(RANK,time.time()-tic))
+                tic = time.time()
                 edge_freq = create_halo_info_par.get_edge_weights(self.data_reduced, halo_info_glob)
                 edge_weight = (1.0/edge_freq).to(self.torch_dtype)
+                if RANK ==0: log.info('[RANK %d]: computed edge weights in %f sec' %(RANK,time.time()-tic))
 
             self.neighboring_procs = np.unique(halo_info[:,3])
             n_nodes_local = self.data_reduced.pos.shape[0]
@@ -884,14 +884,16 @@ class Trainer:
             for i in range(len(output_files)):
                 tic = time.time()
                 data_x_i = self.client.get_array(input_files[i]).astype(NP_FLOAT_DTYPE).T
-                self.online_timers['trainDataTime'].append(time.time()-tic)
-                self.online_timers['trainDataThroughput'].append(data_x_i.nbytes/(time.time()-tic))
+                toc = time.time()
+                self.online_timers['trainDataTime'].append(toc-tic)
+                self.online_timers['trainDataThroughput'].append(data_x_i.nbytes/GB_SIZE/(toc-tic))
                 data_x_i = self.prepare_snapshot_data(data_x_i)
                 
                 tic = time.time()
                 data_y_i = self.client.get_array(output_files[i]).astype(NP_FLOAT_DTYPE).T
-                self.online_timers['trainDataTime'].append(time.time()-tic)
-                self.online_timers['trainDataThroughput'].append(data_y_i.nbytes/(time.time()-tic))
+                toc = time.time()
+                self.online_timers['trainDataTime'].append(toc-tic)
+                self.online_timers['trainDataThroughput'].append(data_y_i.nbytes/GB_SIZE/(toc-tic))
                 data_y_i = self.prepare_snapshot_data(data_y_i)
                 self.data_list.append(
                         {'x': data_x_i, 'y':data_y_i}
@@ -1133,14 +1135,16 @@ class Trainer:
                 for i in range(len(self.data_list),len(output_files)):
                     tic = time.time()
                     data_x_i = self.client.get_array(input_files[i]).astype(NP_FLOAT_DTYPE).T
-                    self.online_timers['trainDataTime'].append(time.time()-tic)
-                    self.online_timers['trainDataThroughput'].append(data_x_i.nbytes/(time.time()-tic))
+                    toc = time.time()
+                    self.online_timers['trainDataTime'].append(toc-tic)
+                    self.online_timers['trainDataThroughput'].append(data_x_i.nbytes/GB_SIZE/(toc-tic))
                     data_x_i = self.prepare_snapshot_data(data_x_i)
                     
                     tic = time.time()
                     data_y_i = self.client.get_array(output_files[i]).astype(NP_FLOAT_DTYPE).T
-                    self.online_timers['trainDataTime'].append(time.time()-tic)
-                    self.online_timers['trainDataThroughput'].append(data_y_i.nbytes/(time.time()-tic))
+                    toc = time.time()
+                    self.online_timers['trainDataTime'].append(toc-tic)
+                    self.online_timers['trainDataThroughput'].append(data_y_i.nbytes/GB_SIZE/(toc-tic))
                     data_y_i = self.prepare_snapshot_data(data_y_i)
                     self.data_list.append({'x': data_x_i, 'y': data_y_i})
         elif self.cfg.client.backend == 'adios':

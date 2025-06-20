@@ -233,9 +233,15 @@ echo "export FI_CXI_RX_MATCH_MODE=hybrid" >> $RFILE # required by parRSB
 # Temporary workaround while waiting on bugfix in runtime
 echo "export UR_L0_USE_COPY_ENGINE=0" >> $RFILE
 
-echo -e "\nexport CCL_ALLTOALLV_MONOLITHIC_KERNEL=0" >> $RFILE
+echo -e "\nexport CCL_PROCESS_LAUNCHER=pmix" >> $RFILE
+echo "export CCL_ATL_TRANSPORT=mpi" >> $RFILE
+echo "export CCL_ALLREDUCE_SCALEOUT=direct:0-1048576,rabenseifner:1048577-max" >> $RFILE
+echo "export CCL_KVS_CONNECTION_TIMEOUT=300" >> $RFILE
+echo "export CCL_ALLTOALLV_MONOLITHIC_KERNEL=0" >> $RFILE
 
-echo -e "\nexport TORCH_PATH=\$( python -c 'import torch; print(torch.__path__[0])' )" >> $RFILE
+echo -e "\nexport SR_LOG_FILE=stdout" >> $RFILE
+echo "export SR_LOG_LEVEL=QUIET" >> $RFILE
+echo "export TORCH_PATH=\$( python -c 'import torch; print(torch.__path__[0])' )" >> $RFILE
 echo "export LD_LIBRARY_PATH=\$TORCH_PATH/lib:\$LD_LIBRARY_PATH" >> $RFILE
 echo "export SR_SOCKET_TIMEOUT=10000" >> $RFILE
 

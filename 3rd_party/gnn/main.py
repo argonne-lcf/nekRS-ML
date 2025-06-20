@@ -191,20 +191,20 @@ def train(cfg: DictConfig,
         log.info('Performance metrics:')
         log.info(f'\tTotal number of graph nodes: {global_stats["n_nodes"]}')
         log.info(f'\tTotal number of iterations: {trainer.iteration-1}')
-        min_val, max_val, avg_val = utils.min_max_avg(global_stats["time"][0])
+        min_val, max_val, avg_val = utils.min_max_avg(global_stats["time"])
         log.info(f'\tStep time [sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
-        min_val, max_val, avg_val = utils.min_max_avg(global_stats["throughput"][0])
+        min_val, max_val, avg_val = utils.min_max_avg(global_stats["throughput"])
         log.info(f'\tLocal step throughput [million nodes / sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
         min_val, max_val, avg_val = utils.min_max_avg(global_stats["glob_throughput"])
         log.info(f'\tParallel step throughput [million nodes / sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
     if cfg.online:
         glob_online_stats = utils.collect_online_stats(trainer.online_timers['trainDataTime'],trainer.online_timers['trainDataThroughput'])
         if RANK == 0:
-            min_val, max_val, avg_val = utils.min_max_avg(glob_online_stats["time"][0])
+            min_val, max_val, avg_val = utils.min_max_avg(glob_online_stats["time"])
             log.info(f'\tTransfer time per stream [sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
-            min_val, max_val, avg_val = utils.min_max_avg(glob_online_stats["tot_time"][0])
+            min_val, max_val, avg_val = utils.min_max_avg(glob_online_stats["tot_time"])
             log.info(f'\tTotal transfer time [sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
-            min_val, max_val, avg_val = utils.min_max_avg(glob_online_stats["throughput"][0])
+            min_val, max_val, avg_val = utils.min_max_avg(glob_online_stats["throughput"])
             log.info(f'\tLocal transfer throughput [GB / sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
             min_val, max_val, avg_val = utils.min_max_avg(glob_online_stats["glob_throughput"])
             log.info(f'\tParallel transfer throughput [GB / sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
@@ -220,7 +220,7 @@ def train(cfg: DictConfig,
         log.info(f'\tFOM_train [million graph nodes x train steps / train time]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
         if cfg.online:
             min_val, max_val, avg_val = utils.min_max_avg(data_transfer_fom)
-            log.info(f'\tFOM_transfer [TB / transfer time]: min={min_val/1024:.4g}, max={max_val/1024:.4g}, mean={avg_val/1024:.4g}')
+            log.info(f'\tFOM_transfer [GB / transfer time]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
 
 
 @hydra.main(version_base=None, config_path='./conf', config_name='config')
