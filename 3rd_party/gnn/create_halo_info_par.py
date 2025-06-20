@@ -20,6 +20,11 @@ import torch
 from torch_geometric.data import Data
 import torch_geometric.utils as utils
 
+# helper Cantor-pairing on two 1D int64 tensors
+def cantor_pair(k1: torch.Tensor, k2: torch.Tensor) -> torch.Tensor:
+    # (0.5*(k1+k2)*(k1+k2+1) + k2) exactly as before, but keep it isolated
+    s = k1.to(torch.float64) + k2.to(torch.float64)
+    return (0.5 * s * (s + 1) + k2.to(torch.float64)).to(torch.int64)
 
 def make_reduced_graph() -> Tuple[Data, Data, torch.Tensor]:
     if RANK == 0: print('Loading data from file ...', flush=True)
