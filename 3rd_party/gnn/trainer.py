@@ -712,11 +712,11 @@ class Trainer:
             else:
                 if RANK == 0: log.info(f'[RANK {RANK}]: Found {len(self.neighboring_procs)} neighboring processes: {self.neighboring_procs}')
         else:
-            halo_info = torch.Tensor([0])
+            halo_info = torch.zeros(1, dtype=self.torch_dtype)
             n_nodes_local = self.data_reduced.pos.shape[0]
             n_nodes_halo = 0
-            edge_weight = torch.zeros(1)
-            node_degree = torch.zeros(1)
+            edge_weight = torch.zeros(1, dtype=self.torch_dtype)
+            node_degree = torch.zeros(1, dtype=self.torch_dtype)
 
         self.data_reduced.n_nodes_local = torch.tensor(n_nodes_local, dtype=torch.int64)
         self.data_reduced.n_nodes_halo = torch.tensor(n_nodes_halo, dtype=torch.int64)
@@ -979,8 +979,8 @@ class Trainer:
                 x_mean, x_std = self.compute_statistics(data['train'],'x')
                 if RANK == 0 and not self.cfg.online:
                     np.savez(data_dir + "/data_stats.npz", 
-                        x_mean=x_mean.cpu().numpy(), x_std=x_std.cpu().numpy(),
-                        y_mean=x_mean.cpu().numpy(), y_std=x_std.cpu().numpy(),
+                        x_mean=x_mean.cpu().to(torch.float32).numpy(), x_std=x_std.cpu().to(torch.float32).numpy(),
+                        y_mean=x_mean.cpu().to(torch.float32).numpy(), y_std=x_std.cpu().to(torch.float32).numpy(),
                     )
                 stats['x'] = [x_mean, x_std]
                 stats['y'] = [x_mean, x_std]
