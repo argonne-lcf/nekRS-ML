@@ -808,10 +808,20 @@ class Trainer:
             output_files = [path_prepend+output_file for output_file in output_files]
         log.info(f'[RANK {RANK}]: Found {len(output_files)} new field files in DB')
         for i in range(len(output_files)):
+            tic = time.time()
             data_x = self.load_data(input_files[i], dtype=np.float64).reshape((-1,3))
+            toc = time.time()
+            if self.cfg.online:
+                self.online_timers['trainDataTime'].append(toc-tic)
+                self.online_timers['trainDataThroughput'].append(data_x.nbytes/GB_SIZE/(toc-tic))
             data_x = self.prepare_snapshot_data(data_x)
             
+            tic = time.time()
             data_y = self.load_data(output_files[i], dtype=np.float64).reshape((-1,1))
+            toc = time.time()
+            if self.cfg.online:
+                self.online_timers['trainDataTime'].append(toc-tic)
+                self.online_timers['trainDataThroughput'].append(data_x.nbytes/GB_SIZE/(toc-tic))
             data_y = self.prepare_snapshot_data(data_y)
             self.data_list.append({'x': data_x, 'y':data_y})
 

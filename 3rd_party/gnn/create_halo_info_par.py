@@ -26,7 +26,6 @@ def cantor_pair(k1: torch.Tensor, k2: torch.Tensor) -> torch.Tensor:
     return (0.5 * s * (s + 1) + k2.to(torch.float64)).to(torch.int64)
 
 def make_reduced_graph() -> Tuple[Data, Data, torch.Tensor]:
-    if RANK == 0: print('Loading data from file ...', flush=True)
     path_to_pos_full = main_path + 'pos_node_rank_%d_size_%d' %(RANK,SIZE)
     path_to_ei = main_path + 'edge_index_rank_%d_size_%d' %(RANK,SIZE)
     path_to_glob_ids = main_path + 'global_ids_rank_%d_size_%d' %(RANK,SIZE)
@@ -59,11 +58,8 @@ def make_reduced_graph() -> Tuple[Data, Data, torch.Tensor]:
     if SIZE > 1:
         halo_unique_mask = np.fromfile(path_to_unique_halo + ".bin", dtype=np.int32)
     COMM.Barrier()
-    if RANK == 0: print('Done data loading from file \n', flush=True)
     
     # ~~~~ Make graph:
-    if RANK == 0: print('Making graph ...', flush=True)
-    #if args.LOG=='debug': print('[RANK %d]: Making graph' %(RANK), flush=True)
     data = Data(x = torch.tensor(pos), edge_index = torch.tensor(ei), pos = torch.tensor(pos), global_ids = torch.tensor(gli.squeeze()), local_unique_mask = torch.tensor(local_unique_mask), halo_unique_mask = torch.tensor(halo_unique_mask))
     data.edge_index = utils.remove_self_loops(data.edge_index)[0]
     data.edge_index = utils.coalesce(data.edge_index)
@@ -75,8 +71,6 @@ def make_reduced_graph() -> Tuple[Data, Data, torch.Tensor]:
     if RANK == 0: print('Done making graph \n', flush=True)
 
     # ~~~~ Reduce size of graph 
-    if RANK == 0: print('Making reduced graph ...', flush=True)
-    #if args.LOG=='debug': print('[RANK %d]: Reduced size of edge_index based on unique node ids' %(RANK), flush=True)
     # X: [First isolate local nodes] 
     idx_local_unique = torch.nonzero(data.local_unique_mask).squeeze(-1)
     idx_halo_unique = torch.tensor([], dtype=idx_local_unique.dtype)
@@ -291,14 +285,13 @@ def get_halo_info_fast(data_reduced, halo_ids_full):
     halo_flat[:,0] = owner_locals
     halo_flat[:,2] = owner_globals
     halo_flat[:,3] = neighbor_ranks
-    halo_info = halo_flat[owner_ranks == RANK]
 
     # — 6) split out each rank’s rows, and assign the proper halo‐node IDs
     #     (they start at n_nodes_glob[r] and count up by 1)
     n_nodes_glob = COMM.allgather(data_reduced.pos.shape[0])
-    neighboring_procs = np.unique(halo_flat[owner_ranks == RANK,3])
+    neighboring_procs = np.unique(halo_flat[owner_ranks == RANK,3]).tolist()
+    neighboring_procs = [RANK] + neighboring_procs
     halo_info_glob = [torch.empty(0)] * SIZE
-    halo_info_glob[RANK] = halo_info
     for r in neighboring_procs:
         mask_r = (owner_ranks == r)
         Hr = halo_flat[mask_r]

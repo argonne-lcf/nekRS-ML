@@ -174,7 +174,9 @@ def train(cfg: DictConfig,
         if math.isclose(cfg.target_loss,loss.item(),rel_tol=0.001):
             if RANK==0: print('\n\nSUCCESS! GNN training validated!\n\n')
         else:
-            if RANK==0: print('\n\nWARNING! GNN training failed validation!\n\n')
+            if RANK==0: 
+                print('\n\nWARNING! GNN training failed validation!')
+                print(f'Target loss: {cfg.target_loss}, obtained loss: {loss.item()}\n\n')
     
     # Save model
     trainer.save_model()
