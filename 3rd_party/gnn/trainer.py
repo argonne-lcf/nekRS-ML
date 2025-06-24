@@ -855,9 +855,17 @@ class Trainer:
             if os.path.exists(data_dir + f"/data_stats.npz"):
                 if RANK == 0:
                     npzfile = np.load(data_dir + f"/data_stats.npz")
-                    stats['x'] = [npzfile['x_mean'], npzfile['x_std']]
-                    stats['y'] = [npzfile['y_mean'], npzfile['y_std']]
-                stats = COMM.bcast(stats, root=0)
+                    stats_arr_x = np.stack([npzfile['x_mean'][0], npzfile['x_std'][0]])
+                    stats_arr_y = np.stack([npzfile['y_mean'][0], npzfile['y_std'][0]])
+                else:
+                    n_features = self.data_list[0]['x'].shape[1]
+                    n_outputs = self.data_list[0]['y'].shape[1]
+                    stats_arr_x = np.zeros((2,n_features), dtype=np.float32)
+                    stats_arr_y = np.zeros((2,n_outputs), dtype=np.float32)
+                COMM.Bcast(stats_arr_x, root=0)
+                stats['x'] = [stats_arr_x[0], stats_arr_x[1]]
+                COMM.Bcast(stats_arr_y, root=0)
+                stats['y'] = [stats_arr_y[0], stats_arr_y[1]]
                 if RANK == 0: log.info(f"Read training data statistics from {data_dir}/data_stats.npz")
             else: 
                 x_mean, x_std = self.compute_statistics(data['train'],'x')
@@ -967,12 +975,16 @@ class Trainer:
         # Compute statistics for normalization
         stats = {'x': [], 'y': []} 
         if 'stats' not in self.data.keys():
-            if os.path.exists(data_dir + "/data_stats.npz"):
+            if os.path.exists(data_dir + f"/data_stats.npz"):
                 if RANK == 0:
-                    npzfile = np.load(data_dir + "/data_stats.npz")
-                    stats['x'] = [npzfile['x_mean'], npzfile['x_std']]
-                    stats['y'] = [npzfile['y_mean'], npzfile['y_std']]
-                stats = COMM.bcast(stats, root=0)
+                    npzfile = np.load(data_dir + f"/data_stats.npz")
+                    stats_arr = np.stack([npzfile['x_mean'][0], npzfile['x_std'][0], npzfile['y_mean'][0], npzfile['y_std'][0]])
+                else:
+                    n_features = self.data_list[0]['x'].shape[1]
+                    stats_arr = np.zeros((4,n_features), dtype=np.float32)
+                COMM.Bcast(stats_arr, root=0)
+                stats['x'] = [stats_arr[0], stats_arr[1]]
+                stats['y'] = [stats_arr[2], stats_arr[3]]
                 if RANK == 0: log.info(f"Read training data statistics from {data_dir}/data_stats.npz")
             else: 
                 if RANK == 0: log.info(f"Computing training data statistics")

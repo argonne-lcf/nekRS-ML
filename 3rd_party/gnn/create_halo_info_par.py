@@ -446,7 +446,8 @@ if __name__ == '__main__':
     halo_info_glob = get_halo_info_fast(data_reduced, halo_ids_full)
     t_end = MPI.Wtime()
     local_time = t_end - t_start
-    max_time = COMM.allreduce(local_time, op=MPI.MAX)
+    max_time = np.array([0.])
+    COMM.Allreduce(np.array([local_time]), max_time, op=MPI.MAX)
     if RANK == 0: print(f'Done in {max_time} seconds\n', flush=True)
 
     # Compute the node_degree
@@ -456,7 +457,8 @@ if __name__ == '__main__':
     node_degree = get_node_degree(data_reduced, halo_info_glob[RANK])
     t_end = MPI.Wtime()
     local_time = t_end - t_start
-    max_time = COMM.allreduce(local_time, op=MPI.MAX)
+    max_time = np.array([0.])
+    COMM.Allreduce(np.array([local_time]), max_time, op=MPI.MAX)
     if RANK == 0: print(f'Done in {max_time} seconds\n', flush=True)
 
     # Compute the edge_weights
@@ -466,7 +468,8 @@ if __name__ == '__main__':
     edge_weights = get_edge_weights(data_reduced, halo_info_glob)
     t_end = MPI.Wtime()
     local_time = t_end - t_start
-    max_time = COMM.allreduce(local_time, op=MPI.MAX)
+    max_time = np.array([0.])
+    COMM.Allreduce(np.array([local_time]), max_time, op=MPI.MAX)
     if RANK == 0: print(f'Done in {max_time} seconds\n', flush=True)
 
     # Write files
