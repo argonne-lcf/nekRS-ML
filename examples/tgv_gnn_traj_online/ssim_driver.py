@@ -3,6 +3,7 @@ import os
 import sys 
 from omegaconf import DictConfig, OmegaConf
 import hydra
+import socket
 
 # smartsim and smartredis imports
 from smartsim import Experiment
@@ -93,7 +94,7 @@ def launch_coDB(cfg, nodelist, nNodes):
     # Setup and launch the training script
     if (cfg.train.executable):
         ml_exe = cfg.train.executable
-        ml_exe = ml_exe + ' ' + cfg.train.arguments
+        ml_exe = ml_exe + ' ' + cfg.train.arguments + f' master_addr={socket.gethostname()}'
         SSDB = colo_model.run_settings.env_vars['SSDB']
         if (cfg.database.launcher=='local'):
             ml_settings = RunSettings(
@@ -214,7 +215,7 @@ def launch_clDB(cfg, nodelist, nNodes):
     # Setup and launch the training script
     if (cfg.train.executable):
         ml_exe = cfg.train.executable
-        ml_exe = ml_exe + ' ' + cfg.train.arguments
+        ml_exe = ml_exe + ' ' + cfg.train.arguments + f' master_addr={socket.gethostname()}'
         if (cfg.database.launcher=='local'):
             ml_settings = RunSettings(
                            'python',

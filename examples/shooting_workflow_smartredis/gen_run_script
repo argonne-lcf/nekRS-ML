@@ -1,15 +1,17 @@
 #!/bin/bash
 set -a
 
-if [ "$#" -ne 2 ]; then
-  echo "Usage: $0 <system name> <path to NEKRS_HOME>"
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+  echo "Usages:"
+  echo "    $0 <system name> <path to NEKRS_HOME>"
+  echo "    $0 <system name> <path to NEKRS_HOME> <path to VENV>"
   exit 1
 fi
 
 SYSTEM="${1,,}"
 NEKRS_HOME=$2
+VENV_PATH=$3
 DEPLOYMENT="colocated"
-VENV_PATH=""
 PROJ_ID="datascience"
 QUEUE="debug"
 
@@ -72,6 +74,7 @@ if [ ${DEPLOYMENT} == "colocated" ]; then
   QUEUE=$QUEUE \
   DEPLOYMENT=$DEPLOYMENT \
   VENV_PATH=$VENV_PATH \
+  SIM_NODES=$NODES TRAIN_NODES=$NODES \
   ./${script_name} turbChannel $NODES 00:30
 elif [ ${DEPLOYMENT} == "clustered" ]; then
   NODES=`cat $PBS_NODEFILE | wc -l`

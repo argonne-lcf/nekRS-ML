@@ -127,14 +127,11 @@ class Trainer:
             os.environ['WORLD_SIZE'] = str(SIZE)
             if self.cfg.master_addr=='none':
                 MASTER_ADDR = socket.gethostname() if RANK == 0 else None
+                MASTER_ADDR = COMM.bcast(MASTER_ADDR, root=0)
             else:
-                MASTER_ADDR = str(cfg.master_addr) if RANK == 0 else None
-            MASTER_ADDR = MPI.COMM_WORLD.bcast(MASTER_ADDR, root=0)
+                MASTER_ADDR = str(cfg.master_addr)
             os.environ['MASTER_ADDR'] = MASTER_ADDR
-            if self.cfg.master_port=='none':
-                os.environ['MASTER_PORT'] = str(2345)
-            else:
-                os.environ['MASTER_PORT'] = str(cfg.master_port)
+            os.environ['MASTER_PORT'] = str(cfg.master_port)
             utils.init_process_group(RANK, SIZE, backend=self.backend)
         
         # ~~~~ Init torch stuff 
@@ -178,7 +175,7 @@ class Trainer:
 
         # ~~~~ Build model and move to gpu 
         self.model = self.build_model()
-        if RANK==0: 
+        if RANK == 0: 
             log.info('Built model with %i trainable parameters' %(self.count_weights(self.model)))
         self.model.to(self.device)
         self.model.to(self.torch_dtype)
@@ -239,8 +236,8 @@ class Trainer:
                 log.info(astr)
         
         # ~~~ IPEX optimizations
-        if WITH_XPU:
-            self.model, self.optimizer = ipex.optimize(self.model, optimizer=self.optimizer)
+        #if WITH_XPU:
+        #    self.model, self.optimizer = ipex.optimize(self.model, optimizer=self.optimizer)
 
         # ~~~~ Set scheduler:
         self.s_optimizer = ScheduledOptim(self.optimizer, 
@@ -500,7 +497,11 @@ class Trainer:
                 buff_recv_sz[i] = torch.numel(buff_recv[i])*buff_recv[i].element_size()/1024
         
             # Print information about the buffers
-            if self.cfg.verbose: 
+            if RANK == 0:
+                log.info('[RANK %d]: Created send and receive buffers for %s halo exchange:' %(RANK,self.cfg.halo_swap_mode))
+                log.info(f'[RANK {RANK}]: Send buffers of size [KB]: {buff_send_sz}')
+                log.info(f'[RANK {RANK}]: Receive buffers of size [KB]: {buff_recv_sz}')
+            elif self.cfg.verbose: 
                 log.info('[RANK %d]: Created send and receive buffers for %s halo exchange:' %(RANK,self.cfg.halo_swap_mode))
                 log.info(f'[RANK {RANK}]: Send buffers of size [KB]: {buff_send_sz}')
                 log.info(f'[RANK {RANK}]: Receive buffers of size [KB]: {buff_recv_sz}')
@@ -555,10 +556,7 @@ class Trainer:
             else:
                 data = np.loadtxt(file_name, dtype=dtype)
         else:
-            tic = time.time()
             data = self.client.get_array(file_name).astype(dtype)
-            self.online_timers['trainDataTime'].append(time.time()-tic)
-            self.online_timers['trainDataThroughput'].append(data.nbytes/(time.time()-tic))
             if isinstance(file_name, str):
                 if 'edge_index' not in file_name:
                     data = data.T
@@ -683,23 +681,42 @@ class Trainer:
                 node_degree = torch.tensor(self.load_data(path_to_node_degree,extension='.npy'), dtype=self.torch_dtype)
                 halo_info = torch.tensor(self.load_data(path_to_halo_info,extension='.npy'))
             else:
-                halo_ids = create_halo_info_par.get_reduced_halo_ids(self.data_reduced)
-                halo_info_glob = create_halo_info_par.get_halo_info(self.data_reduced, halo_ids)
-                halo_info = halo_info_glob[RANK]
-                node_degree = create_halo_info_par.get_node_degree(self.data_reduced, halo_info)
-                edge_freq = create_halo_info_par.get_edge_weights(self.data_reduced, halo_info_glob)
-                edge_weight = (1.0/edge_freq).to(self.torch_dtype)
+                if self.client.file_exists(f'halo_info_rank_{RANK}_size_{SIZE}'):
+                    halo_info = torch.tensor(self.client.get_array(f'halo_info_rank_{RANK}_size_{SIZE}'))
+                    node_degree = torch.tensor(self.client.get_array(f'node_degree_rank_{RANK}_size_{SIZE}'))
+                    edge_weight = torch.tensor(self.client.get_array(f'edge_weight_rank_{RANK}_size_{SIZE}'))
+                else:
+                    tic = time.time()
+                    halo_ids = create_halo_info_par.get_reduced_halo_ids(self.data_reduced)
+                    halo_info_glob = create_halo_info_par.get_halo_info_fast(self.data_reduced, halo_ids)
+                    if RANK ==0: log.info('[RANK %d]: computed halo info in %f sec' %(RANK,time.time()-tic))
+                    halo_info = halo_info_glob[RANK]
+                    self.client.put_array(f'halo_info_rank_{RANK}_size_{SIZE}', halo_info.numpy())
+
+                    tic = time.time()
+                    node_degree = create_halo_info_par.get_node_degree(self.data_reduced, halo_info)
+                    if RANK ==0: log.info('[RANK %d]: computed node degree in %f sec' %(RANK,time.time()-tic))
+                    self.client.put_array(f'node_degree_rank_{RANK}_size_{SIZE}', node_degree.numpy())
+
+                    tic = time.time()
+                    edge_freq = create_halo_info_par.get_edge_weights(self.data_reduced, halo_info_glob)
+                    edge_weight = (1.0/edge_freq).to(self.torch_dtype)
+                    if RANK ==0: log.info('[RANK %d]: computed edge weights in %f sec' %(RANK,time.time()-tic))
+                    self.client.put_array(f'edge_weight_rank_{RANK}_size_{SIZE}', edge_weight.numpy())
 
             self.neighboring_procs = np.unique(halo_info[:,3])
             n_nodes_local = self.data_reduced.pos.shape[0]
             n_nodes_halo = halo_info.shape[0]
-            if self.cfg.verbose: log.info(f'[RANK {RANK}]: Found {len(self.neighboring_procs)} neighboring processes: {self.neighboring_procs}')
+            if self.cfg.verbose: 
+                log.info(f'[RANK {RANK}]: Found {len(self.neighboring_procs)} neighboring processes: {self.neighboring_procs}')
+            else:
+                if RANK == 0: log.info(f'[RANK {RANK}]: Found {len(self.neighboring_procs)} neighboring processes: {self.neighboring_procs}')
         else:
-            halo_info = torch.Tensor([0])
+            halo_info = torch.zeros(1, dtype=self.torch_dtype)
             n_nodes_local = self.data_reduced.pos.shape[0]
             n_nodes_halo = 0
-            edge_weight = torch.zeros(1)
-            node_degree = torch.zeros(1)
+            edge_weight = torch.zeros(1, dtype=self.torch_dtype)
+            node_degree = torch.zeros(1, dtype=self.torch_dtype)
 
         self.data_reduced.n_nodes_local = torch.tensor(n_nodes_local, dtype=torch.int64)
         self.data_reduced.n_nodes_halo = torch.tensor(n_nodes_halo, dtype=torch.int64)
@@ -791,10 +808,20 @@ class Trainer:
             output_files = [path_prepend+output_file for output_file in output_files]
         log.info(f'[RANK {RANK}]: Found {len(output_files)} new field files in DB')
         for i in range(len(output_files)):
+            tic = time.time()
             data_x = self.load_data(input_files[i], dtype=np.float64).reshape((-1,3))
+            toc = time.time()
+            if self.cfg.online:
+                self.online_timers['trainDataTime'].append(toc-tic)
+                self.online_timers['trainDataThroughput'].append(data_x.nbytes/GB_SIZE/(toc-tic))
             data_x = self.prepare_snapshot_data(data_x)
             
+            tic = time.time()
             data_y = self.load_data(output_files[i], dtype=np.float64).reshape((-1,1))
+            toc = time.time()
+            if self.cfg.online:
+                self.online_timers['trainDataTime'].append(toc-tic)
+                self.online_timers['trainDataThroughput'].append(data_x.nbytes/GB_SIZE/(toc-tic))
             data_y = self.prepare_snapshot_data(data_y)
             self.data_list.append({'x': data_x, 'y':data_y})
 
@@ -828,9 +855,17 @@ class Trainer:
             if os.path.exists(data_dir + f"/data_stats.npz"):
                 if RANK == 0:
                     npzfile = np.load(data_dir + f"/data_stats.npz")
-                    stats['x'] = [npzfile['x_mean'], npzfile['x_std']]
-                    stats['y'] = [npzfile['y_mean'], npzfile['y_std']]
-                stats = COMM.bcast(stats, root=0)
+                    stats_arr_x = np.stack([npzfile['x_mean'][0], npzfile['x_std'][0]])
+                    stats_arr_y = np.stack([npzfile['y_mean'][0], npzfile['y_std'][0]])
+                else:
+                    n_features = self.data_list[0]['x'].shape[1]
+                    n_outputs = self.data_list[0]['y'].shape[1]
+                    stats_arr_x = np.zeros((2,n_features), dtype=np.float32)
+                    stats_arr_y = np.zeros((2,n_outputs), dtype=np.float32)
+                COMM.Bcast(stats_arr_x, root=0)
+                stats['x'] = [stats_arr_x[0], stats_arr_x[1]]
+                COMM.Bcast(stats_arr_y, root=0)
+                stats['y'] = [stats_arr_y[0], stats_arr_y[1]]
                 if RANK == 0: log.info(f"Read training data statistics from {data_dir}/data_stats.npz")
             else: 
                 x_mean, x_std = self.compute_statistics(data['train'],'x')
@@ -880,18 +915,20 @@ class Trainer:
             self.online_timers['metaData'].append(time.time()-tic)
 
             # Load files
-            log.info(f'[RANK {RANK}]: Found {len(output_files)} trajectory files in DB')
+            if self.cfg.verbose: log.info(f'[RANK {RANK}]: Found {len(output_files)} trajectory files in DB')
             for i in range(len(output_files)):
                 tic = time.time()
                 data_x_i = self.client.get_array(input_files[i]).astype(NP_FLOAT_DTYPE).T
-                self.online_timers['trainDataTime'].append(time.time()-tic)
-                self.online_timers['trainDataThroughput'].append(data_x_i.nbytes/(time.time()-tic))
+                toc = time.time()
+                self.online_timers['trainDataTime'].append(toc-tic)
+                self.online_timers['trainDataThroughput'].append(data_x_i.nbytes/GB_SIZE/(toc-tic))
                 data_x_i = self.prepare_snapshot_data(data_x_i)
                 
                 tic = time.time()
                 data_y_i = self.client.get_array(output_files[i]).astype(NP_FLOAT_DTYPE).T
-                self.online_timers['trainDataTime'].append(time.time()-tic)
-                self.online_timers['trainDataThroughput'].append(data_y_i.nbytes/(time.time()-tic))
+                toc = time.time()
+                self.online_timers['trainDataTime'].append(toc-tic)
+                self.online_timers['trainDataThroughput'].append(data_y_i.nbytes/GB_SIZE/(toc-tic))
                 data_y_i = self.prepare_snapshot_data(data_y_i)
                 self.data_list.append(
                         {'x': data_x_i, 'y':data_y_i}
@@ -938,20 +975,24 @@ class Trainer:
         # Compute statistics for normalization
         stats = {'x': [], 'y': []} 
         if 'stats' not in self.data.keys():
-            if os.path.exists(data_dir + "/data_stats.npz"):
+            if os.path.exists(data_dir + f"/data_stats.npz"):
                 if RANK == 0:
-                    npzfile = np.load(data_dir + "/data_stats.npz")
-                    stats['x'] = [npzfile['x_mean'], npzfile['x_std']]
-                    stats['y'] = [npzfile['y_mean'], npzfile['y_std']]
-                stats = COMM.bcast(stats, root=0)
+                    npzfile = np.load(data_dir + f"/data_stats.npz")
+                    stats_arr = np.stack([npzfile['x_mean'][0], npzfile['x_std'][0], npzfile['y_mean'][0], npzfile['y_std'][0]])
+                else:
+                    n_features = self.data_list[0]['x'].shape[1]
+                    stats_arr = np.zeros((4,n_features), dtype=np.float32)
+                COMM.Bcast(stats_arr, root=0)
+                stats['x'] = [stats_arr[0], stats_arr[1]]
+                stats['y'] = [stats_arr[2], stats_arr[3]]
                 if RANK == 0: log.info(f"Read training data statistics from {data_dir}/data_stats.npz")
             else: 
                 if RANK == 0: log.info(f"Computing training data statistics")
                 x_mean, x_std = self.compute_statistics(data['train'],'x')
                 if RANK == 0 and not self.cfg.online:
                     np.savez(data_dir + "/data_stats.npz", 
-                        x_mean=x_mean.cpu().numpy(), x_std=x_std.cpu().numpy(),
-                        y_mean=x_mean.cpu().numpy(), y_std=x_std.cpu().numpy(),
+                        x_mean=x_mean.cpu().to(torch.float32).numpy(), x_std=x_std.cpu().to(torch.float32).numpy(),
+                        y_mean=x_mean.cpu().to(torch.float32).numpy(), y_std=x_std.cpu().to(torch.float32).numpy(),
                     )
                 stats['x'] = [x_mean, x_std]
                 stats['y'] = [x_mean, x_std]
@@ -1133,14 +1174,16 @@ class Trainer:
                 for i in range(len(self.data_list),len(output_files)):
                     tic = time.time()
                     data_x_i = self.client.get_array(input_files[i]).astype(NP_FLOAT_DTYPE).T
-                    self.online_timers['trainDataTime'].append(time.time()-tic)
-                    self.online_timers['trainDataThroughput'].append(data_x_i.nbytes/(time.time()-tic))
+                    toc = time.time()
+                    self.online_timers['trainDataTime'].append(toc-tic)
+                    self.online_timers['trainDataThroughput'].append(data_x_i.nbytes/GB_SIZE/(toc-tic))
                     data_x_i = self.prepare_snapshot_data(data_x_i)
                     
                     tic = time.time()
                     data_y_i = self.client.get_array(output_files[i]).astype(NP_FLOAT_DTYPE).T
-                    self.online_timers['trainDataTime'].append(time.time()-tic)
-                    self.online_timers['trainDataThroughput'].append(data_y_i.nbytes/(time.time()-tic))
+                    toc = time.time()
+                    self.online_timers['trainDataTime'].append(toc-tic)
+                    self.online_timers['trainDataThroughput'].append(data_y_i.nbytes/GB_SIZE/(toc-tic))
                     data_y_i = self.prepare_snapshot_data(data_y_i)
                     self.data_list.append({'x': data_x_i, 'y': data_y_i})
         elif self.cfg.client.backend == 'adios':
@@ -1524,7 +1567,10 @@ class Trainer:
         n_nodes_halo = self.data_reduced.n_nodes_halo if self.cfg.consistency else 0
         n_edges = self.data_reduced.edge_index.shape[1]
 
-        log.info(f"[RANK {RANK}] -- number of local nodes: {n_nodes_local}, number of halo nodes: {n_nodes_halo}, number of edges: {n_edges}")
+        if self.cfg.verbose:
+            log.info(f"[RANK {RANK}] -- number of local nodes: {n_nodes_local}, number of halo nodes: {n_nodes_halo}, number of edges: {n_edges}")
+        else:
+            if RANK == 0: log.info(f"[RANK {RANK}] -- number of local nodes: {n_nodes_local}, number of halo nodes: {n_nodes_halo}, number of edges: {n_edges}")
 
         a = {} 
         a['n_nodes_local'] = n_nodes_local

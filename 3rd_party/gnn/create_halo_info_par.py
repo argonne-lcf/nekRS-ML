@@ -4,10 +4,9 @@ Create halo swap info.
 import argparse 
 import numpy as np
 from typing import Tuple
+import time
 
 import mpi4py
-#from mpi4py.util import pkl5
-#COMM = pkl5.Intracomm(MPI.COMM_WORLD)
 mpi4py.rc.initialize = False
 from mpi4py import MPI
 if not MPI.Is_initialized():
@@ -19,11 +18,14 @@ SIZE = COMM.Get_size()
 import torch
 from torch_geometric.data import Data
 import torch_geometric.utils as utils
-import torch_geometric.nn as tgnn
 
+# helper Cantor-pairing on two 1D int64 tensors
+def cantor_pair(k1: torch.Tensor, k2: torch.Tensor) -> torch.Tensor:
+    # (0.5*(k1+k2)*(k1+k2+1) + k2) exactly as before, but keep it isolated
+    s = k1.to(torch.float64) + k2.to(torch.float64)
+    return (0.5 * s * (s + 1) + k2.to(torch.float64)).to(torch.int64)
 
 def make_reduced_graph() -> Tuple[Data, Data, torch.Tensor]:
-    if RANK == 0: print('Loading data from file ...', flush=True)
     path_to_pos_full = main_path + 'pos_node_rank_%d_size_%d' %(RANK,SIZE)
     path_to_ei = main_path + 'edge_index_rank_%d_size_%d' %(RANK,SIZE)
     path_to_glob_ids = main_path + 'global_ids_rank_%d_size_%d' %(RANK,SIZE)
@@ -56,11 +58,8 @@ def make_reduced_graph() -> Tuple[Data, Data, torch.Tensor]:
     if SIZE > 1:
         halo_unique_mask = np.fromfile(path_to_unique_halo + ".bin", dtype=np.int32)
     COMM.Barrier()
-    if RANK == 0: print('Done data loading from file \n', flush=True)
     
     # ~~~~ Make graph:
-    if RANK == 0: print('Making graph ...', flush=True)
-    #if args.LOG=='debug': print('[RANK %d]: Making graph' %(RANK), flush=True)
     data = Data(x = torch.tensor(pos), edge_index = torch.tensor(ei), pos = torch.tensor(pos), global_ids = torch.tensor(gli.squeeze()), local_unique_mask = torch.tensor(local_unique_mask), halo_unique_mask = torch.tensor(halo_unique_mask))
     data.edge_index = utils.remove_self_loops(data.edge_index)[0]
     data.edge_index = utils.coalesce(data.edge_index)
@@ -72,8 +71,6 @@ def make_reduced_graph() -> Tuple[Data, Data, torch.Tensor]:
     if RANK == 0: print('Done making graph \n', flush=True)
 
     # ~~~~ Reduce size of graph 
-    if RANK == 0: print('Making reduced graph ...', flush=True)
-    #if args.LOG=='debug': print('[RANK %d]: Reduced size of edge_index based on unique node ids' %(RANK), flush=True)
     # X: [First isolate local nodes] 
     idx_local_unique = torch.nonzero(data.local_unique_mask).squeeze(-1)
     idx_halo_unique = torch.tensor([], dtype=idx_local_unique.dtype)
@@ -185,9 +182,13 @@ def get_halo_info(data_reduced, halo_ids_full) -> list:
         counts_unique = output[2]
         counts = output[2][output[1]]
         counts = counts.reshape((-1,1))
+        if RANK == 0: print(f'global_ids shape = {global_ids.shape}', flush=True)
+        if RANK == 0: print(f'counts_unique shape = {counts_unique.shape}', flush=True)
+        if RANK == 0: print(f'counts shape = {counts.shape}', flush=True)
 
         # append the counts to halo_ids_full
         halo_ids_full = torch.cat([halo_ids_full, counts], dim=1)
+        if RANK == 0: print(f'halo_ids_full shape = {halo_ids_full.shape}', flush=True)
 
         # Get the number of halo nodes for each rank
         #halo_info = []
@@ -195,6 +196,9 @@ def get_halo_info(data_reduced, halo_ids_full) -> list:
         Nhalo_rank = torch.sum(halo_ids_rank[:,3] - 1)
         #halo_info.append(torch.zeros((Nhalo_rank,4), dtype=torch.int64))
         #halo_info_glob = COMM.allgather(halo_info[0])
+
+        # Halo_info_glob is a list of tensors. Each element is a tensor of shape (Nhalo_rank_glob[i],4).
+        # Columns in each element:[local_id of non halo nodes, local_id of halo nodes, global_id of nodes (same for local and halo), neighboring rank]
         Nhalo_rank_glob = COMM.allgather(Nhalo_rank)
         halo_info_glob = [torch.zeros((Nhalo_rank_glob[i],4), dtype=torch.int64) for i in range(SIZE)]
 
@@ -238,11 +242,71 @@ def get_halo_info(data_reduced, halo_ids_full) -> list:
             idx+=count
     return halo_info_glob
 
+# Prepares the halo_info matrix for halo swap
+def get_halo_info_fast(data_reduced, halo_ids_full):
+    if SIZE == 1:
+        return [torch.zeros((0,4), dtype=torch.int64)]
+    # — 1) sort by global_id and extract the three columns into separate vectors
+    halo_ids_full[:,1] = torch.abs(halo_ids_full[:,1])
+    _, idx_sort = torch.sort(halo_ids_full[:,1])
+    halo_ids_full = halo_ids_full[idx_sort]
+    local_ids  = halo_ids_full[:,0]
+    global_ids = halo_ids_full[:,1]
+    ranks      = halo_ids_full[:,2]
+
+    # — 2) find consecutive runs of the same global_id
+    _, inverse_idx, counts = torch.unique_consecutive(
+        global_ids,
+        return_inverse=True,
+        return_counts=True
+    )
+    # compute the start index of each run
+    starts = torch.cat((torch.tensor([0], device=counts.device),
+                        torch.cumsum(counts, dim=0)[:-1]), dim=0)
+
+    # — 3) build ALL (owner_idx, neighbor_idx) pairs for each run at once
+    pair_list = []
+    for start, cnt in zip(starts.tolist(), counts.tolist()):
+        idx = torch.arange(start, start+cnt, device=halo_ids_full.device)
+        I, J = torch.meshgrid(idx, idx, indexing='ij')
+        mask = I != J
+        pair_list.append(torch.stack((I[mask], J[mask]), dim=1))
+    pairs = torch.cat(pair_list, dim=0)   # [M,2] where M = Σ (cnt*(cnt-1))
+
+    # — 4) pull out the columns we need
+    owner_idx, nbr_idx = pairs[:,0], pairs[:,1]
+    owner_ranks   = ranks[owner_idx]
+    owner_locals  = local_ids[owner_idx]
+    owner_globals = global_ids[owner_idx]
+    neighbor_ranks = ranks[nbr_idx]
+
+    # — 5) build a big halo‐info tensor [M×4] with a placeholder in col 1
+    halo_flat = torch.zeros((pairs.size(0), 4), dtype=torch.int64, device=halo_ids_full.device)
+    halo_flat[:,0] = owner_locals
+    halo_flat[:,2] = owner_globals
+    halo_flat[:,3] = neighbor_ranks
+
+    # — 6) split out each rank’s rows, and assign the proper halo‐node IDs
+    #     (they start at n_nodes_glob[r] and count up by 1)
+    n_nodes_glob = COMM.allgather(data_reduced.pos.shape[0])
+    neighboring_procs = np.unique(halo_flat[owner_ranks == RANK,3]).tolist()
+    neighboring_procs = [RANK] + neighboring_procs
+    halo_info_glob = [torch.empty(0)] * SIZE
+    for r in neighboring_procs:
+        mask_r = (owner_ranks == r)
+        Hr = halo_flat[mask_r]
+        cnt_r = Hr.size(0)
+        if cnt_r:
+            Hr[:,1] = torch.arange(cnt_r, dtype=torch.int64, device=Hr.device) \
+                      + n_nodes_glob[r]
+        halo_info_glob[r] = Hr
+
+    return halo_info_glob
 
 # ~~~~ Get node degree from halo_info
 def get_node_degree(data_reduced, halo_info_rank) -> torch.Tensor:
     if SIZE == 1:
-        node_degree = torch.ones(data_reduced.pos.shape[0])
+        return torch.ones(data_reduced.pos.shape[0])
     else:
         sample = data_reduced
         n_nodes_local = sample.pos.shape[0]
@@ -255,7 +319,7 @@ def get_node_degree(data_reduced, halo_info_rank) -> torch.Tensor:
 # ~~~~ Get edge weights to account for duplicate edges 
 def get_edge_weights(data_reduced, halo_info_glob) -> torch.Tensor:
     if SIZE == 1:
-        edge_weights = torch.ones(data_reduced.edge_index.shape[1])
+        return torch.ones(data_reduced.edge_index.shape[1])
     else: 
         # Collect edge_index shape
         edge_index_shape_list = COMM.allgather(data_reduced.edge_index.shape)
@@ -297,71 +361,62 @@ def get_edge_weights(data_reduced, halo_info_glob) -> torch.Tensor:
         COMM.Barrier()
         #if RANK == 0: print('Communicated the global_ids arrays', flush=True)
 
-        for i in range(len(neighboring_procs)):
-            rank_own = RANK
-            rank_nei = neighboring_procs[i]
+        for i, rank_nei in enumerate(neighboring_procs):
+            # extract only the halo rows for this neighbor
+            halo_own = halo_info_rank[halo_info_rank[:,3] == rank_nei]
+            halo_nei = halo_info_glob[rank_nei][halo_info_glob[rank_nei][:,3] == RANK]
 
-            halo_info_own = halo_info_rank
-            halo_info_nei = halo_info_glob[rank_nei]
+            # sanity check ordering
+            assert torch.equal(halo_own[:,2], halo_nei[:,2]), "misordered halos"
 
-            halo_info_own = halo_info_own[halo_info_own[:,3] == rank_nei, :] 
-            halo_info_nei = halo_info_nei[halo_info_nei[:,3] == rank_own, :] 
+            # pick out just the edges that touch our out-going halo nodes
+            edge_idx = data_reduced.edge_index
+            local_own = halo_own[:,0]
+            mask_own = torch.isin(edge_idx[1], local_own)
+            edge_own = edge_idx[:, mask_own]
 
-            # check the global id ordering 
-            if not torch.equal(halo_info_own[:,2], halo_info_nei[:,2]):
-                raise AssertionError("halo_info tensors are not properly ordered by global id")
-            
-            # Get connectivities 
-            edge_index_own = data_reduced.edge_index
-            edge_index_nei = edge_index_nei_list[i]
+            # and the corresponding ones from the neighbor
+            nei_idx = edge_index_nei_list[i]
+            local_nei = halo_nei[:,0]
+            mask_nei = torch.isin(nei_idx[1], local_nei)
+            edge_nei = nei_idx[:, mask_nei]
 
-            #num_edges_nei = edge_index_nei.shape[1]
-            #ew_nei = torch.ones(num_edges_nei)
-            #edge_id_own = torch.arange(num_edges_own, dtype=torch.int64) 
-            #edge_id_nei = torch.arange(num_edges_nei, dtype=torch.int64) 
-
-            # Get the edges of owner rank nodes 
-            local_id_own = halo_info_own[:,0]
-            mask_own = torch.isin(edge_index_own[1], local_id_own)
-            edge_index_own_subset = edge_index_own[:, mask_own]
-
-            # Get the edges of neighbor rank nodes 
-            local_id_nei = halo_info_nei[:,0]
-            mask_nei = torch.isin(edge_index_nei[1], local_id_nei)
-            edge_index_nei_subset = edge_index_nei[:, mask_nei]
-
-            # Convert to global ids
+            # convert to global
             gli_own = data_reduced.global_ids
-            send, recv = edge_index_own_subset
-            send_global = gli_own[send]
-            recv_global = gli_own[recv]
-            edge_index_own_subset_global = torch.stack((send_global, recv_global))  
+            own_send, own_recv = edge_own
+            own_pair = cantor_pair(gli_own[own_send], gli_own[own_recv])
 
             gli_nei = global_ids_nei_list[i]
-            send, recv = edge_index_nei_subset
-            send_global = gli_nei[send]
-            recv_global = gli_nei[recv]
-            edge_index_nei_subset_global = torch.stack((send_global, recv_global))  
+            nei_send, nei_recv = edge_nei
+            nei_pair = cantor_pair(gli_nei[nei_send], gli_nei[nei_recv])
 
-            # Compute pairing functions: Cantor pair = 0.5 * (k1 + k2) * (k1 + k2 + 1) + k2 
-            k1, k2 = edge_index_own_subset_global
-            k1 = k1.to(torch.float64)
-            k2 = k2.to(torch.float64)
-            cpair_own = (0.5 * (k1 + k2) * (k1 + k2 + 1) + k2).to(torch.int64)
+            # ------------------------------------
+            # vectorized duplicate counting:
+            # Q: how many times do each of my pairs occur in the neighboring rank's pairs? 
+            # 1) find each unique pairing in the neighbor and how many times it occurs
+            uniq, counts = torch.unique(nei_pair, return_counts=True)
 
-            k1, k2 = edge_index_nei_subset_global
-            k1 = k1.to(torch.float64)
-            k2 = k2.to(torch.float64)
-            cpair_nei = (0.5 * (k1 + k2) * (k1 + k2 + 1) + k2).to(torch.int64)
+            # 2) sort so we can searchsorted
+            uniq_sorted, idx_sort = torch.sort(uniq)
+            counts_sorted = counts[idx_sort]
 
-            # Find which owner edges are duplicated in neighbor edges 
-            duplicates_count = torch.zeros_like(cpair_own)
-            for eid in range(len(cpair_own)):
-                edge = cpair_own[eid]
-                duplicates_count[eid] = (cpair_nei == edge).sum().item()
+            # 3) locate insertion positions 
+            # returns index of where own_pair would be inserted into uniq_sorted to keep it sorted
+            pos = torch.searchsorted(uniq_sorted, own_pair)
 
-            # place in edge weighst 
-            edge_weights[mask_own] += duplicates_count 
+            # 4) clamp into [0, N-1] so indexing is always safe
+            max_idx = uniq_sorted.numel() - 1
+            pos_clamped = torch.clamp(pos, max=max_idx)
+
+            # 5) check which actually match
+            is_match = uniq_sorted[pos_clamped] == own_pair
+
+            # 6) build duplicate-count vector: how many matches?
+            dup_count = torch.zeros_like(pos, dtype=torch.int64)
+            dup_count[is_match] = counts_sorted[pos_clamped][is_match]
+
+            # 7) accumulate duplicates into the full edge_weights
+            edge_weights[mask_own] += dup_count
     return edge_weights
 
 
@@ -385,18 +440,37 @@ if __name__ == '__main__':
 
     # Compute the halo_info
     if RANK == 0: print('Computing halo_info ...', flush=True)
-    halo_info_glob = get_halo_info(data_reduced, halo_ids_full)
-    if RANK == 0: print('Done\n', flush=True)
+    COMM.Barrier()
+    t_start = MPI.Wtime()
+    # halo_info_glob = get_halo_info(data_reduced, halo_ids_full)
+    halo_info_glob = get_halo_info_fast(data_reduced, halo_ids_full)
+    t_end = MPI.Wtime()
+    local_time = t_end - t_start
+    max_time = np.array([0.])
+    COMM.Allreduce(np.array([local_time]), max_time, op=MPI.MAX)
+    if RANK == 0: print(f'Done in {max_time} seconds\n', flush=True)
 
     # Compute the node_degree
     if RANK == 0: print('Computing node_degree ...', flush=True)
+    COMM.Barrier()
+    t_start = MPI.Wtime()
     node_degree = get_node_degree(data_reduced, halo_info_glob[RANK])
-    if RANK == 0: print('Done\n', flush=True)
+    t_end = MPI.Wtime()
+    local_time = t_end - t_start
+    max_time = np.array([0.])
+    COMM.Allreduce(np.array([local_time]), max_time, op=MPI.MAX)
+    if RANK == 0: print(f'Done in {max_time} seconds\n', flush=True)
 
     # Compute the edge_weights
     if RANK == 0: print('Computing edge_weights ...', flush=True)
+    COMM.Barrier()
+    t_start = MPI.Wtime()
     edge_weights = get_edge_weights(data_reduced, halo_info_glob)
-    if RANK == 0: print('Done\n', flush=True)
+    t_end = MPI.Wtime()
+    local_time = t_end - t_start
+    max_time = np.array([0.])
+    COMM.Allreduce(np.array([local_time]), max_time, op=MPI.MAX)
+    if RANK == 0: print(f'Done in {max_time} seconds\n', flush=True)
 
     # Write files
     if RANK == 0: print('Writing halo_info, edge_weights, node_degree ...', flush=True)
@@ -405,3 +479,6 @@ if __name__ == '__main__':
     np.save(main_path + 'edge_weights_rank_%d_size_%d.npy' %(RANK,SIZE), edge_weights.numpy())
     COMM.Barrier()
     if RANK == 0: print('Done \n', flush=True)
+
+    if MPI.Is_initialized():
+        MPI.Finalize()

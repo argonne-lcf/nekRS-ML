@@ -4,6 +4,7 @@ import sys
 from omegaconf import DictConfig, OmegaConf
 import hydra
 import subprocess
+import socket
 from time import sleep
 from typing import Optional, Tuple
 from statistics import harmonic_mean
@@ -114,6 +115,7 @@ class ShootingWorkflow():
         if self.cfg.train.affinity:
             cmd += f"{self.cfg.train.affinity} {self.cfg.run_args.simprocs_pn} {skip} "
         cmd += f"python {self.cfg.train.executable} {self.cfg.train.arguments}"
+        cmd += f" master_addr={socket.gethostname()}"
         print("Launching GNN training ...")
         self.train_proc['process'] = subprocess.Popen(cmd,
                                 executable="/bin/bash",
@@ -139,7 +141,8 @@ class ShootingWorkflow():
         if self.cfg.train.affinity:
             cmd += f"{self.cfg.train.affinity} {self.cfg.run_args.simprocs_pn} {skip} "
         cmd += f"python {self.cfg.inference.executable} " + \
-               f"{self.cfg.inference.arguments} model_dir={self.run_dir}/saved_models/"
+               f"{self.cfg.inference.arguments} model_dir={self.run_dir}/saved_models/" + \
+               f" master_addr={socket.gethostname()}"
         print("\nLaunching GNN inference ...")
         self.infer_proc['process'] = subprocess.Popen(cmd,
                                 executable="/bin/bash",
