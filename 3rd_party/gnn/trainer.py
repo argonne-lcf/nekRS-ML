@@ -378,8 +378,10 @@ class Trainer:
             self.torch_dtype = torch.float32
         elif self.cfg.precision == 'bf16':
             self.torch_dtype = torch.bfloat16
+        elif self.cfg.precision == 'fp64':
+            self.torch_dtype = torch.float64
         else:
-            sys.exit('Only fp32 and bf16 data types are currently supported')
+            sys.exit('Only fp32, fp64 and bf16 data types are currently supported')
 
     def halo_swap(self, input_tensor, buff_send, buff_recv):
         """
