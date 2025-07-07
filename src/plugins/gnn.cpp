@@ -73,32 +73,30 @@ gnn_t::gnn_t(nrs_t *nrs_)
 
     // create GNN mesh if needed
     nekMeshPOrder = nrs->mesh->N;
-    int tmp;
-    platform->options.getArgs("POLYNOMIAL DEGREE",tmp);
-    printf("\ntmp=%d, nekMeshPOrder=%d\n", tmp,nekMeshPOrder);
     platform->options.getArgs("GNN POLY ORDER",gnnMeshPOrder);
     if (gnnMeshPOrder == nekMeshPOrder){
         mesh = nrs->mesh;
     } else {
-      mesh = new mesh_t();
-      mesh->Nelements = nrs->mesh->Nelements;
-      mesh->dim = nrs->mesh->dim;
-      mesh->Nverts = nrs->mesh->Nverts;
-      mesh->Nfaces = nrs->mesh->Nfaces;
-      mesh->NfaceVertices = nrs->mesh->NfaceVertices;
-      meshLoadReferenceNodesHex3D(mesh, gnnMeshPOrder, 0);
-      mesh->o_x = platform->device.malloc<dfloat>(mesh->Nlocal);
-      mesh->o_y = platform->device.malloc<dfloat>(mesh->Nlocal);
-      mesh->o_z = platform->device.malloc<dfloat>(mesh->Nlocal);
-      mesh->interpolate(nrs->mesh->o_x, mesh, mesh->o_x);
-      mesh->interpolate(nrs->mesh->o_y, mesh, mesh->o_y);
-      mesh->interpolate(nrs->mesh->o_z, mesh, mesh->o_z);
+        mesh = new mesh_t();
+        mesh->Nelements = nrs->mesh->Nelements;
+        mesh->dim = nrs->mesh->dim;
+        mesh->Nverts = nrs->mesh->Nverts;
+        mesh->Nfaces = nrs->mesh->Nfaces;
+        mesh->NfaceVertices = nrs->mesh->NfaceVertices;
+        meshLoadReferenceNodesHex3D(mesh, gnnMeshPOrder, 0);
+        mesh->o_x = platform->device.malloc<dfloat>(mesh->Nlocal);
+        mesh->o_y = platform->device.malloc<dfloat>(mesh->Nlocal);
+        mesh->o_z = platform->device.malloc<dfloat>(mesh->Nlocal);
+        nrs->mesh->interpolate(nrs->mesh->o_x, mesh, mesh->o_x);
+        nrs->mesh->interpolate(nrs->mesh->o_y, mesh, mesh->o_y);
+        nrs->mesh->interpolate(nrs->mesh->o_z, mesh, mesh->o_z);
+        meshGlobalIds(mesh);
     }
     ogs = mesh->ogs;
 
     // allocate memory 
     N = mesh->Nelements * mesh->Np; // total number of nodes
-    pos_node = new dfloat[N * 3](); 
+    pos_node = new dfloat[N * mesh->dim](); 
     node_element_ids = new dlong[N]();
     local_unique_mask = new dlong[N](); 
     halo_unique_mask = new dlong[N]();
@@ -110,12 +108,14 @@ gnn_t::gnn_t(nrs_t *nrs_)
         printf("\n[RANK %d] -- Finished instantiating gnn_t object\n", rank);
         printf("[RANK %d] -- The polynomial degree of the GNN mesh is %d \n", rank, gnnMeshPOrder);
         printf("[RANK %d] -- The number of elements of the GNN mesh is %d \n", rank, mesh->Nelements);
+        printf("[RANK %d] -- The number of nodes of the GNN mesh is %d \n", rank, N);
+        fflush(stdout);
     }
 }
 
 gnn_t::~gnn_t()
 {
-    if (verbose) printf("[RANK %d] -- gnn_t destructor\n", rank);
+    if (verbose) std::cout << "[RANK " << rank << "] -- gnn_t destructor\n" << std::endl;
     delete[] pos_node;
     delete[] node_element_ids;
     delete[] local_unique_mask;
@@ -131,7 +131,7 @@ gnn_t::~gnn_t()
 
 void gnn_t::gnnSetup()
 {
-    if (verbose) printf("[RANK %d] -- in gnnSetup() \n", rank);
+    if (verbose) std::cout << "[RANK " << rank << "] -- in gnnSetup()" << std::endl;
 
     // do not use multiscale flag if mesh is p=1    
     int poly_order = mesh->Nq - 1; 
@@ -141,7 +141,7 @@ void gnn_t::gnnSetup()
     }
     if (multiscale)
     {
-        if (verbose) printf("[RANK %d] -- using multiscale flag \n", rank);
+        if (verbose) std::cout << "[RANK " << rank << "] -- using multiscale flag" << std::endl;
     }
 
     get_graph_nodes(); // populates graphNodes
@@ -149,10 +149,15 @@ void gnn_t::gnnSetup()
     get_graph_nodes_element(); // populates graphNodes_element
     get_node_positions();
     get_node_element_ids(); 
+    std::cout << "[RANK " << rank << "] --here 4" << std::endl;
     get_node_masks();
+    std::cout << "[RANK " << rank << "] --here 5" << std::endl;
     get_edge_index();
+    std::cout << "[RANK " << rank << "] --here 6" << std::endl;
     get_edge_index_element_local();
+    std::cout << "[RANK " << rank << "] --here 7" << std::endl;
     get_edge_index_element_local_vertex();
+    std::cout << "[RANK " << rank << "] --here 8" << std::endl;
 }
 
 void gnn_t::gnnWrite()
@@ -402,9 +407,12 @@ void gnn_t::get_node_masks()
     }
 
     // SB: test 
-    if (verbose) printf("[RANK %d] -- \tN: %d \n", rank, N);
-    if (verbose) printf("[RANK %d] -- \tNlocal: %d \n", rank, Nlocal);
-    if (verbose) printf("[RANK %d] -- \tNhalo: %d \n", rank, Nhalo);
+    if (verbose) {
+        printf("[RANK %d] -- \tN: %d \n", rank, N);
+        printf("[RANK %d] -- \tNlocal: %d \n", rank, Nlocal);
+        printf("[RANK %d] -- \tNhalo: %d \n", rank, Nhalo);
+        fflush(stdout);
+    }
 
     // ~~~~ For parsing the local coincident nodes
     if (Nlocal)

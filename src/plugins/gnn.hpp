@@ -104,7 +104,7 @@ private:
     void write_edge_index_element_local_vertex_binary(const std::string& filename);
 
     // for prints 
-    bool verbose = false; 
+    bool verbose = true; 
 
     // model features
     bool multiscale = false;
