@@ -255,6 +255,7 @@ static std::vector<std::string> mlKeys = {
     {"adiosEngine"},
     {"adiosTransport"},
     {"adiosStream"},
+    {"gnnPolynomialOrder"},
 };
 
 static std::vector<std::string> deprecatedKeys = {
@@ -2646,6 +2647,19 @@ void parseMLSection(const int rank, setupAide &options, inipp::Ini *ini)
   std::string adiosStream;
   if (ini->extract("ml", "adiosStream", adiosStream)) {
     options.setArgs("ADIOS ML STREAM", adiosStream);
+  }
+
+  int gnnPolyOrder, nekMeshPOrder;
+  options.getArgs("POLYNOMIAL DEGREE",nekMeshPOrder);
+  if (ini->extract("ml", "gnnPolynomialOrder", gnnPolyOrder)) {
+    if (gnnPolyOrder <= nekMeshPOrder) {
+      options.setArgs("GNN POLY ORDER", std::to_string(gnnPolyOrder));
+    } else {
+      options.setArgs("GNN POLY ORDER", std::to_string(nekMeshPOrder));
+      if (rank == 0) std::cout << "WARNING: GNN mesh polynomial degree set to " << nekMeshPOrder << "\n" << std::endl;
+    }
+  } else {
+    options.setArgs("GNN POLY ORDER", std::to_string(nekMeshPOrder));
   }
 }
 

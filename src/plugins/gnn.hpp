@@ -61,6 +61,8 @@ private:
     ogs_t *ogs;
 
     // Graph attributes
+    int gnnMeshPOrder;
+    int nekMeshPOrder;
     dlong N;
     hlong num_edges;
     int num_edges_local;

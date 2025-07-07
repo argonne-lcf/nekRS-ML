@@ -1,5 +1,6 @@
 
 #include "nrs.hpp"
+#include "mesh.h"
 #include "platform.hpp"
 #include "nekInterfaceAdapter.hpp"
 #include "ogsInterface.h"
@@ -64,13 +65,36 @@ void writeToFileBinaryF(const std::string& filename, dfloat* data, int nRows, in
 gnn_t::gnn_t(nrs_t *nrs_)
 {
     nrs = nrs_; // set nekrs object
-    mesh = nrs->mesh; // set mesh object
-    ogs = mesh->ogs; // set ogs object
 
     // set MPI rank and size 
     MPI_Comm &comm = platform->comm.mpiComm;
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &size);
+
+    // create GNN mesh if needed
+    nekMeshPOrder = nrs->mesh->N;
+    int tmp;
+    platform->options.getArgs("POLYNOMIAL DEGREE",tmp);
+    printf("\ntmp=%d, nekMeshPOrder=%d\n", tmp,nekMeshPOrder);
+    platform->options.getArgs("GNN POLY ORDER",gnnMeshPOrder);
+    if (gnnMeshPOrder == nekMeshPOrder){
+        mesh = nrs->mesh;
+    } else {
+      mesh = new mesh_t();
+      mesh->Nelements = nrs->mesh->Nelements;
+      mesh->dim = nrs->mesh->dim;
+      mesh->Nverts = nrs->mesh->Nverts;
+      mesh->Nfaces = nrs->mesh->Nfaces;
+      mesh->NfaceVertices = nrs->mesh->NfaceVertices;
+      meshLoadReferenceNodesHex3D(mesh, gnnMeshPOrder, 0);
+      mesh->o_x = platform->device.malloc<dfloat>(mesh->Nlocal);
+      mesh->o_y = platform->device.malloc<dfloat>(mesh->Nlocal);
+      mesh->o_z = platform->device.malloc<dfloat>(mesh->Nlocal);
+      mesh->interpolate(nrs->mesh->o_x, mesh, mesh->o_x);
+      mesh->interpolate(nrs->mesh->o_y, mesh, mesh->o_y);
+      mesh->interpolate(nrs->mesh->o_z, mesh, mesh->o_z);
+    }
+    ogs = mesh->ogs;
 
     // allocate memory 
     N = mesh->Nelements * mesh->Np; // total number of nodes
@@ -82,8 +106,11 @@ gnn_t::gnn_t(nrs_t *nrs_)
     graphNodes = (graphNode_t*) calloc(N, sizeof(graphNode_t)); // full domain
     graphNodes_element = (graphNode_t*) calloc(mesh->Np, sizeof(graphNode_t)); // a single element
 
-    if (verbose) printf("\n[RANK %d] -- Finished instantiating gnn_t object\n", rank);
-    if (verbose) printf("[RANK %d] -- The number of elements is %d \n", rank, mesh->Nelements);
+    if (verbose) {
+        printf("\n[RANK %d] -- Finished instantiating gnn_t object\n", rank);
+        printf("[RANK %d] -- The polynomial degree of the GNN mesh is %d \n", rank, gnnMeshPOrder);
+        printf("[RANK %d] -- The number of elements of the GNN mesh is %d \n", rank, mesh->Nelements);
+    }
 }
 
 gnn_t::~gnn_t()
