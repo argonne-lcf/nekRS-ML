@@ -40,6 +40,8 @@ public:
     gnn_t(nrs_t *nrs);
     ~gnn_t(); 
 
+    mesh_t *mesh;
+    int fieldOffset;
     std::string writePath;
 
     // member functions 
@@ -57,7 +59,6 @@ private:
 
     // nekrs objects 
     nrs_t *nrs;
-    mesh_t *mesh;
     ogs_t *ogs;
 
     // Graph attributes

@@ -37,8 +37,7 @@ if [[ -z "$VENV_PATH" && ! -d ./_pyg ]]; then
   if [ ${SYSTEM} == "crux" ]; then
     pip install numpy
     pip install torch --index-url https://download.pytorch.org/whl/cpu
-    MPICC="cc -shared" pip install --force-reinstall --no-cache-dir
- --no-binary=mpi4py mpi4py
+    MPICC="cc -shared" pip install --force-reinstall --no-cache-dir --no-binary=mpi4py mpi4py
   fi
   TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
   export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH

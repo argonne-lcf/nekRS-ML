@@ -134,10 +134,14 @@ void UDF_ExecuteStep(double time, int tstep)
   int numSteps = -1;
   platform->options.getArgs("NUMBER TIMESTEPS", numSteps);
   if (numSteps == 0) {
-    dfloat *U = new dfloat[nrs->mesh->dim * nrs->fieldOffset]();
-    dfloat *P = new dfloat[nrs->fieldOffset]();
-    nrs->o_U.copyTo(U, nrs->mesh->dim * nrs->fieldOffset);
-    nrs->o_P.copyTo(P, nrs->fieldOffset);
+    auto o_tmp = platform->deviceMemoryPool.reserve<dfloat>(graph->fieldOffset);
+    dfloat *U = new dfloat[graph->mesh->dim * graph->fieldOffset]();
+    dfloat *P = new dfloat[graph->fieldOffset]();
+    //nrs->mesh->interpolate(nrs->o_U, graph->mesh, o_tmp);
+    //o_tmp.copyTo(U, graph->fieldOffset);
+    
+    nrs->mesh->interpolate(nrs->o_P, graph->mesh, o_tmp);
+    o_tmp.copyTo(P, nrs->fieldOffset);
 
     // Get string of the current time, rounded to first decimal place
     dfloat time_rounded = std::round(time * 10.0) / 10.0;
@@ -149,15 +153,15 @@ void UDF_ExecuteStep(double time, int tstep)
     int rank, size;
     MPI_Comm_rank(platform->comm.mpiComm, &rank);
     MPI_Comm_size(platform->comm.mpiComm, &size);
-    dlong n_nodes = nrs->mesh->Np * nrs->mesh->Nelements;
+    dlong n_nodes = graph->mesh->Np * graph->mesh->Nelements;
     std::string irank = "_rank_" + std::to_string(rank);
     std::string nranks = "_size_" + std::to_string(size);
-    std::cout << "n_nodes: " << n_nodes << "\t fieldOffset: " << nrs->fieldOffset << std::endl;
+    std::cout << "n_nodes: " << n_nodes << "\t fieldOffset: " << graph->fieldOffset << std::endl;
 
-    writeToFileBinaryF(graph->writePath + "/fld_u_time_" + time_rounded_string + irank + nranks + ".bin",
-                U, nrs->fieldOffset, 3);
+    //writeToFileBinaryF(graph->writePath + "/fld_u_time_" + time_rounded_string + irank + nranks + ".bin",
+    //            U, nrs->fieldOffset, 3);
     writeToFileBinaryF(graph->writePath + "/fld_p_time_" + time_rounded_string + irank + nranks + ".bin",
-                P, nrs->fieldOffset, 1);
+                P, graph->fieldOffset, 1);
   }
 
   if (nrs->checkpointStep) {

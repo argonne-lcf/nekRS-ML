@@ -3,6 +3,7 @@
 #include "mesh.h"
 #include "platform.hpp"
 #include "nekInterfaceAdapter.hpp"
+#include "meshNekReader.hpp"
 #include "ogsInterface.h"
 #include "gnn.hpp"
 #include <cstdlib>
@@ -77,6 +78,31 @@ gnn_t::gnn_t(nrs_t *nrs_)
     if (gnnMeshPOrder == nekMeshPOrder){
         mesh = nrs->mesh;
     } else {
+        std::cout << "Generating GNN mesh with polynomial degree ..." << gnnMeshPOrder << std::endl;
+        
+        /*
+        meshNekReaderHex3D(gnnMeshPOrder, mesh);
+        nekrsCheck(static_cast<size_t>(mesh->Nelements) * mesh->Nvgeo * gnnMeshPOrder > std::numeric_limits<int>::max(),
+             comm,
+             EXIT_FAILURE,
+             "%s\n",
+             "mesh->Nelements * mesh->Nvgeo * mesh->cubN exceeds int limit!");
+        meshParallelConnect(mesh);
+        meshLoadReferenceNodesHex3D(mesh, gnnMeshPOrder, gnnMeshPOrder);
+        meshPhysicalNodesHex3D(mesh);
+        meshConnectFaceNodes3D(mesh);
+        //checkEToB(mesh);
+        meshGlobalIds(mesh);
+        meshParallelGatherScatterSetup(mesh,
+                                 mesh->Nelements * mesh->Np,
+                                 mesh->globalIds,
+                                 comm,
+                                 OOGS_AUTO,
+                                 0);
+        mesh->oogs = oogs::setup(mesh->ogs, 1, mesh->Nlocal, ogsDfloat, NULL, OOGS_AUTO);
+        mesh->update();
+        */
+        
         mesh = new mesh_t();
         mesh->Nelements = nrs->mesh->Nelements;
         mesh->dim = nrs->mesh->dim;
@@ -91,8 +117,16 @@ gnn_t::gnn_t(nrs_t *nrs_)
         nrs->mesh->interpolate(nrs->mesh->o_y, mesh, mesh->o_y);
         nrs->mesh->interpolate(nrs->mesh->o_z, mesh, mesh->o_z);
         meshGlobalIds(mesh);
+        meshParallelGatherScatterSetup(mesh,
+                                 mesh->Nelements * mesh->Np,
+                                 mesh->globalIds,
+                                 comm,
+                                 OOGS_AUTO,
+                                 0);
     }
     ogs = mesh->ogs;
+    auto offset = mesh->Np * (mesh->Nelements);
+    offset = alignStride<dfloat>(offset);
 
     // allocate memory 
     N = mesh->Nelements * mesh->Np; // total number of nodes
@@ -116,6 +150,7 @@ gnn_t::gnn_t(nrs_t *nrs_)
 gnn_t::~gnn_t()
 {
     if (verbose) std::cout << "[RANK " << rank << "] -- gnn_t destructor\n" << std::endl;
+    delete mesh;
     delete[] pos_node;
     delete[] node_element_ids;
     delete[] local_unique_mask;
@@ -149,15 +184,10 @@ void gnn_t::gnnSetup()
     get_graph_nodes_element(); // populates graphNodes_element
     get_node_positions();
     get_node_element_ids(); 
-    std::cout << "[RANK " << rank << "] --here 4" << std::endl;
     get_node_masks();
-    std::cout << "[RANK " << rank << "] --here 5" << std::endl;
     get_edge_index();
-    std::cout << "[RANK " << rank << "] --here 6" << std::endl;
     get_edge_index_element_local();
-    std::cout << "[RANK " << rank << "] --here 7" << std::endl;
     get_edge_index_element_local_vertex();
-    std::cout << "[RANK " << rank << "] --here 8" << std::endl;
 }
 
 void gnn_t::gnnWrite()
