@@ -1,5 +1,5 @@
 [GENERAL]
-polynomialOrder = 3
+polynomialOrder = 7
 #cubaturePolynomialOrder = 9 
 
 #startFrom = "restart.fld"

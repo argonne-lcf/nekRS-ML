@@ -1,0 +1,84 @@
+#!/bin/bash
+set -e
+
+#--------------------------------------
+: ${QUEUE:="lustre_scaling"}
+: ${NEKRS_GPU_MPI:=0}
+: ${NEKRS_BACKEND:="dpcpp"}
+: ${RANKS_PER_NODE:=2}
+: ${CPU_BIND_LIST:="1:8:16:24:32:40:53:60:68:76:84:92"}
+: ${OCCA_DPCPP_COMPILER_FLAGS:="-O3 -fsycl -fsycl-targets=intel_gpu_pvc -ftarget-register-alloc-mode=pvc:auto -fma"}
+: ${ONEAPI_SDK:=""}
+: ${FRAMEWORKS_MODULE:="frameworks"}
+: ${VENV_PATH:=""}
+#--------------------------------------
+
+source $NEKRS_HOME/bin/nrsqsub_utils
+setup $# 1
+
+TOTAL_RANKS=$(( nodes * RANKS_PER_NODE ))
+chk_case $TOTAL_RANKS
+
+#--------------------------------------
+# Generate the run script
+RFILE=run.sh
+echo "#!/bin/bash" > $RFILE
+
+echo -e "\nexport TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
+
+echo -e "\necho Jobid: \$PBS_JOBID" >>$RFILE
+echo "echo Running on host \`hostname\`" >>$RFILE
+echo "echo Running on nodes \`cat \$PBS_NODEFILE\`" >>$RFILE
+
+echo "module restore" >> $RFILE
+echo "module load ${FRAMEWORKS_MODULE}" >> $RFILE
+echo "source ${VENV_PATH}" >> $RFILE
+echo "module list" >> $RFILE
+
+echo -e "\nexport NEKRS_HOME=$NEKRS_HOME" >>$RFILE
+#echo "export NEKRS_GPU_MPI=$NEKRS_GPU_MPI" >>$RFILE
+#echo "export MPICH_GPU_SUPPORT_ENABLED=$NEKRS_GPU_MPI" >> $RFILE
+
+echo "export OCCA_DPCPP_COMPILER_FLAGS=\"$OCCA_DPCPP_COMPILER_FLAGS\"" >> $RFILE
+
+# Workaround for MPICH 52.2 see https://docs.alcf.anl.gov/aurora/known-issues/
+#echo "unset MPIR_CVAR_CH4_COLL_SELECTION_TUNING_JSON_FILE" >> $RFILE
+#echo "unset MPIR_CVAR_COLL_SELECTION_TUNING_JSON_FILE" >> $RFILE
+#echo "unset MPIR_CVAR_CH4_POSIX_COLL_SELECTION_TUNING_JSON_FILE" >> $RFILE
+
+# Cray MPI libfabric defaults
+#echo "export FI_CXI_RDZV_THRESHOLD=16384" >> $RFILE
+#echo "export FI_CXI_RDZV_EAGER_SIZE=2048" >> $RFILE
+#echo "export FI_CXI_DEFAULT_CQ_SIZE=131072" >> $RFILE
+#echo "export FI_CXI_DEFAULT_TX_SIZE=1024" >> $RFILE
+#echo "export FI_CXI_OFLOW_BUF_SIZE=12582912" >> $RFILE
+#echo "export FI_CXI_OFLOW_BUF_COUNT=3" >> $RFILE
+#echo "export FI_CXI_REQ_BUF_MIN_POSTED=6" >> $RFILE
+#echo "export FI_CXI_REQ_BUF_SIZE=12582912" >> $RFILE
+#echo "export FI_MR_CACHE_MAX_SIZE=-1" >> $RFILE
+#echo "export FI_MR_CACHE_MAX_COUNT=524288" >> $RFILE
+#echo "export FI_CXI_REQ_BUF_MAX_CACHED=0" >> $RFILE
+#echo "export FI_CXI_REQ_BUF_MIN_POSTED=6" >> $RFILE
+# echo "export FI_CXI_RX_MATCH_MODE=hardware" >> $RFILE
+echo "export FI_CXI_RX_MATCH_MODE=hybrid" >> $RFILE # required by parRSB
+
+# Temporary workaround while waiting on bugfix in runtime
+echo "export UR_L0_USE_COPY_ENGINE=0" >> $RFILE
+
+echo -e "\nexport CCL_ALLTOALLV_MONOLITHIC_KERNEL=0" >> $RFILE
+
+echo -e "\n# Run nekRS" >>$RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND}" >> $RFILE
+
+echo -e "\n# Generate the halo_info, edge_weights and node_degree files" >>$RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/create_halo_info_par.py --POLY 3 --PATH ./gnn_outputs_poly_3" >> $RFILE
+
+echo -e "\n# Check the GNN input files" >>$RFILE
+echo "echo \"Checking GNN graph input files ...\"" >>$RFILE
+echo "python ${NEKRS_HOME}/3rd_party/gnn/check_input_files.py --REF ./ref --PATH ./gnn_outputs_poly_3" >>$RFILE
+
+echo -e "\n# Train the GNN" >>$RFILE
+echo "head_node=\`head -1 \$PBS_NODEFILE | cut -d'.' -f1\`" >>$RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/main.py master_addr=\$head_node backend=ccl halo_swap_mode=all_to_all_opt layer_norm=True gnn_outputs_path=${PWD}/gnn_outputs_poly_3 target_loss=1.6206e-04" >> $RFILE
+chmod u+x $RFILE
+
