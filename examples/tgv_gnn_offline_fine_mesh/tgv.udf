@@ -134,14 +134,11 @@ void UDF_ExecuteStep(double time, int tstep)
   int numSteps = -1;
   platform->options.getArgs("NUMBER TIMESTEPS", numSteps);
   if (numSteps == 0) {
-    auto o_tmp = platform->deviceMemoryPool.reserve<dfloat>(graph->fieldOffset);
-    dfloat *U = new dfloat[graph->mesh->dim * graph->fieldOffset]();
+    // Interpolate pressure and velocity fields
     dfloat *P = new dfloat[graph->fieldOffset]();
-    //nrs->mesh->interpolate(nrs->o_U, graph->mesh, o_tmp);
-    //o_tmp.copyTo(U, graph->fieldOffset);
-    
-    nrs->mesh->interpolate(nrs->o_P, graph->mesh, o_tmp);
-    o_tmp.copyTo(P, nrs->fieldOffset);
+    dfloat *U = new dfloat[graph->mesh->dim * graph->fieldOffset]();
+    graph->interpolateField(nrs, nrs->o_P, P, 1);
+    graph->interpolateField(nrs, nrs->o_U, U, graph->mesh->dim);
 
     // Get string of the current time, rounded to first decimal place
     dfloat time_rounded = std::round(time * 10.0) / 10.0;
@@ -158,8 +155,8 @@ void UDF_ExecuteStep(double time, int tstep)
     std::string nranks = "_size_" + std::to_string(size);
     std::cout << "n_nodes: " << n_nodes << "\t fieldOffset: " << graph->fieldOffset << std::endl;
 
-    //writeToFileBinaryF(graph->writePath + "/fld_u_time_" + time_rounded_string + irank + nranks + ".bin",
-    //            U, nrs->fieldOffset, 3);
+    writeToFileBinaryF(graph->writePath + "/fld_u_time_" + time_rounded_string + irank + nranks + ".bin",
+                U, graph->fieldOffset, 3);
     writeToFileBinaryF(graph->writePath + "/fld_p_time_" + time_rounded_string + irank + nranks + ".bin",
                 P, graph->fieldOffset, 1);
   }

@@ -56,8 +56,9 @@ Other branches available in the repository should be considered experimental.
 
 Then, simply execute one of the build scripts contained in the reposotory. 
 The HPC systems currently supported are:
-* Polaris (Argonne LCF)
-* Aurora (Argonne LCF) 
+* [Polaris](https://docs.alcf.anl.gov/polaris/) (Argonne LCF)
+* [Aurora](https://docs.alcf.anl.gov/aurora/) (Argonne LCF) 
+* [Crux](https://docs.alcf.anl.gov/crux/) (Argonne LCF)
 
 For example, to build nekRS-ML on Aurora without the SmartRedis client, execute from a compute node
 
@@ -81,6 +82,14 @@ To run any of the AI-enabled examples listed above, simply `cd` to the example d
 ```sh
 ./gen_run_script <system_name> </path/to/nekRS>
 ```
+
+or
+
+```sh
+./gen_run_script <system_name> </path/to/nekRS> </path/to/venv/bin/activate>
+```
+
+if you have the necessary packages already installed in a Python virtual environment. 
 
 The script will produce a `run.sh` script specifically tailored for the desired system and using the desired nekRS install directory. 
 
