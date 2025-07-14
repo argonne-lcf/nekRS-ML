@@ -250,9 +250,7 @@ class Trainer:
 
         # ~~~~ Wrap model in DDP
         if WITH_DDP and SIZE > 1:
-            if WITH_XPU: self.model.to('cpu')
             self.model = DDP(self.model, broadcast_buffers=False, gradient_as_bucket_view=True)
-            if WITH_XPU: self.model.to(self.device)
 
     def checkpoint(self):
         if RANK == 0:
