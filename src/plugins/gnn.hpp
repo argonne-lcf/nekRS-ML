@@ -40,11 +40,15 @@ public:
     gnn_t(nrs_t *nrs);
     ~gnn_t(); 
 
+    // attributes 
+    mesh_t *mesh;
+    int fieldOffset;
     std::string writePath;
 
     // member functions 
     void gnnSetup();
     void gnnWrite();
+    void interpolateField(nrs_t* nrs, occa::memory& o_field_fine, dfloat* field_coarse, int dim);
 #ifdef NEKRS_ENABLE_SMARTREDIS
     void gnnWriteDB(smartredis_client_t* client);
 #endif
@@ -56,8 +60,7 @@ private:
     int size;
 
     // nekrs objects 
-    nrs_t *nrs;
-    mesh_t *mesh;
+    //nrs_t *nrs;
     ogs_t *ogs;
 
     // Graph attributes
@@ -104,7 +107,7 @@ private:
     void write_edge_index_element_local_vertex_binary(const std::string& filename);
 
     // for prints 
-    bool verbose = false; 
+    bool verbose = true; 
 
     // model features
     bool multiscale = false;

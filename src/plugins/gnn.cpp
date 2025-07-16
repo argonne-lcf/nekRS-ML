@@ -3,6 +3,7 @@
 #include "mesh.h"
 #include "platform.hpp"
 #include "nekInterfaceAdapter.hpp"
+#include "meshNekReader.hpp"
 #include "ogsInterface.h"
 #include "gnn.hpp"
 #include <cstdlib>
@@ -64,7 +65,7 @@ void writeToFileBinaryF(const std::string& filename, dfloat* data, int nRows, in
 
 gnn_t::gnn_t(nrs_t *nrs_)
 {
-    nrs = nrs_; // set nekrs object
+    //nrs = nrs_; // set nekrs object
 
     // set MPI rank and size 
     MPI_Comm &comm = platform->comm.mpiComm;
@@ -72,33 +73,40 @@ gnn_t::gnn_t(nrs_t *nrs_)
     MPI_Comm_size(comm, &size);
 
     // create GNN mesh if needed
-    nekMeshPOrder = nrs->mesh->N;
-    int tmp;
-    platform->options.getArgs("POLYNOMIAL DEGREE",tmp);
-    printf("\ntmp=%d, nekMeshPOrder=%d\n", tmp,nekMeshPOrder);
+    nekMeshPOrder = nrs_->mesh->N;
     platform->options.getArgs("GNN POLY ORDER",gnnMeshPOrder);
     if (gnnMeshPOrder == nekMeshPOrder){
-        mesh = nrs->mesh;
+        mesh = nrs_->mesh;
     } else {
-      mesh = new mesh_t();
-      mesh->Nelements = nrs->mesh->Nelements;
-      mesh->dim = nrs->mesh->dim;
-      mesh->Nverts = nrs->mesh->Nverts;
-      mesh->Nfaces = nrs->mesh->Nfaces;
-      mesh->NfaceVertices = nrs->mesh->NfaceVertices;
-      meshLoadReferenceNodesHex3D(mesh, gnnMeshPOrder, 0);
-      mesh->o_x = platform->device.malloc<dfloat>(mesh->Nlocal);
-      mesh->o_y = platform->device.malloc<dfloat>(mesh->Nlocal);
-      mesh->o_z = platform->device.malloc<dfloat>(mesh->Nlocal);
-      mesh->interpolate(nrs->mesh->o_x, mesh, mesh->o_x);
-      mesh->interpolate(nrs->mesh->o_y, mesh, mesh->o_y);
-      mesh->interpolate(nrs->mesh->o_z, mesh, mesh->o_z);
+        std::cout << "Generating GNN mesh with polynomial degree ..." << gnnMeshPOrder << std::endl;
+        mesh = new mesh_t();
+        mesh->Nelements = nrs_->mesh->Nelements;
+        mesh->dim = nrs_->mesh->dim;
+        mesh->Nverts = nrs_->mesh->Nverts;
+        mesh->Nfaces = nrs_->mesh->Nfaces;
+        mesh->NfaceVertices = nrs_->mesh->NfaceVertices;
+        meshLoadReferenceNodesHex3D(mesh, gnnMeshPOrder, 0);
+        mesh->o_x = platform->device.malloc<dfloat>(mesh->Nlocal);
+        mesh->o_y = platform->device.malloc<dfloat>(mesh->Nlocal);
+        mesh->o_z = platform->device.malloc<dfloat>(mesh->Nlocal);
+        nrs_->mesh->interpolate(nrs_->mesh->o_x, mesh, mesh->o_x);
+        nrs_->mesh->interpolate(nrs_->mesh->o_y, mesh, mesh->o_y);
+        nrs_->mesh->interpolate(nrs_->mesh->o_z, mesh, mesh->o_z);
+        meshGlobalIds(mesh);
+        meshParallelGatherScatterSetup(mesh,
+                                 mesh->Nelements * mesh->Np,
+                                 mesh->globalIds,
+                                 comm,
+                                 OOGS_AUTO,
+                                 0);
     }
     ogs = mesh->ogs;
+    fieldOffset = mesh->Np * (mesh->Nelements);
+    fieldOffset = alignStride<dfloat>(fieldOffset);
 
     // allocate memory 
     N = mesh->Nelements * mesh->Np; // total number of nodes
-    pos_node = new dfloat[N * 3](); 
+    pos_node = new dfloat[N * mesh->dim](); 
     node_element_ids = new dlong[N]();
     local_unique_mask = new dlong[N](); 
     halo_unique_mask = new dlong[N]();
@@ -110,12 +118,15 @@ gnn_t::gnn_t(nrs_t *nrs_)
         printf("\n[RANK %d] -- Finished instantiating gnn_t object\n", rank);
         printf("[RANK %d] -- The polynomial degree of the GNN mesh is %d \n", rank, gnnMeshPOrder);
         printf("[RANK %d] -- The number of elements of the GNN mesh is %d \n", rank, mesh->Nelements);
+        printf("[RANK %d] -- The number of nodes of the GNN mesh is %d \n", rank, N);
+        fflush(stdout);
     }
 }
 
 gnn_t::~gnn_t()
 {
-    if (verbose) printf("[RANK %d] -- gnn_t destructor\n", rank);
+    if (verbose) std::cout << "[RANK " << rank << "] -- gnn_t destructor\n" << std::endl;
+    delete mesh;
     delete[] pos_node;
     delete[] node_element_ids;
     delete[] local_unique_mask;
@@ -131,7 +142,7 @@ gnn_t::~gnn_t()
 
 void gnn_t::gnnSetup()
 {
-    if (verbose) printf("[RANK %d] -- in gnnSetup() \n", rank);
+    if (verbose) std::cout << "[RANK " << rank << "] -- in gnnSetup()" << std::endl;
 
     // do not use multiscale flag if mesh is p=1    
     int poly_order = mesh->Nq - 1; 
@@ -141,7 +152,7 @@ void gnn_t::gnnSetup()
     }
     if (multiscale)
     {
-        if (verbose) printf("[RANK %d] -- using multiscale flag \n", rank);
+        if (verbose) std::cout << "[RANK " << rank << "] -- using multiscale flag" << std::endl;
     }
 
     get_graph_nodes(); // populates graphNodes
@@ -402,9 +413,12 @@ void gnn_t::get_node_masks()
     }
 
     // SB: test 
-    if (verbose) printf("[RANK %d] -- \tN: %d \n", rank, N);
-    if (verbose) printf("[RANK %d] -- \tNlocal: %d \n", rank, Nlocal);
-    if (verbose) printf("[RANK %d] -- \tNhalo: %d \n", rank, Nhalo);
+    if (verbose) {
+        printf("[RANK %d] -- \tN: %d \n", rank, N);
+        printf("[RANK %d] -- \tNlocal: %d \n", rank, Nlocal);
+        printf("[RANK %d] -- \tNhalo: %d \n", rank, Nhalo);
+        fflush(stdout);
+    }
 
     // ~~~~ For parsing the local coincident nodes
     if (Nlocal)
@@ -975,6 +989,19 @@ void gnn_t::write_edge_index_element_local_vertex_binary(const std::string& file
             // file_cpu << idx_nei << '\t' << idx_own << '\n';
             file_cpu.write(reinterpret_cast<const char*>(&idx_nei), sizeof(dlong));
             file_cpu.write(reinterpret_cast<const char*>(&idx_own), sizeof(dlong));
+        }
+    }
+}
+
+void gnn_t::interpolateField(nrs_t* nrs, occa::memory& o_field_fine, dfloat* field_coarse, int dim)
+{
+    if (gnnMeshPOrder == nekMeshPOrder){
+        o_field_fine.copyTo(field_coarse, mesh->dim * fieldOffset);
+    } else if (gnnMeshPOrder < nekMeshPOrder){
+        auto o_tmp = platform->deviceMemoryPool.reserve<dfloat>(fieldOffset);
+        for (int i = 0; i < dim; i++) {
+            nrs->mesh->interpolate(o_field_fine.slice(i * nrs->fieldOffset, nrs->fieldOffset), mesh, o_tmp);
+            o_tmp.copyTo(field_coarse + i * fieldOffset, fieldOffset);
         }
     }
 }
