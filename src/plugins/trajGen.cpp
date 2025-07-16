@@ -14,10 +14,12 @@ void deleteDirectoryContents(const std::filesystem::path& dir)
 }
 
 
-trajGen_t::trajGen_t(nrs_t *nrs_, int dt_factor_, int skip_, dfloat time_init_)
+trajGen_t::trajGen_t(gnn_t *graph_, int dt_factor_, int skip_, dfloat time_init_)
 {
-    nrs = nrs_; // set nekrs object
-    mesh = nrs->mesh; // set mesh object
+    //nrs = nrs_; // set nekrs object
+    //mesh = nrs->mesh; // set mesh object
+    graph = graph_;
+    mesh = graph->mesh;
     dt_factor = dt_factor_; 
     skip = skip_;
     time_init = time_init_; 
@@ -73,11 +75,11 @@ void trajGen_t::trajGenSetup()
     }
 }
 
-void trajGen_t::trajGenWrite(dfloat time, int tstep, const std::string& field_name)
+void trajGen_t::trajGenWrite(nrs_t *nrs, dfloat time, int tstep, const std::string& field_name)
 {
     if (first_step) {
-        U = new dfloat[nrs->mesh->dim * nrs->fieldOffset]();
-        P = new dfloat[nrs->fieldOffset]();
+        U = new dfloat[mesh->dim * graph->fieldOffset]();
+        P = new dfloat[graph->fieldOffset]();
         first_step = false;
     }
 
@@ -88,8 +90,10 @@ void trajGen_t::trajGenWrite(dfloat time, int tstep, const std::string& field_na
         // ~~~~ Write the data
         if ((tstep%dt_factor)==0)
         {
-            nrs->o_U.copyTo(U, nrs->mesh->dim * nrs->fieldOffset);
-            nrs->o_P.copyTo(P, nrs->fieldOffset);
+            graph->interpolateField(nrs, nrs->o_P, P, 1);
+            graph->interpolateField(nrs, nrs->o_U, U, graph->mesh->dim);
+            //nrs->o_U.copyTo(U, nrs->mesh->dim * nrs->fieldOffset);
+            //nrs->o_P.copyTo(P, nrs->fieldOffset);
             
             // print stuff
             if (platform->comm.mpiRank == 0) {
@@ -99,18 +103,19 @@ void trajGen_t::trajGenWrite(dfloat time, int tstep, const std::string& field_na
             // write data
             if (field_name == "velocity" || field_name == "all") {
                 writeToFileBinaryF(writePath + "/u_step_" + std::to_string(tstep) + ".bin",
-                                   U, nrs->fieldOffset, 3);
+                                   U, graph->fieldOffset, 3);
             }
             if (field_name == "pressure" || field_name == "all") {
                 writeToFileBinaryF(writePath + "/p_step_" + std::to_string(tstep) + ".bin",
-                                   P, nrs->fieldOffset, 1);
+                                   P, graph->fieldOffset, 1);
             }
         }
     }
 }
 
 #ifdef NEKRS_ENABLE_SMARTREDIS
-void trajGen_t::trajGenWriteDB(smartredis_client_t* client, 
+void trajGen_t::trajGenWriteDB(nrs_t *nrs,
+    smartredis_client_t* client, 
     dfloat time, 
     int tstep, 
     const std::string& field_name) 
@@ -133,8 +138,8 @@ void trajGen_t::trajGenWriteDB(smartredis_client_t* client,
 
     if (send_inputs or send_outputs) {
         MPI_Comm &comm = platform->comm.mpiComm;
-        unsigned long int num_dim = nrs->mesh->dim;
-        unsigned long int field_offset = nrs->fieldOffset;
+        unsigned long int num_dim = mesh->dim;
+        unsigned long int field_offset = graph->fieldOffset;
 
         // print stuff
         if (rank == 0 and verbose) {
@@ -185,15 +190,16 @@ void trajGen_t::trajGenWriteDB(smartredis_client_t* client,
 }
 #endif
 
-void trajGen_t::trajGenWriteADIOS(adios_client_t* client, 
+void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
+    adios_client_t* client, 
     dfloat time, 
     int tstep, 
     const std::string& field_name) 
 {
     MPI_Comm &comm = platform->comm.mpiComm;
 #if defined(NEKRS_ENABLE_ADIOS)
-    dlong num_dim = nrs->mesh->dim;
-    dlong field_offset = nrs->fieldOffset;
+    dlong num_dim = mesh->dim;
+    dlong field_offset = graph->fieldOffset;
     bool store_inputs = false;
     bool send_data = false;
 

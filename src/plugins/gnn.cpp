@@ -77,7 +77,7 @@ gnn_t::gnn_t(nrs_t *nrs_)
     platform->options.getArgs("GNN POLY ORDER",gnnMeshPOrder);
     if (gnnMeshPOrder == nekMeshPOrder){
         mesh = nrs_->mesh;
-    } else {
+    } else if (gnnMeshPOrder < nekMeshPOrder) {
         std::cout << "Generating GNN mesh with polynomial degree ..." << gnnMeshPOrder << std::endl;
         mesh = new mesh_t();
         mesh->Nelements = nrs_->mesh->Nelements;
@@ -99,6 +99,9 @@ gnn_t::gnn_t(nrs_t *nrs_)
                                  comm,
                                  OOGS_AUTO,
                                  0);
+    } else {
+        if (rank == 0) std::cout << "\nError: GNN polynimial degree must be <= nekRS degree\n" << std::endl;
+        MPI_Abort(comm, 1);
     }
     ogs = mesh->ogs;
     fieldOffset = mesh->Np * (mesh->Nelements);
@@ -226,8 +229,6 @@ void gnn_t::gnnWriteDB(smartredis_client_t* client)
     // Writing the graph data
     client->_client->put_tensor("pos_node" + irank + nranks, pos_node, {3,num_nodes},
                     SRTensorTypeDouble, SRMemLayoutContiguous);
-    //client->_client->put_tensor("node_element_ids" + irank + nranks, node_element_ids, {num_nodes,1},
-    //                SRTensorTypeInt32, SRMemLayoutContiguous);
     client->_client->put_tensor("local_unique_mask" + irank + nranks, local_unique_mask, {num_nodes},
                     SRTensorTypeInt32, SRMemLayoutContiguous);
     client->_client->put_tensor("halo_unique_mask" + irank + nranks, halo_unique_mask, {num_nodes},
@@ -238,18 +239,10 @@ void gnn_t::gnnWriteDB(smartredis_client_t* client)
     // Writing edge information
     client->_client->put_tensor("edge_index" + irank + nranks, edge_index, {2,num_edg},
                     SRTensorTypeInt32, SRMemLayoutContiguous);
-    //client->_client->put_tensor("edge_index_element_local" + irank + nranks, edge_index_local, {2,num_edg_l},
-    //                SRTensorTypeInt32, SRMcemLayoutContiguous);
-    //client->_client->put_tensor("edge_index_element_local_vertex" + irank + nranks, edge_index_local_vertex, {2,num_vert_l},
-    //                SRTensorTypeInt32, SRMemLayoutContiguous);
 
     // Writing some graph statistics
-    //client->_client->put_tensor("Nelements" + irank + nranks, &mesh->Nelements, {1},
-    //                SRTensorTypeInt32, SRMemLayoutContiguous);
     client->_client->put_tensor("Np" + irank + nranks, &mesh->Np, {1},
                     SRTensorTypeInt32, SRMemLayoutContiguous);
-    //client->_client->put_tensor("N" + irank + nranks, &N, {1},
-    //                SRTensorTypeInt32, SRMemLayoutContiguous);
 
     MPI_Barrier(comm);
     if (verbose) printf("[RANK %d] -- done sending graph data to DB \n", rank);
@@ -263,7 +256,7 @@ void gnn_t::gnnWriteADIOS(adios_client_t* client)
     if (verbose && rank == 0) printf("[RANK %d] -- in gnnWriteADIOS() \n", rank);
     unsigned long _size = size;
     unsigned long _rank = rank;
-    client->_num_dim = nrs->mesh->dim;
+    client->_num_dim = mesh->dim;
 
     // Get global size of data
     int global_N, global_num_edges;
@@ -996,7 +989,7 @@ void gnn_t::write_edge_index_element_local_vertex_binary(const std::string& file
 void gnn_t::interpolateField(nrs_t* nrs, occa::memory& o_field_fine, dfloat* field_coarse, int dim)
 {
     if (gnnMeshPOrder == nekMeshPOrder){
-        o_field_fine.copyTo(field_coarse, mesh->dim * fieldOffset);
+        o_field_fine.copyTo(field_coarse, dim * fieldOffset);
     } else if (gnnMeshPOrder < nekMeshPOrder){
         auto o_tmp = platform->deviceMemoryPool.reserve<dfloat>(fieldOffset);
         for (int i = 0; i < dim; i++) {

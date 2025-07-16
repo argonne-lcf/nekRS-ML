@@ -2652,15 +2652,7 @@ void parseMLSection(const int rank, setupAide &options, inipp::Ini *ini)
   int gnnPolyOrder, nekMeshPOrder;
   options.getArgs("POLYNOMIAL DEGREE",nekMeshPOrder);
   if (ini->extract("ml", "gnnPolynomialOrder", gnnPolyOrder)) {
-    if (gnnPolyOrder <= nekMeshPOrder) {
-      options.setArgs("GNN POLY ORDER", std::to_string(gnnPolyOrder));
-    } else {
-      options.setArgs("GNN POLY ORDER", std::to_string(nekMeshPOrder));
-      if (rank == 0) {
-        std::cout << "WARNING: GNN mesh polynomial degree is greater than nek mesh degree." << std::endl;
-        std::cout << "Setting it to " << nekMeshPOrder << std::endl;
-      }
-    }
+    options.setArgs("GNN POLY ORDER", std::to_string(gnnPolyOrder));
   } else {
     if (rank == 0) std::cout << "WARNING: did not read gnnPolynomialOrder input so setting it to " << nekMeshPOrder << std::endl;
     options.setArgs("GNN POLY ORDER", std::to_string(nekMeshPOrder));

@@ -15,7 +15,7 @@ It is meant to be a sandbox showcasing ways in which ML methods and *in-situ* wo
 Some key functionalities of nekRS-ML are:
 
 * [Graph neural network (GNN) modeling](./3rd_party/gnn/): [Dist-GNN](https://ieeexplore.ieee.org/abstract/document/10820662) is a scalable and consistent GNN for mesh-modeling of dynamical systems on very large graphs. It relies on tailored neural message passing layers and loss constructions to guarantee arithmetic consistency on domain-decomposed graphs partitioned similarly to a CFD mesh. It can be used to perform both time dependent modeling (e.g., advance the solution field) and time independent modeling (e.g., predict a flow quantity from another). 
-* [Conversion tools for mesh-based distributed GNN modeling](./src/plugins/gnn.hpp): NekRS-ML provides a GNN plugin capable of extracting the necessary information from nekRS to contruct the partitioned graph needed by Dist-GNN. The same GNN plugin and the [trajectory generation plugin](./src/plugins/trajGen.hpp) can be used to extract the field information from nekRS to produce training data for the Dist-GNN. 
+* [Conversion tools for mesh-based distributed GNN modeling](./src/plugins/gnn.hpp): NekRS-ML provides a GNN plugin capable of extracting the necessary information from nekRS to contruct the partitioned graph needed by Dist-GNN. The same GNN plugin and the [trajectory generation plugin](./src/plugins/trajGen.hpp) can be used to extract the field information from nekRS to produce training data for the Dist-GNN. The GNN and trajectory generation plugins can create graphs and the respective training data from p-coarsened nekRS meshes to enable development of surrogates on coarser discretizations.  
 * [Data streaming with ADIOS2](./src/plugins/adiosStreamer.hpp): nekRS v24 comes with ADIOS2 for I/O, thus nekRS-ML expands the usage of ADIOS2 to enable data streaming between nekRS and GNN training, enabling online (or *in-situ*) training/fine-tuning of the ML models.  
 * [In-memory data staging with SmartSim](./src/plugins/smartRedis.hpp): nekRS-ML can also be linked to the [SmartRedis](https://github.com/CrayLabs/SmartRedis) library, which when coupled with a [SmartSim](https://github.com/CrayLabs/SmartSim) workflow enables online training and inference with in-memory data-staging. 
 
@@ -25,6 +25,7 @@ nekRS-ML hosts a series of AI-enabled examples listed below in order of complexi
 Users can find more details on each of the examples in the  README files contained within the respective directories. 
 
 * [tgv_gnn_offline](./examples/tgv_gnn_offline/): Offline training pipeline to generate data and perform time independent training of the Dist-GNN model.
+* [tgv_gnn_offline_fine_mesh](./examples/tgv_gnn_offline_fine_mesh/): Offline training pipeline to generate data and perform time independent training of the Dist-GNN model on a p-coarsened grid relative to the one used by the nekRS simulation.
 * [tgv_gnn_traj_offline](./examples/tgv_gnn_traj_offline/): Offline training pipeline to generate data and perform time dependent training of the Dist-GNN model.
 * [tgv_gnn_online](./examples/tgv_gnn_online/): Online training workflow using SmartSim to cuncurrently generate data and perform time independent training of the Dist-GNN model.
 * [tgv_gnn_traj_online](./examples/tgv_gnn_traj_online/): Online training workflow using SmartSim to cuncurrently generate data and perform time dependent training of the Dist-GNN model.
@@ -91,7 +92,7 @@ or
 
 if you have the necessary packages already installed in a Python virtual environment. 
 
-The script will produce a `run.sh` script specifically tailored for the desired system and using the desired nekRS install directory. 
+The script will produce a `run.sh` script specifically tailored to the desired system and using the desired nekRS install directory. 
 
 Finally, the examples are run **from the compute nodes** executing
 
