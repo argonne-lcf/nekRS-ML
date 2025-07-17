@@ -105,6 +105,7 @@ fi
 PFILE=${case}.par
 echo "" >> $PFILE
 echo "[ML]" >> $PFILE
+echo "gnnPolynomialOrder = 7" >> $PFILE
 echo "adiosEngine = SST" >> $PFILE
 echo "adiosTransport = WAN" >> $PFILE
 echo "adiosStream = sync" >> $PFILE

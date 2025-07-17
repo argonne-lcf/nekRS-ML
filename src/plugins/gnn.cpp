@@ -78,7 +78,7 @@ gnn_t::gnn_t(nrs_t *nrs_)
     if (gnnMeshPOrder == nekMeshPOrder){
         mesh = nrs_->mesh;
     } else if (gnnMeshPOrder < nekMeshPOrder) {
-        std::cout << "Generating GNN mesh with polynomial degree ..." << gnnMeshPOrder << std::endl;
+        if (rank == 0) std::cout << "Generating GNN mesh with polynomial degree ..." << gnnMeshPOrder << std::endl;
         mesh = new mesh_t();
         mesh->Nelements = nrs_->mesh->Nelements;
         mesh->dim = nrs_->mesh->dim;
@@ -129,7 +129,7 @@ gnn_t::gnn_t(nrs_t *nrs_)
 gnn_t::~gnn_t()
 {
     if (verbose) std::cout << "[RANK " << rank << "] -- gnn_t destructor\n" << std::endl;
-    delete mesh;
+    if (gnnMeshPOrder < nekMeshPOrder) delete mesh;
     delete[] pos_node;
     delete[] node_element_ids;
     delete[] local_unique_mask;

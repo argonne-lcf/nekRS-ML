@@ -52,8 +52,6 @@ void trajGen_t::trajGenSetup()
     if (verbose) printf("[RANK %d] -- in trajGenSetup() \n", rank);
     if (write)
     {
-        //std::string irank = "_rank_" + std::to_string(rank);
-        //std::string nranks = "_size_" + std::to_string(size);
         std::filesystem::path currentPath = std::filesystem::current_path();
         currentPath /= "traj";
         writePath = currentPath.string();
@@ -92,8 +90,6 @@ void trajGen_t::trajGenWrite(nrs_t *nrs, dfloat time, int tstep, const std::stri
         {
             graph->interpolateField(nrs, nrs->o_P, P, 1);
             graph->interpolateField(nrs, nrs->o_U, U, graph->mesh->dim);
-            //nrs->o_U.copyTo(U, nrs->mesh->dim * nrs->fieldOffset);
-            //nrs->o_P.copyTo(P, nrs->fieldOffset);
             
             // print stuff
             if (platform->comm.mpiRank == 0) {
@@ -149,7 +145,7 @@ void trajGen_t::trajGenWriteDB(nrs_t *nrs,
         // write data
         if (field_name == "velocity" || field_name == "all") {
             dfloat *U = new dfloat[num_dim * field_offset]();
-            nrs->o_U.copyTo(U, num_dim * field_offset);
+            graph->interpolateField(nrs, nrs->o_U, U, graph->mesh->dim);
             if (first_step) {
                 client->append_dataset_to_list("u_step_" + std::to_string(tstep) + irank, "data",
                     "inputs" + irank, U, num_dim, field_offset);
@@ -166,7 +162,7 @@ void trajGen_t::trajGenWriteDB(nrs_t *nrs,
         }
         if (field_name == "pressure" || field_name == "all") {
             dfloat *P = new dfloat[field_offset]();
-            nrs->o_P.copyTo(P, field_offset);
+            graph->interpolateField(nrs, nrs->o_P, P, 1);
             if (first_step) {
                 client->append_dataset_to_list("p_step_" + std::to_string(tstep) + irank, "data",
                     "inputs" + irank, P, num_dim, field_offset);
@@ -257,7 +253,7 @@ void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
 
     if (send_data) {
         if (field_name == "velocity") {
-            nrs->o_U.copyTo(U, num_dim * field_offset);
+            graph->interpolateField(nrs, nrs->o_U, U, graph->mesh->dim);
         }
 
 #if defined(NEKRS_ENABLE_ADIOS)
@@ -282,7 +278,7 @@ void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
     }
 
     if (store_inputs) {
-        nrs->o_U.copyTo(previous_U, num_dim * field_offset);
+        graph->interpolateField(nrs, nrs->o_U, previous_U, graph->mesh->dim);
     }
 #else
     if (rank == 0) printf("[RANK %d] -- Error: Adios is not enabled!\n", rank);
