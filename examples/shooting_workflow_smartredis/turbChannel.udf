@@ -100,7 +100,7 @@ void UDF_Setup()
   int skip = 100;
   dfloat t0;
   platform->options.getArgs("START TIME", t0);
-  tgen = new trajGen_t(nrs, dt_factor, skip, t0);
+  tgen = new trajGen_t(graph, dt_factor, skip, t0);
 
   if (platform->options.compareArgs("CONSTANT FLOW RATE", "FALSE")) {
     nrs->userVelocitySource = &userf;
@@ -112,7 +112,7 @@ void UDF_Setup()
 void UDF_ExecuteStep(double time, int tstep)
 {
   // write trajectory
-  tgen->trajGenWriteDB(client, time, tstep, "velocity");
+  tgen->trajGenWriteDB(nrs, client, time, tstep, "velocity");
 
   // Every time step check if ML training says it is time to quit
   int exit_val = client->check_run();
@@ -123,7 +123,7 @@ void UDF_ExecuteStep(double time, int tstep)
 
   if (nrs->lastStep) {
     client->checkpoint();
-    delete graph;
     delete tgen;
+    delete graph;
   }
 }

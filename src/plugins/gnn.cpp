@@ -1,7 +1,9 @@
 
 #include "nrs.hpp"
+#include "mesh.h"
 #include "platform.hpp"
 #include "nekInterfaceAdapter.hpp"
+#include "meshNekReader.hpp"
 #include "ogsInterface.h"
 #include "gnn.hpp"
 #include <cstdlib>
@@ -63,18 +65,51 @@ void writeToFileBinaryF(const std::string& filename, dfloat* data, int nRows, in
 
 gnn_t::gnn_t(nrs_t *nrs_)
 {
-    nrs = nrs_; // set nekrs object
-    mesh = nrs->mesh; // set mesh object
-    ogs = mesh->ogs; // set ogs object
+    //nrs = nrs_; // set nekrs object
 
     // set MPI rank and size 
     MPI_Comm &comm = platform->comm.mpiComm;
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &size);
 
+    // create GNN mesh if needed
+    nekMeshPOrder = nrs_->mesh->N;
+    platform->options.getArgs("GNN POLY ORDER",gnnMeshPOrder);
+    if (gnnMeshPOrder == nekMeshPOrder){
+        mesh = nrs_->mesh;
+    } else if (gnnMeshPOrder < nekMeshPOrder) {
+        if (rank == 0) std::cout << "Generating GNN mesh with polynomial degree ..." << gnnMeshPOrder << std::endl;
+        mesh = new mesh_t();
+        mesh->Nelements = nrs_->mesh->Nelements;
+        mesh->dim = nrs_->mesh->dim;
+        mesh->Nverts = nrs_->mesh->Nverts;
+        mesh->Nfaces = nrs_->mesh->Nfaces;
+        mesh->NfaceVertices = nrs_->mesh->NfaceVertices;
+        meshLoadReferenceNodesHex3D(mesh, gnnMeshPOrder, 0);
+        mesh->o_x = platform->device.malloc<dfloat>(mesh->Nlocal);
+        mesh->o_y = platform->device.malloc<dfloat>(mesh->Nlocal);
+        mesh->o_z = platform->device.malloc<dfloat>(mesh->Nlocal);
+        nrs_->mesh->interpolate(nrs_->mesh->o_x, mesh, mesh->o_x);
+        nrs_->mesh->interpolate(nrs_->mesh->o_y, mesh, mesh->o_y);
+        nrs_->mesh->interpolate(nrs_->mesh->o_z, mesh, mesh->o_z);
+        meshGlobalIds(mesh);
+        meshParallelGatherScatterSetup(mesh,
+                                 mesh->Nelements * mesh->Np,
+                                 mesh->globalIds,
+                                 comm,
+                                 OOGS_AUTO,
+                                 0);
+    } else {
+        if (rank == 0) std::cout << "\nError: GNN polynimial degree must be <= nekRS degree\n" << std::endl;
+        MPI_Abort(comm, 1);
+    }
+    ogs = mesh->ogs;
+    fieldOffset = mesh->Np * (mesh->Nelements);
+    fieldOffset = alignStride<dfloat>(fieldOffset);
+
     // allocate memory 
     N = mesh->Nelements * mesh->Np; // total number of nodes
-    pos_node = new dfloat[N * 3](); 
+    pos_node = new dfloat[N * mesh->dim](); 
     node_element_ids = new dlong[N]();
     local_unique_mask = new dlong[N](); 
     halo_unique_mask = new dlong[N]();
@@ -82,13 +117,19 @@ gnn_t::gnn_t(nrs_t *nrs_)
     graphNodes = (graphNode_t*) calloc(N, sizeof(graphNode_t)); // full domain
     graphNodes_element = (graphNode_t*) calloc(mesh->Np, sizeof(graphNode_t)); // a single element
 
-    if (verbose) printf("\n[RANK %d] -- Finished instantiating gnn_t object\n", rank);
-    if (verbose) printf("[RANK %d] -- The number of elements is %d \n", rank, mesh->Nelements);
+    if (verbose) {
+        printf("\n[RANK %d] -- Finished instantiating gnn_t object\n", rank);
+        printf("[RANK %d] -- The polynomial degree of the GNN mesh is %d \n", rank, gnnMeshPOrder);
+        printf("[RANK %d] -- The number of elements of the GNN mesh is %d \n", rank, mesh->Nelements);
+        printf("[RANK %d] -- The number of nodes of the GNN mesh is %d \n", rank, N);
+        fflush(stdout);
+    }
 }
 
 gnn_t::~gnn_t()
 {
-    if (verbose) printf("[RANK %d] -- gnn_t destructor\n", rank);
+    if (verbose) std::cout << "[RANK " << rank << "] -- gnn_t destructor\n" << std::endl;
+    if (gnnMeshPOrder < nekMeshPOrder) delete mesh;
     delete[] pos_node;
     delete[] node_element_ids;
     delete[] local_unique_mask;
@@ -104,7 +145,7 @@ gnn_t::~gnn_t()
 
 void gnn_t::gnnSetup()
 {
-    if (verbose) printf("[RANK %d] -- in gnnSetup() \n", rank);
+    if (verbose) std::cout << "[RANK " << rank << "] -- in gnnSetup()" << std::endl;
 
     // do not use multiscale flag if mesh is p=1    
     int poly_order = mesh->Nq - 1; 
@@ -114,7 +155,7 @@ void gnn_t::gnnSetup()
     }
     if (multiscale)
     {
-        if (verbose) printf("[RANK %d] -- using multiscale flag \n", rank);
+        if (verbose) std::cout << "[RANK " << rank << "] -- using multiscale flag" << std::endl;
     }
 
     get_graph_nodes(); // populates graphNodes
@@ -188,8 +229,6 @@ void gnn_t::gnnWriteDB(smartredis_client_t* client)
     // Writing the graph data
     client->_client->put_tensor("pos_node" + irank + nranks, pos_node, {3,num_nodes},
                     SRTensorTypeDouble, SRMemLayoutContiguous);
-    //client->_client->put_tensor("node_element_ids" + irank + nranks, node_element_ids, {num_nodes,1},
-    //                SRTensorTypeInt32, SRMemLayoutContiguous);
     client->_client->put_tensor("local_unique_mask" + irank + nranks, local_unique_mask, {num_nodes},
                     SRTensorTypeInt32, SRMemLayoutContiguous);
     client->_client->put_tensor("halo_unique_mask" + irank + nranks, halo_unique_mask, {num_nodes},
@@ -200,18 +239,10 @@ void gnn_t::gnnWriteDB(smartredis_client_t* client)
     // Writing edge information
     client->_client->put_tensor("edge_index" + irank + nranks, edge_index, {2,num_edg},
                     SRTensorTypeInt32, SRMemLayoutContiguous);
-    //client->_client->put_tensor("edge_index_element_local" + irank + nranks, edge_index_local, {2,num_edg_l},
-    //                SRTensorTypeInt32, SRMcemLayoutContiguous);
-    //client->_client->put_tensor("edge_index_element_local_vertex" + irank + nranks, edge_index_local_vertex, {2,num_vert_l},
-    //                SRTensorTypeInt32, SRMemLayoutContiguous);
 
     // Writing some graph statistics
-    //client->_client->put_tensor("Nelements" + irank + nranks, &mesh->Nelements, {1},
-    //                SRTensorTypeInt32, SRMemLayoutContiguous);
     client->_client->put_tensor("Np" + irank + nranks, &mesh->Np, {1},
                     SRTensorTypeInt32, SRMemLayoutContiguous);
-    //client->_client->put_tensor("N" + irank + nranks, &N, {1},
-    //                SRTensorTypeInt32, SRMemLayoutContiguous);
 
     MPI_Barrier(comm);
     if (verbose) printf("[RANK %d] -- done sending graph data to DB \n", rank);
@@ -225,7 +256,7 @@ void gnn_t::gnnWriteADIOS(adios_client_t* client)
     if (verbose && rank == 0) printf("[RANK %d] -- in gnnWriteADIOS() \n", rank);
     unsigned long _size = size;
     unsigned long _rank = rank;
-    client->_num_dim = nrs->mesh->dim;
+    client->_num_dim = mesh->dim;
 
     // Get global size of data
     int global_N, global_num_edges;
@@ -375,9 +406,12 @@ void gnn_t::get_node_masks()
     }
 
     // SB: test 
-    if (verbose) printf("[RANK %d] -- \tN: %d \n", rank, N);
-    if (verbose) printf("[RANK %d] -- \tNlocal: %d \n", rank, Nlocal);
-    if (verbose) printf("[RANK %d] -- \tNhalo: %d \n", rank, Nhalo);
+    if (verbose) {
+        printf("[RANK %d] -- \tN: %d \n", rank, N);
+        printf("[RANK %d] -- \tNlocal: %d \n", rank, Nlocal);
+        printf("[RANK %d] -- \tNhalo: %d \n", rank, Nhalo);
+        fflush(stdout);
+    }
 
     // ~~~~ For parsing the local coincident nodes
     if (Nlocal)
@@ -948,6 +982,19 @@ void gnn_t::write_edge_index_element_local_vertex_binary(const std::string& file
             // file_cpu << idx_nei << '\t' << idx_own << '\n';
             file_cpu.write(reinterpret_cast<const char*>(&idx_nei), sizeof(dlong));
             file_cpu.write(reinterpret_cast<const char*>(&idx_own), sizeof(dlong));
+        }
+    }
+}
+
+void gnn_t::interpolateField(nrs_t* nrs, occa::memory& o_field_fine, dfloat* field_coarse, int dim)
+{
+    if (gnnMeshPOrder == nekMeshPOrder){
+        o_field_fine.copyTo(field_coarse, dim * fieldOffset);
+    } else if (gnnMeshPOrder < nekMeshPOrder){
+        auto o_tmp = platform->deviceMemoryPool.reserve<dfloat>(fieldOffset);
+        for (int i = 0; i < dim; i++) {
+            nrs->mesh->interpolate(o_field_fine.slice(i * nrs->fieldOffset, nrs->fieldOffset), mesh, o_tmp);
+            o_tmp.copyTo(field_coarse + i * fieldOffset, fieldOffset);
         }
     }
 }

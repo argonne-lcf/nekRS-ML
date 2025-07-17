@@ -148,6 +148,7 @@ echo "    link_files: [\"./${TAFF_FILE}\"]" >> $CFILE
 PFILE=${case}.par
 echo "" >> $PFILE
 echo "[ML]" >> $PFILE
+echo "gnnPolynomialOrder = 7" >> $PFILE
 echo "ssimDeployment = ${DEPLOYMENT}" >> $PFILE
 echo "ssimDbNodes = ${DB_NODES}" >> $PFILE
 

@@ -140,6 +140,7 @@ echo "    arguments: \"model_task=inference rollout_steps=100 backend=nccl halo_
 PFILE=${case}.par
 echo "" >> $PFILE
 echo "[ML]" >> $PFILE
+echo "gnnPolynomialOrder = 7" >> $PFILE
 echo "adiosEngine = SST" >> $PFILE
 echo "adiosTransport = WAN" >> $PFILE
 echo "adiosStream = async" >> $PFILE
