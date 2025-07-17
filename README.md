@@ -57,9 +57,9 @@ Other branches available in the repository should be considered experimental.
 
 Then, simply execute one of the build scripts contained in the reposotory. 
 The HPC systems currently supported are:
-* [Polaris](https://docs.alcf.anl.gov/polaris/) (Argonne LCF)
-* [Aurora](https://docs.alcf.anl.gov/aurora/) (Argonne LCF) 
-* [Crux](https://docs.alcf.anl.gov/crux/) (Argonne LCF)
+* [Polaris](https://docs.alcf.anl.gov/polaris/) @ Argonne LCF
+* [Aurora](https://docs.alcf.anl.gov/aurora/) @ Argonne LCF
+* [Crux](https://docs.alcf.anl.gov/crux/) @ Argonne LCF (limited support for ML-enabled exampels)
 
 For example, to build nekRS-ML on Aurora without the SmartRedis client, execute from a compute node
 
