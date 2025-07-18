@@ -438,6 +438,11 @@ void udfBuild(setupAide &options)
 #else
         const std::string cmakeSmartRedis = "OFF";
 #endif
+#ifdef NEKRS_ENABLE_ADIOS
+        const std::string cmakeAdios = "ON";
+#else
+        const std::string cmakeAdios = "OFF";
+#endif
 
         snprintf(cmd,
                  cmdSize,
@@ -445,7 +450,7 @@ void udfBuild(setupAide &options)
                 "-DNEKRS_USE_DFLOAT_FLOAT=%s "
                 "-DNEKRS_INSTALL_DIR=\"%s\" -DCASE_DIR=\"%s\" -DCMAKE_CXX_COMPILER=\"$NEKRS_CXX\" "
                 "-DCMAKE_CXX_FLAGS=\"$NEKRS_CXXFLAGS\" -DCMAKE_VERBOSE_MAKEFILE=%s "
-                "-DENABLE_SMARTREDIS=%s >cmake.log 2>&1",
+                "-DENABLE_SMARTREDIS=%s -DENABLE_ADIOS=%s >cmake.log 2>&1",
                 cmakeBuildDir.c_str(),
                 cmakeFlags.c_str(),
                 cmakeBuildDir.c_str(),
@@ -454,7 +459,8 @@ void udfBuild(setupAide &options)
                 installDir.c_str(),
                 case_dir.c_str(),
                 cmakeVerbose.c_str(),
-                cmakeSmartRedis.c_str()
+                cmakeSmartRedis.c_str(),
+                cmakeAdios.c_str()
               );
         if (verbose) {
           std::cout << "Building the udf file with \n" << cmd << std::endl;

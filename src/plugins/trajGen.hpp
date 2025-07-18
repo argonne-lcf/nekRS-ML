@@ -4,6 +4,7 @@
 #include "nrs.hpp"
 #include "nekInterfaceAdapter.hpp"
 #include <filesystem>
+#include "gnn.hpp"
 #ifdef NEKRS_ENABLE_SMARTREDIS
 #include "smartRedis.hpp"
 #endif
@@ -15,7 +16,7 @@ void deleteDirectoryContents(const std::filesystem::path& dir);
 class trajGen_t 
 {
 public:
-    trajGen_t(nrs_t *nrs, int dt_factor_, int skip_, dfloat time_init_);
+    trajGen_t(gnn_t *graph_, int dt_factor_, int skip_, dfloat time_init_);
     ~trajGen_t(); 
 
     // public variables
@@ -25,27 +26,30 @@ public:
     int skip;
     bool first_step = true;
     std::string irank, nranks;
-    dfloat *previous_U;
-    //dfloat *previous_P;
+    dfloat *previous_U = 0, *U = 0;
+    dfloat /* *previous_P, */ *P = 0;
     //int previous_tstep;
     
     // member functions 
     void trajGenSetup();
-    void trajGenWrite(dfloat time, int tstep, const std::string& field_name);
+    void trajGenWrite(nrs_t *nrs, dfloat time, int tstep, const std::string& field_name);
 #ifdef NEKRS_ENABLE_SMARTREDIS
-    void trajGenWriteDB(smartredis_client_t* client, 
+    void trajGenWriteDB(nrs_t *nrs,
+                        smartredis_client_t* client, 
                         dfloat time, 
                         int tstep, 
                         const std::string& field_name);
 #endif
-    void trajGenWriteADIOS(adios_client_t* client,
+    void trajGenWriteADIOS(nrs_t *nrs,
+                           adios_client_t* client,
                            dfloat time, 
                            int tstep, 
                            const std::string& field_name);
 
 private:
     // nekrs objects 
-    nrs_t *nrs;
+    //nrs_t *nrs;
+    gnn_t *graph;
     mesh_t *mesh;
     ogs_t *ogs;
 

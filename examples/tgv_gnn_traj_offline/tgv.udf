@@ -133,7 +133,7 @@ void UDF_Setup()
   int skip = 0;
   dfloat t0;
   platform->options.getArgs("START TIME", t0);
-  tgen = new trajGen_t (nrs, dt_factor, skip, t0);
+  tgen = new trajGen_t (graph, dt_factor, skip, t0);
   tgen->trajGenSetup();
 }
 
@@ -145,14 +145,14 @@ void UDF_ExecuteStep(double time, int tstep)
   platform->options.getArgs("NUMBER TIMESTEPS", numSteps);
 
   // write trajectory
-  tgen->trajGenWrite(time, tstep, "velocity");
+  tgen->trajGenWrite(nrs, time, tstep, "velocity");
 
   if (nrs->checkpointStep) {
     nrs->Qcriterion(o_qcriterion);
   }
 
   if (nrs->lastStep || numSteps == 0) {
-    delete graph;
     delete tgen;
+    delete graph;
   }
 }

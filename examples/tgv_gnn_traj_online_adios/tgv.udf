@@ -139,7 +139,7 @@ void UDF_Setup()
   int skip = 0;
   dfloat t0;
   platform->options.getArgs("START TIME", t0);
-  tgen = new trajGen_t(nrs, dt_factor, skip, t0);
+  tgen = new trajGen_t(graph, dt_factor, skip, t0);
 }
 
 void UDF_ExecuteStep(double time, int tstep)
@@ -151,7 +151,7 @@ void UDF_ExecuteStep(double time, int tstep)
 
   // write trajectory
   if (tstep <= 50) {
-    tgen->trajGenWriteADIOS(client, time, tstep, "velocity");
+    tgen->trajGenWriteADIOS(nrs, client, time, tstep, "velocity");
   }
 
   if (nrs->checkpointStep) {
@@ -166,7 +166,7 @@ void UDF_ExecuteStep(double time, int tstep)
   }
 
   if (nrs->lastStep || numSteps == 0) {
-    delete graph;
     delete tgen;
+    delete graph;
   }
 }
