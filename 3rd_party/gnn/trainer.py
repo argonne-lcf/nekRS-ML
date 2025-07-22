@@ -366,9 +366,9 @@ class Trainer:
 
         # Device and intra-op threads
         if WITH_CUDA:
-            torch.cuda.set_device(DEVICE_ID)
+            torch.cuda.set_device(DEVICE_ID + self.cfg.device_skip)
         elif WITH_XPU:
-            torch.xpu.set_device(DEVICE_ID+self.cfg.device_skip)
+            torch.xpu.set_device(DEVICE_ID + self.cfg.device_skip)
         torch.set_num_threads(self.cfg.num_threads)
 
         # Precision
