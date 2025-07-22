@@ -366,7 +366,7 @@ class Trainer:
 
         # Device and intra-op threads
         if WITH_CUDA:
-            torch.cuda.set_device(DEVICE_ID)
+            torch.cuda.set_device(DEVICE_ID+self.cfg.device_skip)
         elif WITH_XPU:
             torch.xpu.set_device(DEVICE_ID+self.cfg.device_skip)
         torch.set_num_threads(self.cfg.num_threads)
@@ -702,7 +702,7 @@ class Trainer:
                     edge_freq = create_halo_info_par.get_edge_weights(self.data_reduced, halo_info_glob)
                     edge_weight = (1.0/edge_freq).to(self.torch_dtype)
                     if RANK ==0: log.info('[RANK %d]: computed edge weights in %f sec' %(RANK,time.time()-tic))
-                    self.client.put_array(f'edge_weight_rank_{RANK}_size_{SIZE}', edge_weight.numpy())
+                    self.client.put_array(f'edge_weight_rank_{RANK}_size_{SIZE}', edge_weight.to(torch.float32).numpy())
 
             self.neighboring_procs = np.unique(halo_info[:,3])
             n_nodes_local = self.data_reduced.pos.shape[0]

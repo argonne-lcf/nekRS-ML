@@ -24,15 +24,9 @@ cp ${1}.par.safe ${1}.par
 #--------------------------------------
 # Update the .box file to increase the mesh size linearly with the number of nodes
 SIM_PROCS=$(( SIM_NODES * SIM_RANKS_PER_NODE ))
-NX=$(( 10 ))
-NZ=$(( 2*SIM_PROCS ))
-if [[ "$SIM_NODES" -gt 1 ]]; then
-    LZ=$SIM_NODES
-else
-    LZ=1
-fi
+NZ=$(( 20*SIM_PROCS ))
+LZ=$(( 1*SIM_PROCS ))
 cp ${1}_safe.box ${1}.box
-sed -i "s/NX/${NX}/g" ${1}.box
 sed -i "s/NZ/${NZ}/g" ${1}.box
 sed -i "s/LZ/${LZ}/g" ${1}.box
 
@@ -123,9 +117,9 @@ echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/main.py\"" >> $CFILE
 #echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
 echo "    affinity: \"\"" >> $CFILE
 if [ ${DEPLOYMENT} == "colocated"  ]; then
-  echo "    arguments: \"device_skip=${SIM_RANKS_PER_NODE} hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=nccl halo_swap_mode=all_to_all_opt online=True client.backend=adios client.adios_transport=WAN consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
+  echo "    arguments: \"device_skip=${SIM_RANKS_PER_NODE} precision=bf16 phase1_steps=500 hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=nccl halo_swap_mode=all_to_all_opt online=True client.backend=adios client.adios_transport=WAN time_dependency=time_dependent verbose=True\"" >> $CFILE
 elif [ ${DEPLOYMENT} == "clustered"  ]; then
-  echo "    arguments: \"hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=nccl halo_swap_mode=all_to_all_opt online=True client.backend=adios consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
+  echo "    arguments: \"precision=bf16 phase1_steps=500 hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=nccl halo_swap_mode=all_to_all_opt online=True client.backend=adios time_dependency=time_dependent verbose=True\"" >> $CFILE
 fi
 echo "" >> $CFILE
 echo "# Inference config" >> $CFILE
@@ -133,14 +127,14 @@ echo "inference:" >> $CFILE
 echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/inference.py\"" >> $CFILE
 #echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
 echo "    affinity: \"\"" >> $CFILE
-echo "    arguments: \"model_task=inference rollout_steps=100 hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=nccl halo_swap_mode=all_to_all_opt online=True client.backend=adios consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
+echo "    arguments: \"model_task=inference rollout_steps=200 hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=nccl halo_swap_mode=all_to_all_opt online=True client.backend=adios time_dependency=time_dependent verbose=True\"" >> $CFILE
 
 #--------------------------------------
 # Update the .par file with the ML options
 PFILE=${case}.par
 echo "" >> $PFILE
 echo "[ML]" >> $PFILE
-echo "gnnPolynomialOrder = 7" >> $PFILE
+echo "gnnPolynomialOrder = 2" >> $PFILE
 echo "adiosEngine = SST" >> $PFILE
 echo "adiosTransport = WAN" >> $PFILE
 echo "adiosStream = async" >> $PFILE

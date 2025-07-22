@@ -6,7 +6,7 @@ seed: 12
 backend: nccl
 num_threads: 1
 logfreq: 10
-ckptfreq: 500
+ckptfreq: 10000
 batch_size: 1
 val_batch_size: 1
 precision: fp32
