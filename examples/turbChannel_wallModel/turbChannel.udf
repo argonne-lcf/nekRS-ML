@@ -27,11 +27,13 @@ using velInflowData = std::tuple<dlong, dfloat, dfloat, dfloat, dfloat>;
 std::vector<velInflowData> velInflowList;
 
 static deviceMemory<dfloat> o_BdryID;
-static deviceMemory<dfloat> o_BdryToV;
+static deviceMemory<dlong> o_BdryToV;
 static deviceMemory<dfloat> o_Upart;
 
-static dlong *BdryToV = NULL;
-static dfloat *Upart = NULL;
+//static dlong *BdryToV = NULL;
+//static dfloat *Upart = NULL;
+std::vector<dlong> BdryToV;
+std::vector<dfloat> Upart;
 
 static pointInterpolation_t *interpolator = nullptr;
 
@@ -47,7 +49,7 @@ static dfloat visc;
 
 /* User Functions */
 
-//(nrs_t *nrs)
+//void planarAverage(nrs_t *nrs)
 //{
 //  const auto fieldOffsetByte = nrs->fieldOffset * sizeof(dfloat);
 //  planarAvg(nrs->mesh, "xz", NUMBER_ELEMENTS_X, NUMBER_ELEMENTS_Y, NUMBER_ELEMENTS_Z, 3, nrs->fieldOffset, o_work); // o_work tavg-ed 9-slots data
@@ -60,7 +62,7 @@ void writeStatistics(nrs_t *nrs, dfloat time, int tstep, const std::string& fnam
   const auto np = (platform->comm.mpiRank == 0) ? NUMBER_ELEMENTS_Y * mesh->N : 0;
   const auto offset = np;
 
-  static pointInterpolation_t *interpolator = nullptr;
+  //static pointInterpolation_t *interpolator = nullptr;
   static std::vector<dfloat> xp, yp, zp;
   //static deviceMemory<dfloat> o_fields1D;
   //const auto Nfields = 4;
@@ -92,7 +94,7 @@ void writeStatistics(nrs_t *nrs, dfloat time, int tstep, const std::string& fnam
 
     interpolator = new pointInterpolation_t(mesh, platform->comm.mpiComm);
     interpolator->setPoints(xp, yp, zp);
-    interpolator->find();
+    interpolator->find(pointInterpolation_t::VerbosityLevel::Detailed);
 
     if (platform->comm.mpiRank == 0) { 
       std::ofstream f(fname, std::ios::app);
@@ -176,7 +178,7 @@ double solve_reichardt_log_law(double umag, double ymag, double kll, double bll,
 }
 
 // Fill wall-model values in work-array
-void calc_wallModel(dfloat *usrwrk, dlong fieldOffset, int tstep, int Npart, int *BdryToV, double *Upart)
+void calc_wallModel(dfloat *usrwrk, dlong fieldOffset, int tstep, int Npart, std::vector<dlong> BdryToV, std::vector<dfloat> Upart)
 {
   const dfloat kll=0.41;
   const dfloat bll=5.1;
@@ -313,7 +315,7 @@ void setupRecycledInflow(nrs_t *nrs)
 
   interpolator = new pointInterpolation_t(mesh, platform->comm.mpiComm);
   interpolator->setPoints(o_xpart, o_ypart, o_zpart);
-  interpolator->find();
+  interpolator->find(pointInterpolation_t::VerbosityLevel::Detailed);
 }
 
 void updateRecycledVelocity(nrs_t *nrs, deviceMemory<dfloat> o_avg, int verbose)
@@ -412,7 +414,7 @@ void UDF_Setup0(MPI_Comm comm, setupAide &options)
   //*((double *)nek::scPtr(3)) = betaY;
 }
 
-void UDF_Setup(nrs_t *nrs)
+void UDF_Setup()
 {
 
   if (platform->options.compareArgs("CONSTANT FLOW RATE", "FALSE")) {
@@ -455,31 +457,37 @@ void UDF_Setup(nrs_t *nrs)
     usrwrk = (dfloat *) calloc(nrs->fieldOffset, sizeof(dfloat));
     //nrs->o_usrwrk = platform->device.malloc(nrs->fieldOffset * sizeof(dfloat));
     nrs->o_usrwrk.resize(nrs->fieldOffset);
-    o_work = platform->device.malloc(Nfields * nrs->fieldOffset * sizeof(dfloat));
+    //o_work = platform->device.malloc(Nfields * nrs->fieldOffset * sizeof(dfloat));
 
     // Each entity is a set of {bID, dx, dy, dz, targetUbar}
     velInflowList.push_back(std::tuple{1, 0.0, 0.1, 0.0, 1.0});
     setupRecycledInflow(nrs);
 
     dlong npts = interpolator->numPoints();
-    BdryToV = (dlong *) calloc(npts, sizeof(dlong));
-    Upart = (dfloat *) calloc(nrs->NVfields * npts, sizeof(dfloat));
+    //BdryToV = (dlong *) calloc(npts, sizeof(dlong));
+    //Upart = (dfloat *) calloc(nrs->NVfields * npts, sizeof(dfloat));
+    std::vector<dlong> BdryToV(npts);
+    std::vector<dfloat> Upart(nrs->NVfields * npts);
 
-    o_BdryToV.copyTo(BdryToV);
+    o_BdryToV.copyTo(BdryToV, BdryToV.size());
   }
 
 }
 
-void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
+void UDF_ExecuteStep(dfloat time, int tstep)
 {
 
   mesh_t *mesh = nrs->meshV;
   const dlong fieldOffsetBytes = nrs->fieldOffset*sizeof(dfloat);
 
-  deviceMemory<dfloat> o_Vx = nrs->o_U.slice(0 * fieldOffsetBytes, fieldOffsetBytes);
-  deviceMemory<dfloat> o_Vy = nrs->o_U.slice(1 * fieldOffsetBytes, fieldOffsetBytes);
-  deviceMemory<dfloat> o_Vz = nrs->o_U.slice(2 * fieldOffsetBytes, fieldOffsetBytes);
-  deviceMemory<dfloat> o_Pr = nrs->o_P;
+  deviceMemory<dfloat> o_Vx(nrs->o_U.slice(0 * nrs->fieldOffset , nrs->fieldOffset));
+  deviceMemory<dfloat> o_Vy(nrs->o_U.slice(1 * nrs->fieldOffset , nrs->fieldOffset));
+  deviceMemory<dfloat> o_Vz(nrs->o_U.slice(2 * nrs->fieldOffset , nrs->fieldOffset));
+  deviceMemory<dfloat> o_Pr(nrs->o_P.slice(0 * nrs->fieldOffset , nrs->fieldOffset));
+  //deviceMemory<dfloat> o_Vx = nrs->o_U.slice(0 * fieldOffsetBytes, fieldOffsetBytes);
+  //deviceMemory<dfloat> o_Vy = nrs->o_U.slice(1 * fieldOffsetBytes, fieldOffsetBytes);
+  //deviceMemory<dfloat> o_Vz = nrs->o_U.slice(2 * fieldOffsetBytes, fieldOffsetBytes);
+  //deviceMemory<dfloat> o_Pr = nrs->o_P;
 
   // chk min/max
   const dfloat vxmin = platform->linAlg->min(mesh->Nlocal, o_Vx, platform->comm.mpiComm);
@@ -508,7 +516,7 @@ void UDF_ExecuteStep(nrs_t *nrs, dfloat time, int tstep)
       auto o_avg = tavg::o_avg();
       updateRecycledVelocity(nrs, o_avg, verbose); //interpolates velocity on off-wall nodes
 
-      o_Upart.copyTo(Upart); //copy from occa mem to CPU mem
+      o_Upart.copyTo(Upart, Upart.size()); //copy from occa mem to CPU mem
 
       dlong npts = interpolator->numPoints();
       calc_wallModel(usrwrk, nrs->fieldOffset, tstep, npts, BdryToV, Upart); // model for the wall shear stress
