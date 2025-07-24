@@ -31,12 +31,10 @@ yod = [y/y_crd[-1] for y in y_crd]
 u = [u[3] for u in data]
 plt.figure(figsize=(6,4))
 plt.plot(yod, u, marker='o', linestyle='-')
-plt.plot(yod, u2, marker='o', linestyle='-')
-plt.plot(yod, u3, marker='o', linestyle='-')
 plt.xlabel('y')
 plt.ylabel('u')
 plt.title('Streamwise Velocity')
 plt.grid()
-plt.xscale('log')
+#plt.xscale('log')
 plt.savefig('velocity.png')
 
