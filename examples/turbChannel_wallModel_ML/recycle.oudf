@@ -1,0 +1,38 @@
+// recycling kernel start
+@kernel void pasteInletVelocity(const dlong Npart,
+                                const dlong fieldOffset,
+                                @ restrict const dlong *BdryToV,
+                                @ restrict const dfloat *Upart,
+                                @ restrict dfloat *U)
+{ 
+  for (dlong n = 0; n < Npart; ++n; @tile(256, @outer, @inner)) {
+    if (n < Npart) {
+      const dlong v = BdryToV[n];
+      U[0*fieldOffset + v] = Upart[0*Npart + n];
+      U[1*fieldOffset + v] = Upart[1*Npart + n];
+      U[2*fieldOffset + v] = Upart[2*Npart + n];
+    }   
+  } 
+}
+
+@kernel void scaleInletVelocity(const dlong Npart,
+                                const dlong fieldOffset,
+                                const dfloat scale,
+                                const dlong bid,
+                                @ restrict const dlong *BdryID,
+                                @ restrict const dlong *BdryToV,
+                                @ restrict dfloat *U)
+{ 
+  for (dlong n = 0; n < Npart; ++n; @tile(256, @outer, @inner)) {
+    if (n < Npart) {
+      const dlong v = BdryToV[n];
+      const dlong id = BdryID[n];
+      if (bid==id) {
+        U[0*fieldOffset + v] *= scale;
+        U[1*fieldOffset + v] *= scale;
+        U[2*fieldOffset + v] *= scale;
+      }
+    }
+  }
+}
+// recycling kernel ends

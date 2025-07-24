@@ -1,0 +1,14 @@
+// Boundary conditions
+// =============================================================================
+void velocityNeumannConditions(bcData *bc)
+{
+  const dfloat uTau = bc->usrwrk[bc->idM + 0 * bc->fieldOffset];
+
+  const dfloat ut1x = bc->u * bc->t1x + bc->v * bc->t1y + bc->w * bc->t1z;
+  const dfloat ut2x = bc->u * bc->t2x + bc->v * bc->t2y + bc->w * bc->t2z;
+
+  bc->tr1 = - (ut1x/abs(ut1x+1e-6)) * uTau * uTau;
+  bc->tr2 = - 0.0;
+  //bc->tr2 = - (ut2x/abs(ut2x+1e-6)) * uTau * uTau;
+
+}

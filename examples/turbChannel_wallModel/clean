@@ -1,0 +1,5 @@
+#!/bin/bash
+
+rm run.sh
+rm NekAvgData_1D.csv 
+rm *.png 
