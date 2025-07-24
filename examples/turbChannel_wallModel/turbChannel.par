@@ -1,18 +1,15 @@
-#[OCCA]
-#backend=serial
-
 [GENERAL]
 #verbose = true
-polynomialOrder = 6
+polynomialOrder = 7
 startFrom = "base.fld"+time=0
 stopAt = endTime
-endTime = 200
+endTime = 100
 
 dt = targetCFL=0.5 + max=2e-2 + initial=5e-3
 timeStepper = tombo2
 
-writeControl = simulationTime 
-writeInterval = 10
+checkpointControl = simulationTime 
+checkpointInterval = 20
 
 regularization = hpfrt + nModes=1 + scalingCoeff=5
 constFlowRate = meanVelocity=1.0 + direction=X
@@ -21,9 +18,9 @@ constFlowRate = meanVelocity=1.0 + direction=X
 residualTol = 1e-04
 
 [VELOCITY]
-boundaryTypeMap = wall
+boundaryTypeMap = zeroValue 
 viscosity = 1/19000
-density = 1.0
+rho = 1.0
 residualTol = 1e-06
 
 [CASEDATA]
