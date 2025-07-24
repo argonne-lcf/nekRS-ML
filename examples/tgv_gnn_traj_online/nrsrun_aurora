@@ -80,7 +80,7 @@ echo "    backend: \"redis\"" >> $CFILE
 echo "    deployment: \"${DEPLOYMENT}\"" >> $CFILE
 echo "    port: 6780" >> $CFILE
 if [ ${DEPLOYMENT} == "colocated"  ]; then
-  echo "    network_interface: \"udf\"" >> $CFILE
+  echo "    network_interface: \"uds\"" >> $CFILE
 else
   echo "    network_interface: \"hsn0\"" >> $CFILE
 fi
