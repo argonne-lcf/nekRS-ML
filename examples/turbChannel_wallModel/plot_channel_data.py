@@ -60,7 +60,7 @@ idT = index_var[8];
 
 #inputs
 les = np.loadtxt(nek_data, delimiter=',', skiprows=1);
-fname = 'Re{}_DNS.dat'.format(int(Retau))
+fname = 'Re{}_DNS.txt'.format(int(Retau))
 dns = np.loadtxt(fname, delimiter=','); 
 
 Uref=1.0;
