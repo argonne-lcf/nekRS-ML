@@ -8,9 +8,9 @@
 
       ntot = nx1*ny1*nz1*nelt
 
-      do i=1,ntot
-         ym1(i,1,1,1) = tanh(BETAM*ym1(i,1,1,1))/tanh(BETAM)
-      enddo
+      !do i=1,ntot
+      !   ym1(i,1,1,1) = tanh(BETAM*ym1(i,1,1,1))/tanh(BETAM)
+      !enddo
 
       do iel=1,nelt
       do ifc=1,2*ndim
