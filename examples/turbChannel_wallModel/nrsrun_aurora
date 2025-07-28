@@ -47,5 +47,6 @@ echo -e "\n# Run nekRS" >>$RFILE
 echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND}" >> $RFILE
 
 echo -e "\n# Post-process" >>$RFILE
-echo "python postprocess.py" >>$RFILE
+echo "awk '/^#/ {line=NR} END{print line}' NekAvgData_1D.csv | { read lh; awk -v lh=\"\$lh\" 'NR==1 || NR==lh || NR>lh' NekAvgData_1D.csv; } > postprocess_data.csv" >> $RFILE
+echo "python plot_channel_data.py postprocess_data.csv 950 0" >>$RFILE
 chmod u+x $RFILE
