@@ -18,7 +18,7 @@ constFlowRate = meanVelocity=1.0 + direction=X
 residualTol = 1e-04
 
 [VELOCITY]
-boundaryTypeMap = wall 
+boundaryTypeMap = zeroNValue/codedFixedGradient
 viscosity = 1/19000
 rho = 1.0
 residualTol = 1e-06

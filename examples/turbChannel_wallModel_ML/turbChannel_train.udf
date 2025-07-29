@@ -6,6 +6,8 @@
 #include "plugins/smartRedis.hpp"
 #include "nrs.hpp"
 #include "plugins/tavg.hpp"
+#include "mesh.h"
+#include "pointInterpolation.hpp"
 
 static dfloat ReTau;
 static dfloat zLength;

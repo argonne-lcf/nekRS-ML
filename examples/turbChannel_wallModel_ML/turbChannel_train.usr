@@ -2,6 +2,16 @@
       include 'SIZE'
       include 'TOTAL'
 
+      parameter(BETAM = 2.2)
+
+      call rescale_x(ym1,-1.0,1.0)
+
+      ntot = nx1*ny1*nz1*nelt
+
+      do i=1,ntot
+         ym1(i,1,1,1) = tanh(BETAM*ym1(i,1,1,1))/tanh(BETAM)
+      enddo
+
       do iel=1,nelt
       do ifc=1,2*ndim
          if (cbc(ifc,iel,1) .eq. 'W  ') boundaryID(ifc,iel) = 1 

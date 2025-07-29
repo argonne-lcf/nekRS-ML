@@ -1,6 +1,6 @@
 [GENERAL]
 #verbose = true
-polynomialOrder = 7
+polynomialOrder = 4
 startFrom = "restart.fld"+time=0
 stopAt = endTime
 endTime = 400

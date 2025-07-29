@@ -36,7 +36,7 @@ static int Nblock;
 static dfloat visc;
 
 #ifdef __okl__
-  #include "turbChannel.oudf"
+#include "turbChannel.oudf"
 #endif
 
 /* User Functions */
@@ -78,8 +78,6 @@ void writeStatistics(nrs_t *nrs, dfloat time, int tstep, const std::string& fnam
         //  printf("Averaging points x,y,z = %g %g %g \n",
         //       x0, y0, z0);
       }
-
-      //o_fields1D = platform->device.malloc(Nfields * offset * sizeof(dfloat));
     }
 
     interpolator = new pointInterpolation_t(mesh, platform->comm.mpiComm);
@@ -322,6 +320,7 @@ void useric(nrs_t *nrs)
   auto mesh = nrs->mesh;
 
   if (platform->options.getArgs("RESTART FILE NAME").empty()) {
+    if (platform->comm.mpiRank == 0) std::cout << "Setting the IC from the .udf file" << std::endl;
     const auto C = 5.17;
     const auto k = 0.41;
     const auto eps = 1e-2;
@@ -332,16 +331,7 @@ void useric(nrs_t *nrs)
     dfloat mue;
     platform->options.getArgs("VISCOSITY", mue);
 
-    platform->linAlg->rescale(0.0, xLength, mesh->o_x, platform->comm.mpiComm);
-    platform->linAlg->rescale(0.0, 1.0, mesh->o_y, platform->comm.mpiComm);
-    platform->linAlg->rescale(0.0, zLength, mesh->o_z, platform->comm.mpiComm);
-
     auto [x, y, z] = mesh->xyzHost();
-
-    for (int i = 1; i < mesh->Nlocal; i++) {
-      y[i] = tanh(betaY * (2*y[i] - 1)) / tanh(betaY);
-    }
-    mesh->o_y.copyFrom(y.data());
 
     std::vector<dfloat> U(mesh->dim * nrs->fieldOffset, 0.0);
     for (int i = 0; i < mesh->Nlocal; i++) {
@@ -356,7 +346,6 @@ void useric(nrs_t *nrs)
       U[i + 2 * nrs->fieldOffset] = -eps * alpha * cos(alpha * x[i]) * sin(beta * z[i]);
     }
     nrs->o_U.copyFrom(U.data(), U.size());
-
   }
 }
 
@@ -375,13 +364,6 @@ void UDF_Setup0(MPI_Comm comm, setupAide &options)
   platform->par->extract("casedata", "tAvgWriteInterval", tAvgWriteInterval);
   platform->par->extract("casedata","caseType",caseType);
   upperCase(caseType);
-
-  if(caseType == "WRLES"){
-    options.setArgs("VELOCITY BOUNDARYTYPEMAP", std::string("WALL"));
-  }  
-  else{  
-    options.setArgs("VELOCITY BOUNDARYTYPEMAP", std::string("SHL"));
-  }
 }
 
 void UDF_Setup()
@@ -481,19 +463,11 @@ void UDF_ExecuteStep(dfloat time, int tstep)
       calc_wallModel(usrwrk, nrs->fieldOffset, tstep, npts, BdryToV, Upart); // model for the wall shear stress
 
       //fill the infered utau values in work array
-      // Debug: print some wall model values
-      if (platform->comm.mpiRank == 0 && tstep % 100 == 0) {
-        std::cout << "Wall model values at tstep " << tstep << ":" << std::endl;
-        for (int i = 0; i < std::min(5, (int)usrwrk.size()); i++) {
-          std::cout << "  usrwrk[" << i << "] = " << usrwrk[i] << std::endl;
-        }
-      }
       nrs->o_usrwrk.copyFrom(usrwrk, usrwrk.size());
     }
   }
 
   if (tstep > 1 && (tstep % tAvgWriteInterval)==0) {
-     //planarAverage(nrs);
      writeStatistics(nrs, time, tstep, "NekAvgData_1D.csv");
   }
 }

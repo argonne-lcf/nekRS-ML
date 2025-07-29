@@ -198,6 +198,7 @@ plt.xscale('log')
 plt.ylabel(r'$U^+$')
 plt.xlabel(r'$y^+$')
 plt.tight_layout()
+plt.grid()
 legend = plt.legend(loc='upper left', fontsize=11)
 plt.savefig('U+.png')
 
@@ -216,6 +217,7 @@ plt.xscale('log')
 plt.ylabel(r'$U^{\prime +}$')
 plt.xlabel(r'$y^+$')
 plt.tight_layout()
+plt.grid()
 plt.savefig('Urms+.png')
 
 # Urms + 
@@ -236,6 +238,7 @@ plt.plot(xdata,ydata,'k--',linewidth=3.0)
 plt.ylabel(r'$U^{\prime}U^{\prime}$')
 plt.xlabel(r'$y/\delta$')
 plt.tight_layout()
+plt.grid()
 plt.savefig('Urms.png')
 
 
@@ -249,6 +252,7 @@ plt.xscale('log')
 plt.ylabel(r'$U^{\prime}V^{\prime +}$')
 plt.xlabel(r'$y^+$')
 plt.tight_layout()
+plt.grid()
 plt.savefig('UVrms+.png')
 
 # UVrms
@@ -262,6 +266,8 @@ plt.plot(xdata,ydata,'k--',linewidth=3.0)
 plt.ylabel(r'$U^{\prime}V^{\prime}$')
 plt.xlabel(r'$y/\delta$')
 plt.tight_layout()
+plt.grid()
+plt.ylim(0,0.0025)
 plt.savefig('UVrms.png')
 
 # U  
@@ -276,4 +282,5 @@ plt.plot(xdata,ydata,'k--',linewidth=3.0,label=dns_lbl)
 plt.ylabel(r'$U/U_b$')
 plt.xlabel(r'$y/\delta$')
 plt.tight_layout()
+plt.grid()
 plt.savefig('U.png')
