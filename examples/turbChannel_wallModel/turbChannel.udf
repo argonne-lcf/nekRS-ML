@@ -297,7 +297,7 @@ void setupRecycledInflow(nrs_t *nrs)
 
 void updateRecycledVelocity(nrs_t *nrs, deviceMemory<dfloat> o_avg, int verbose)
 {
-  mesh_t *mesh = nrs->meshV;
+  mesh_t *mesh = nrs->mesh;
   const dlong NfpTotal = mesh->Nelements * mesh->Nfaces * mesh->Nfp;
   dlong npts = interpolator->numPoints();
   interpolator->eval(nrs->NVfields, nrs->fieldOffset, o_avg, npts, o_Upart);
@@ -306,7 +306,7 @@ void updateRecycledVelocity(nrs_t *nrs, deviceMemory<dfloat> o_avg, int verbose)
 
 void userf(double time)
 {
-  mesh_t *mesh = nrs->meshV;
+  mesh_t *mesh = nrs->mesh;
   dfloat mue, rho;
   platform->options.getArgs("VISCOSITY", mue);
   platform->options.getArgs("DENSITY", rho);
@@ -319,7 +319,7 @@ void userf(double time)
 
 void useric(nrs_t *nrs)
 {
-  auto mesh = nrs->meshV;
+  auto mesh = nrs->mesh;
 
   if (platform->options.getArgs("RESTART FILE NAME").empty()) {
     const auto C = 5.17;
@@ -420,6 +420,7 @@ void UDF_Setup()
 
   if(caseType == "WMLES"){
     usrwrk.resize(nrs->fieldOffset, 0.0); // initializes to zero
+    nrs->o_usrwrk.resize(nrs->fieldOffset);
 
     // Each entity is a set of {bID, dx, dy, dz, targetUbar}
     velInflowList.push_back(std::tuple{1, 0.0, 0.1, 0.0, 1.0});
@@ -480,6 +481,13 @@ void UDF_ExecuteStep(dfloat time, int tstep)
       calc_wallModel(usrwrk, nrs->fieldOffset, tstep, npts, BdryToV, Upart); // model for the wall shear stress
 
       //fill the infered utau values in work array
+      // Debug: print some wall model values
+      if (platform->comm.mpiRank == 0 && tstep % 100 == 0) {
+        std::cout << "Wall model values at tstep " << tstep << ":" << std::endl;
+        for (int i = 0; i < std::min(5, (int)usrwrk.size()); i++) {
+          std::cout << "  usrwrk[" << i << "] = " << usrwrk[i] << std::endl;
+        }
+      }
       nrs->o_usrwrk.copyFrom(usrwrk, usrwrk.size());
     }
   }
