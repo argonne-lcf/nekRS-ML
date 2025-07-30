@@ -299,7 +299,6 @@ void updateRecycledVelocity(nrs_t *nrs, deviceMemory<dfloat> o_avg, int verbose)
   const dlong NfpTotal = mesh->Nelements * mesh->Nfaces * mesh->Nfp;
   dlong npts = interpolator->numPoints();
   interpolator->eval(nrs->NVfields, nrs->fieldOffset, o_avg, npts, o_Upart);
-
 }
 
 void userf(double time)
