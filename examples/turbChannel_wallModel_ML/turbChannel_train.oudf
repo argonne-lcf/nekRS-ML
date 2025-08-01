@@ -1,18 +1,3 @@
 // Boundary conditions
 // =============================================================================
-void velocityNeumannConditions(bcData *bc)
-{
-  ////const dfloat invMagUWall = 1 / bc->usrwrk[1];
-  //const dfloat invMagUWall = 1.0;
-  //const dfloat uTau = bc->usrwrk[3];
 
-  //const dfloat ut1x = bc->u * bc->t1x + bc->v * bc->t1y + bc->w * bc->t1z;
-  //const dfloat ut2x = bc->u * bc->t2x + bc->v * bc->t2y + bc->w * bc->t2z;
-
-  //bc->tr1 = -ut1x * invMagUWall * uTau * uTau;
-  //bc->tr2 = -ut2x * invMagUWall * uTau * uTau;
-  bc->tr1 = - bc->usrwrk[bc->idM + 0 * bc->fieldOffset];
-  bc->tr2 = - 0.0;
-  //bc->v = bc->usrwrk[bc->idM + 1 * bc->fieldOffset];
-  //bc->w = bc->usrwrk[bc->idM + 2 * bc->fieldOffset];
-}

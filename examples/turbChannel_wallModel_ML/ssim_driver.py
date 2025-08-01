@@ -133,8 +133,6 @@ def launch_coDB(cfg, nodelist, nNodes):
                                                     cfg.run_args.simprocs_pn)
         
         print("Launching training script ... ")
-        #model_settings = exp.create_run_settings(exe="echo", exe_args="Hello World")
-        #ml_model = exp.create_model(name="train", run_settings=model_settings)
         ml_model = exp.create_model("train", ml_settings)
         if len(cfg.train.copy_files)>0 or len(cfg.train.link_files)>0:
             ml_model.attach_generator_files(to_copy=list(cfg.train.copy_files), to_symlink=list(cfg.train.link_files))
@@ -173,11 +171,9 @@ def launch_clDB(cfg, nodelist, nNodes):
         'maxclients': 100000,
         'threads_per_queue': 4, # set to 4 for improved performance
         'inter_op_parallelism': 1,
-        'intra_op_parallelism': cfg.run_args.cores_pn,
+        'intra_op_parallelism': 4,
         'cluster-node-timeout': 30000,
         }
-    if (cfg.database.backend == "keydb"):
-        kwargs['server_threads'] = 2 # keydb only
     if (cfg.database.launcher=='local'): run_command = 'mpirun'
     elif (cfg.database.launcher=='pals'): run_command = 'mpiexec'
     network = cfg.database.network_interface if type(cfg.database.network_interface)==str \
@@ -286,25 +282,13 @@ def launch_clDB(cfg, nodelist, nNodes):
 
 
 ## Main function
-@hydra.main(version_base=None, config_path="./conf", config_name="ssim_config")
+@hydra.main(version_base=None, config_path="./", config_name="ssim_config")
 def main(cfg: DictConfig):
     # Get nodes of this allocation (job)
     nodelist = nNodes = None
     if (cfg.database.launcher=='pals'):
-        #hostfile = os.getenv('PBS_NODEFILE')
-        #nodelist, nNodes = parseNodeList(hostfile)
-        hostfile = os.getenv('SLURM_JOB_NODELIST')
-        nodelist = hostfile
-        nNodes   = 1
-
-    # Export KeyDB env variables if requested instead of Redis
-    if (cfg.database.backend == "keydb"):
-        stream = os.popen("which python")
-        prefix = stream.read().split("ssim")[0]
-        keydb_conf = prefix+"SmartSim/smartsim/_core/config/keydb.conf"
-        keydb_bin = prefix+"keydb/src/keydb-server"
-        os.environ['REDIS_PATH'] = keydb_bin
-        os.environ['REDIS_CONF'] = keydb_conf
+        hostfile = os.getenv('PBS_NODEFILE')
+        nodelist, nNodes = parseNodeList(hostfile)
 
     # Call appropriate launcher
     if (cfg.database.deployment == "colocated"):

@@ -75,7 +75,7 @@ if [[ -z "$VENV_PATH" && ! -d ./_ssim ]]; then
   cd ..
   VENV_PATH=${PWD}/_ssim/bin/activate
 elif [ -d ./_ssim ]; then
-  echo -e "\033[35mA Python venv was not specified, but fuond ./_ssim \033[m"
+  echo -e "\033[35mA Python venv was not specified, but found ./_ssim \033[m"
   VENV_PATH=${PWD}/_ssim/bin/activate
 fi
 

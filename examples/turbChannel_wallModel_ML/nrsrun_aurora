@@ -133,19 +133,22 @@ echo "# Trainer config" >> $CFILE
 echo "train:" >> $CFILE
 if [ ${ML_TASK} == "train" ]; then
   echo "    executable: \"${PWD}/trainer.py\"" >> $CFILE
-  #echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
-  echo "    affinity: \"\"" >> $CFILE
+  echo "    device: \"xpu\"" >> $CFILE
   if [ ${DEPLOYMENT} == "colocated"  ]; then
-    echo "    arguments: \"device_skip=${SIM_RANKS_PER_NODE} device=xpu\"" >> $CFILE
+    echo "    device_skip: ${SIM_RANKS_PER_NODE}" >> $CFILE
   elif [ ${DEPLOYMENT} == "clustered"  ]; then
-    echo "    arguments: \"device=xpu\"" >> $CFILE
+    echo "    device_skip: 0" >> $CFILE
   fi
+  echo "    logging: \"info\"" >> $CFILE
+  echo "    affinity: \"\"" >> $CFILE
   echo "    copy_files: []" >> $CFILE
   echo "    link_files: [\"./${TAFF_FILE}\"]" >> $CFILE
 else
   echo "    executable: \"\"" >> $CFILE
+  echo "    device: \"\"" >> $CFILE
+  echo "    device_skip: 0" >> $CFILE
+  echo "    logging: \"\"" >> $CFILE
   echo "    affinity: \"\"" >> $CFILE
-  echo "    arguments: \"\"" >> $CFILE
   echo "    copy_files: []" >> $CFILE
   echo "    link_files: []" >> $CFILE
 fi

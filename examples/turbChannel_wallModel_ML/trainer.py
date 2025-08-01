@@ -14,6 +14,10 @@ from mpi4py import MPI
 
 # ML imports
 import torch
+try:
+    import intel_extension_for_pytorch as ipex
+except ModuleNotFoundError as e:
+    pass
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
@@ -22,24 +26,15 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import all_gather
 
+try:
+    import oneccl_bindings_for_pytorch as ccl
+except ModuleNotFoundError as e:
+    pass
+
+
 # SmartRedis imports
 from smartredis import Client
-#import matplotlib.pyplot as plt
-#
-#
-#training_data = datasets.FashionMNIST(
-#    root="data",
-#    train=True,
-#    download=True,
-#    transform=ToTensor()
-#)
-#
-#test_data = datasets.FashionMNIST(
-#    root="data",
-#    train=False,
-#    download=True,
-#    transform=ToTensor()
-#)
+
 
 ## Define logger
 def setup_logger(name, log_file, level=logging.INFO):
@@ -80,29 +75,6 @@ class FCN(nn.Module):
         x = self.fc2(x)
         return x
 
-## Define the Neural Network Structure
-class NeuralNetwork(nn.Module):
-    # The class takes as inputs the input and output dimensions and the number of layers   
-    def __init__(self, inputDim, outputDim, numNeurons):
-        super().__init__()
-        self.ndIn = inputDim
-        self.ndOut = outputDim
-        self.nNeurons = numNeurons
-        self.net = nn.Sequential(
-            nn.Linear(self.ndIn, self.nNeurons),
-            nn.ReLU(),
-            nn.Linear(self.nNeurons, self.nNeurons),
-            nn.ReLU(),
-            nn.Linear(self.nNeurons, self.nNeurons),
-            nn.ReLU(),
-            nn.Linear(self.nNeurons, self.ndOut),
-        )
-
-    # Define the method to do a forward pass
-    def forward(self, x):
-        return self.net(x)
-
-
 ## Define Datasets
 class RankDataset(torch.utils.data.Dataset):
     # Dataset that generates a key for DB tensor with varying rank ID
@@ -137,8 +109,7 @@ class RankStepDataset(torch.utils.data.Dataset):
         rank_id = rank_id+self.head_rank
         step_id = idx//self.ranks
         step = self.steps[step_id]
-        #return f"x.{rank_id}.{step}"
-        return f"x.{rank_id}"
+        return f"x.{rank_id}.{step}"
 
 class MinibDataset(torch.utils.data.Dataset):
     #dataset of each ML rank in one epoch with the concatenated tensors
@@ -166,7 +137,8 @@ def train(comm, model, train_sampler, train_tensor_loader, optimizer, epoch,
 
     for tensor_idx, tensor_keys in enumerate(train_tensor_loader):
         # grab data from database
-        print(f'[{rank}]: Grabbing tensors with key {tensor_keys}', flush=True)
+        if args.logging == 'verbose':
+            print(f'[{rank}]: Grabbing tensors with key {tensor_keys}', flush=True)
         tic = perf_counter()
         concat_tensor = torch.cat([torch.from_numpy(client.get_tensor(key)) \
                       for key in tensor_keys], dim=0)
@@ -178,8 +150,8 @@ def train(comm, model, train_sampler, train_tensor_loader, optimizer, epoch,
         mbdata = MinibDataset(concat_tensor)
         train_loader = DataLoader(mbdata, shuffle=True, batch_size=batch)
         for batch_idx, dbdata in enumerate(train_loader):
-            # with this a small model, slow down training a little for purpses of example problem
-            #sleep(0.01)
+            # with this very small model, slow down training a little for purpses of example problem
+            sleep(0.001)
 
             # split inputs and outputs
             if (args.device != 'cpu'):
@@ -237,25 +209,18 @@ def main():
     size = comm.Get_size()
     rank = comm.Get_rank()
     name = MPI.Get_processor_name()
-    #rankl = int(os.getenv("PALS_LOCAL_RANKID"))
-    #rankl = int(os.getenv("SLURM_LOCALID"))
-    rankl = rank
+    rankl = int(os.getenv("PALS_LOCAL_RANKID"))
     print(f'Rank {rank}/{size}, local rank {rankl} says hello from {name}', flush=True)
     comm.Barrier()
-    if (rank == 0):
-        print("MPI COMM initialized\n", flush=True)
 
     # Parse arguments
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--dbnodes',default=1,type=int,help='Number of database nodes')
     parser.add_argument('--device',default='cpu',help='Device to run on')
     parser.add_argument('--ppn',default=1,type=int,help='Number of processes per node')
-    parser.add_argument('--logging',default='no',help='Level of performance logging')
+    parser.add_argument('--logging',default='info',choices=['verbose','info'],help='Level of performance logging')
+    parser.add_argument('--device_skip',default=0,type=int,help='Number of GPU devices to skip')
     args = parser.parse_args()
-
-    comm.Barrier()
-    if (rank == 0):
-        print("Parse Arguments initialized\n", flush=True)
 
     # Create log files
     time_meta = 0.
@@ -267,10 +232,6 @@ def main():
         logger_init = None
         logger_data = None
 
-    comm.Barrier()
-    if (rank == 0):
-        print("Create Logs initialized\n", flush=True)
-
     # Initialize Torch Distributed
     os.environ['RANK'] = str(rank)
     os.environ['WORLD_SIZE'] = str(size)
@@ -280,15 +241,12 @@ def main():
     os.environ['MASTER_PORT'] = str(2345)
     if (args.device=='cpu'): backend = 'gloo'
     elif (args.device=='cuda'): backend = 'nccl'
+    elif (args.device=='xpu'): backend = 'ccl'
     dist.init_process_group(backend,
                             rank=int(rank),
                             world_size=int(size),
                             init_method='env://',
                             timeout=datetime.timedelta(seconds=120))
-
-    comm.Barrier()
-    if (rank == 0):
-        print("Torch Distributed initialized\n", flush=True)
 
     # Initialize Redis clients on each rank
     address = os.getenv('SSDB')
@@ -317,29 +275,31 @@ def main():
         print(f"Number of samples per tensor: {npts}")
         print(f"Number of total tensors in all DB: {num_tot_tensors}")
         print(f"Number of tensors in local DB: {num_db_tensors}")
-        print(f"Number of inputs and outputs to model: {ndIn},{ndOut}", flush=True)
+        print(f"Number of inputs and outputs to model: {ndIn}, {ndOut}", flush=True)
 
     # NN Training Hyper-Parameters
     Nepochs = 100 # number of epochs
     batch =  int(num_db_tensors/args.ppn) # how many tensors to grab from db
-    #mini_batch = 128 # batch size once tensors obtained from db and concatenated 
-    mini_batch = int(npts/2) # batch size once tensors obtained from db and concatenated 
+    mini_batch = 2048 # batch size once tensors obtained from db and concatenated 
     learning_rate = 0.001 # learning rate
     nNeurons = 20 # number of neuronsining settings
-    tol = 1.0e-7 # convergence tolerance on loss function
+    tol = 1.0e-10 # convergence tolerance on loss function
 
     # Set device to run on
     if (rank == 0):
-        print(f"\nRunning on device: {args.device} \n")
+        print(f"\nRunning on device: {args.device} \n",flush=True)
     torch.set_num_threads(1)
     device = torch.device(args.device)
     if (args.device == 'cuda'):
         if torch.cuda.is_available():
             device_id = rankl if torch.cuda.device_count()>1 else 0
-            torch.cuda.set_device(device_id)
+            torch.cuda.set_device(device_id+args.device_skip)
+    elif (args.device == 'xpu'):
+        if torch.xpu.is_available():
+            device_id = rankl if torch.xpu.device_count()>1 else 0
+            torch.xpu.set_device(device_id+args.device_skip)
 
     # Instantiate the NN model and optimizer
-    #model = NeuralNetwork(inputDim=ndIn, outputDim=ndOut, numNeurons=nNeurons)
     model = FCN(input_size=ndIn, hidden_size=nNeurons, output_size=ndOut)
     if (args.device != 'cpu'):
         model.to(args.device)
@@ -380,26 +340,6 @@ def main():
                                                rank=rankl, drop_last=False)
             train_tensor_loader = DataLoader(datasetTrain, batch_size=batch, 
                                              sampler=train_sampler)
-            ## Display image and label.
-            #train_features, train_labels = enumerate(train_tensor_loader)
-            #print(f"Feature batch shape: {train_features.size()}")
-            #print(f"Labels batch shape: {train_labels.size()}")
-            #img = train_features[0].squeeze()
-            #label = train_labels[0]
-            #plt.imshow(img, cmap="gray")
-            #plt.savefig('{label}.png',dpi=300)
-            #print(f"Label: {label}")                                 
-
-            #figure = plt.figure(figsize=(8, 8))
-            #cols, rows = 3, 3
-            #for i in range(1, cols * rows + 1):
-            #    sample_idx = torch.randint(len(training_data), size=(1,)).item()
-            #    img, label = training_data[sample_idx]
-            #    figure.add_subplot(rows, cols, i)
-            #    plt.title(labels_map[label])
-            #    plt.axis("off")
-            #    plt.imshow(img.squeeze(), cmap="gray")
-            #plt.show()                                 
         
         if (rank == 0):
             print(f"\n Epoch {iepoch}\n-------------------------------", flush=True)
@@ -410,41 +350,16 @@ def main():
         # check if tolerance on loss is satisfied
         if (global_loss <= tol):
             if (rank == 0):
-                print("Convergence tolerance met. Stopping training loop. \n", flush=True)
+                print("\nConvergence tolerance met. Stopping training loop. \n", flush=True)
             break
         
         # check if max number of epochs is reached
         if (iepoch >= Nepochs):
             if (rank == 0):
-                print("Max number of epochs reached. Stopping training loop. \n", flush=True)
+                print("\nMax number of epochs reached. Stopping training loop. \n", flush=True)
             break
 
         iepoch = iepoch + 1        
-        
-        # new data is not avalable, so train another epoch on current data
-        """
-        else:
-            if (rank == 0):
-                print(f"\n Epoch {iepoch}\n-------------------------------")
-        
-            model, global_loss = train(model, train_sampler, train_tensor_loader, optimizer,
-                                       iepoch, mini_batch, ndIn, client, args, logger_data)
-            
-            # check if tolerance on loss is satisfied
-            if (global_loss <= tol):
-                if (rank == 0):
-                    print("Convergence tolerance met. Stopping training loop. \n")
-                break
-        
-            # check if max number of epochs is reached
-            if (iepoch >= Nepochs):
-                if (rank == 0):
-                    print("Max number of epochs reached. Stopping training loop. \n")
-                break
-
-            iepoch = iepoch + 1        
-            sys.stdout.flush()
-        """
 
     if (args.logging=='verbose'):
         logger_meta.info('%.8e',time_meta)    
@@ -454,7 +369,7 @@ def main():
     model.eval()
     if (rank == 0):
         model.double()
-        model_name = "model"
+        model_name = "example_model"
         torch.save(model.state_dict(), f"{model_name}.pt", _use_new_zipfile_serialization=False)
         # save jit traced model to be used for online inference with SmartSim
         features = np.double(np.random.uniform(low=0, high=10, size=(npts,ndIn)))
@@ -468,7 +383,7 @@ def main():
     comm.Barrier()
     if (rank%args.ppn == 0):
         print(f"[{rank}]: Telling NEKRS to quit ... \n")
-        arrMLrun = np.int32(np.zeros(2))
+        arrMLrun = np.int32(np.zeros(1))
         client.put_tensor("check-run",arrMLrun)
 
     dist.destroy_process_group()

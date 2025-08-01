@@ -29,8 +29,8 @@ public:
     unsigned long int num_rows,
     unsigned long int num_cols);
   void checkpoint();
-  void init_wallModel_train();
-  void put_wallModel_data(int tstep);
+  void init_wallModel_train(int num_wall_points);
+  void put_wallModel_data(int tstep, std::vector<dfloat> wall_shear_stress, std::vector<dlong> BdryToV, std::vector<dfloat> Upart);
   void run_wallModel(int tstep);
 
 private:
@@ -48,16 +48,16 @@ private:
   int _rank, _size;
 
   // General model parameters
-  const int _num_inputs = 1; // number of input features of model
-  const int _num_outputs = 1; // number of outputs of model
+  int _num_inputs = 1; // number of input features of model
+  int _num_outputs = 1; // number of outputs of model
   unsigned long int _num_samples; // number of samples for training (i.e., node and off-node pairs)
  
   // Wall model parameters
-  const dfloat _wall_height= -1.0; // y coordinate of the wall nodes
-  const dfloat _off_wall_height = -0.949428; // y coordinate of the off-wall node (turbChannel)
-  const dfloat _eps = 1.0e-6; // epsilon for finding and matching node coordinate
-  std::vector<int> _ind_wall_nodes; // indices of the wall-nodes
-  std::vector<int> _ind_owall_nodes_matched; // indices of the paired off-wall nodes
+  //const dfloat _wall_height= -1.0; // y coordinate of the wall nodes
+  //const dfloat _off_wall_height = -0.949428; // y coordinate of the off-wall node (turbChannel)
+  //const dfloat _eps = 1.0e-6; // epsilon for finding and matching node coordinate
+  //std::vector<int> _ind_wall_nodes; // indices of the wall-nodes
+  //std::vector<int> _ind_owall_nodes_matched; // indices of the paired off-wall nodes
 };
 
 #endif

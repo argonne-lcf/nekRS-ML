@@ -3,9 +3,10 @@
 //
 #include <math.h>
 #include "udf.hpp"
-#include "plugins/smartRedis.hpp"
+#include "smartRedis.hpp"
 #include "nrs.hpp"
-#include "plugins/tavg.hpp"
+#include "nekrs.hpp"
+#include "tavg.hpp"
 #include "mesh.h"
 #include "pointInterpolation.hpp"
 
@@ -36,8 +37,9 @@ static pointInterpolation_t *interpolator = nullptr;
 
 static int Nblock;
 
+smartredis_client_t* client = nullptr;
+
 #ifdef __okl__
-#include "turbChannel.oudf"
 #include "ci.oudf"
 #endif
 
@@ -247,17 +249,15 @@ void updateRecycledVelocity(nrs_t *nrs, deviceMemory<dfloat> o_avg, int verbose)
 
 void calcTauWall(nrs_t *nrs, double time, int tstep, occa::memory o_avg)
 {
-  //if(!nrs->lastStep) return;
-
   mesh_t *mesh = nrs->mesh;
-  cds_t *cds = nrs->cds;
-  int Nscalar = nrs->Nscalar;
-  occa::memory o_null;
-  bool coords = false;
-  bool FP64 = true;
+  //cds_t *cds = nrs->cds;
+  //int Nscalar = nrs->Nscalar;
+  //bool coords = false;
+  //bool FP64 = true;
 
-  //auto o_Sij = platform->o_memPool.reserve<dfloat>(2 * nrs->NVfields * nrs->fieldOffset);
-  occa::memory &o_Sij = platform->o_mempool.slice0;
+  /*
+  //occa::memory &o_Sij = platform->o_mempool.slice0;
+  poolDeviceMemory<dfloat> o_Sij(nrs->fieldOffset);
   nrs->SijOijKernel(mesh->Nelements,
     nrs->fieldOffset,
     0,
@@ -281,9 +281,9 @@ void calcTauWall(nrs_t *nrs, double time, int tstep, occa::memory o_avg)
     1.0,
     mesh->o_invLMM,
     o_Sij);
+  */
 
-  //occa::memory o_tauw = platform->device.malloc(mesh->Nelements);
-  //platform->linAlg->fill(mesh->Nlocal, 0.0, o_tauw);
+  auto o_Sij = nrs->strainRate();
 
   tauWallKernel(mesh->Nelements,
     nrs->fieldOffset,
@@ -294,8 +294,7 @@ void calcTauWall(nrs_t *nrs, double time, int tstep, occa::memory o_avg)
     o_Sij,
     nrs->o_usrwrk);
 
-    nrs->o_usrwrk.copyTo(nrs->usrwrk);
-
+  nrs->o_usrwrk.copyTo(usrwrk);
 }
 
 void userf(double time)
@@ -410,10 +409,9 @@ void UDF_Setup()
   o_BdryToV.copyTo(BdryToV, BdryToV.size());
 
   // Initialize SmartRedis client
-  smartredis::init_client(nrs);
-  smartredis::init_check_run();
-  smartredis::init_wallModel_train(nrs, npts); // model for the wall shear stress
-  
+  client = new smartredis_client_t(nrs);
+  client->init_check_run();
+  client->init_wallModel_train(npts);
 }
 
 void UDF_ExecuteStep(dfloat time, int tstep)
@@ -423,46 +421,28 @@ void UDF_ExecuteStep(dfloat time, int tstep)
   tavg::run(time);
 
   // Send training data for model every set number of steps
-  if (tstep%10==0 && tstep>0) {
-    //postProcessing::strainRate(nrs, false, nrs->cds->o_S);
-    //nek::ocopyToNek(time, tstep);
-
+  if (tstep%100==0 && tstep>0) {
     auto o_avg = tavg::o_avg();
     calcTauWall(nrs, time, tstep, o_avg); //calculates shear stress in volume
-    //updateRecycledVelocity(nrs, verbose); //interpolates velocity on off-wall nodes
     updateRecycledVelocity(nrs, o_avg, verbose); //interpolates velocity on off-wall nodes
     o_Upart.copyTo(Upart); //copy from occa mem to CPU mem
 
-
-    //smartredis::put_wallModel_data(nrs, tstep); // model for the wall shear stress
-
-    dlong npts = interpolator->numPoints();
-    smartredis::put_wallModel_data(nrs, tstep, npts, BdryToV, Upart); // model for the wall shear stress
+    client->put_wallModel_data(tstep, usrwrk, BdryToV, Upart);
     MPI_Barrier(platform->comm.mpiComm);
 
-    smartredis::put_step_num(tstep);
+    client->put_step_num(tstep);
+    if (platform->comm.mpiRank == 0)
+      std::cout << "All ranks finished sending training data for step " << tstep << std::endl;
   }
 
-  //if (nrs->isOutputStep) {
-  //  tavg::outfld();
-  //}
-
   if (tstep > 1 && (tstep % tAvgWriteInterval)==0) {
-     //planarAverage(nrs);
      writeStatistics(nrs, time, tstep, "NekAvgData_1D.csv");
   }
 
   // Every time step check if ML training says it is time to quit 
-  int exit_val = smartredis::check_run();
-  MPI_Allreduce(MPI_IN_PLACE, &exit_val, 1, MPI_INT, MPI_MIN, platform->comm.mpiComm);
+  int exit_val = client->check_run();
   if (exit_val==0) {
-    platform->options.setArgs("END TIME",to_string_f(-10.0));
+    nekrs::setEndTime(-10.0);
+    nekrs::forceLastStep();
   }
-
-  //platform->options.getArgs("END TIME", endTime);
-
-  //if (time>=(endTime)) {
-  //  if (platform->comm.mpiRank==0) printf("SHUTTING SMARTREDIS AT TIME = %f \n",time);
-  //  smartredis::del_client(nrs);
-  //}
 }
