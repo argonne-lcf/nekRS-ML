@@ -162,7 +162,7 @@ void smartredis_client_t::init_wallModel_train(int num_wall_points)
   std::vector<int> tensor_info(6,0);
 
   if (_size <= 64)
-    printf("Found %d wall nodes and %d off-wall nodes on rank %d\n",num_wall_points,num_wall_points);
+    printf("Found %d wall nodes and %d off-wall nodes on rank %d\n",num_wall_points,num_wall_points,_rank);
     fflush(stdout);
 
   if (_rank == 0) 
@@ -193,7 +193,11 @@ void smartredis_client_t::init_wallModel_train(int num_wall_points)
 }
 
 // Put training data for wall shear stress model in DB
-void smartredis_client_t::put_wallModel_data(int tstep, std::vector<dfloat> wall_shear_stress, std::vector<dlong> BdryToV, std::vector<dfloat> Upart)
+void smartredis_client_t::put_wallModel_data(
+        std::vector<dfloat> wall_shear_stress, 
+        std::vector<dlong> BdryToV, 
+        std::vector<dfloat> Upart,
+        int tstep)
 {
   unsigned long int num_cols = _num_inputs+_num_outputs;
   std::string key = "x." + std::to_string(_rank) + "." + std::to_string(tstep);
@@ -232,69 +236,47 @@ void smartredis_client_t::put_wallModel_data(int tstep, std::vector<dfloat> wall
 }
 
 // Run ML model for inference
-/*
-void smartredis_client_t::run_wallModel(int tstep)
+void smartredis_client_t::run_wallModel(
+        std::vector<dfloat> wall_shear_stress, 
+        std::vector<dlong> BdryToV, 
+        std::vector<dfloat> Upart, 
+        int num_wall_points)
 {
-  int size_U = _nrs->fieldOffset * _nrs->mesh->dim;
-  dfloat mue;
+  _num_samples = num_wall_points;
   std::string in_key = "x." + std::to_string(_rank);
   std::string out_key = "y." + std::to_string(_rank);
-  dfloat *U = new dfloat[size_U]();
-  dfloat *outputs = new dfloat[_num_samples]();
-  dfloat *inputs = new dfloat[_num_samples]();
-  dfloat *targets = new dfloat[_num_samples]();
+  std::vector<dfloat> vel_data(num_wall_points);
+  std::vector<dfloat> shear_data(num_wall_points);
 
   // Extract velocity at off-wall nodes (inputs)
-  _nrs->o_U.copyTo(U, size_U);
-  for (int i=0; i<_num_samples; i++) {
-    int ind = _ind_owall_nodes_matched[i];
-    inputs[i] = U[ind+0*_nrs->fieldOffset];
+  for (int n = 0; n < _num_samples; ++n) {
+    const int v = BdryToV[n];
+    vel_data[n] = Upart[0*_num_samples + n];
   }
 
-  // Extract strain rate at wall and multiply by viscosity to obtain stress
-  platform->options.getArgs("VISCOSITY",mue);
-  for (int i=0; i<_num_samples; i++) {
-    int ind = _ind_wall_nodes[i];
-    //targets[i] = mue * nrs->cds->S[ind+0*nrs->fieldOffset];
-    targets[i] = 0.055;
-  }
+  if (_rank == 0)
+    printf("\nPerforming inference with SmartSim ...\n");
 
   // Send input data
-  if (_rank == 0)
-    printf("\nSending field with key %s \n",in_key.c_str());
-  _client->put_tensor(in_key, inputs, {_num_samples,1},
+  _client->put_tensor(in_key, vel_data.data(), {_num_samples,1},
                     SRTensorTypeDouble, SRMemLayoutContiguous);
-  MPI_Barrier(platform->comm.mpiComm);
-  if (_rank == 0)
-    printf("Done\n\n");
 
   // Run ML model on input data
-  if (_rank == 0)
-    printf("\nRunning ML model ...\n");
   _client->run_model("model", {in_key}, {out_key});
-  MPI_Barrier(platform->comm.mpiComm);
-  if (_rank == 0)
-    printf("Done\n\n");
 
   // Retrieve model pedictions
-  if (_rank == 0)
-    printf("\nRetrieving field with key %s \n",out_key.c_str());
-  _client->unpack_tensor(out_key, outputs, {_num_samples},
+  _client->unpack_tensor(out_key, shear_data.data(), {_num_samples},
                        SRTensorTypeDouble, SRMemLayoutContiguous);
-  MPI_Barrier(platform->comm.mpiComm);
-  if (_rank == 0)
-    printf("Done\n\n");
-
-  // Compute error in prediction
-  double error = 0.0;
-  for (int i=0; i<_num_samples; i++) {
-    error = error + (outputs[i] - targets[i])*(outputs[i] - targets[i]);
-    //printf("True, Pred, Error: %f, %f, %f \n",nrs->P[n],outputs[n],error);
+  
+  // Compute the average predicted stress and fill in the shear stress array
+  dfloat avg_utau = 0.0;
+  for (int n = 0; n < _num_samples; ++n) {
+    const int v = BdryToV[n];
+    wall_shear_stress[v+0*_nrs->fieldOffset] = shear_data[n];
+    avg_utau += shear_data[n];
   }
-  error = error / _num_samples;
-  printf("[%d]: Mean Squared Error in wall shear stress field = %E\n\n",_rank,error);
-  fflush(stdout);
+  if (_rank == 0)
+    printf("\nINFERENCE :: AVG -- UTAU :: %g \n",sqrt(abs(avg_utau/_num_samples)));
   MPI_Barrier(platform->comm.mpiComm);
 }
-*/
 #endif

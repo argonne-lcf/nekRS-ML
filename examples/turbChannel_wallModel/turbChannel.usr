@@ -4,7 +4,7 @@
 
       parameter(BETAM = 2.2)
       parameter(XLENGTH = 6.283185307)
-      parameter(ZLENGTH= 3.141592653)
+      parameter(ZLENGTH = 3.141592653)
 
       call rescale_x(xm1,0.0,XLENGTH)
       call rescale_x(ym1,-1.0,1.0)

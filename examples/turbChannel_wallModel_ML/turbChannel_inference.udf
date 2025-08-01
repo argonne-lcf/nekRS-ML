@@ -35,6 +35,8 @@ static pointInterpolation_t *interpolator = nullptr;
 
 static int Nblock;
 
+smartredis_client_t* client = nullptr;
+
 #ifdef __okl__
 #include "turbChannel.oudf"
 #endif
@@ -355,8 +357,7 @@ void UDF_Setup()
   o_BdryToV.copyTo(BdryToV, BdryToV.size());
 
   // Initialize SmartRedis client
-  smartredis::init_client(nrs);
-  smartredis::init_wallModel_train(nrs, npts); // model for the wall shear stress
+  client = new smartredis_client_t(nrs);
 }
 
 void UDF_ExecuteStep(dfloat time, int tstep)
@@ -392,24 +393,22 @@ void UDF_ExecuteStep(dfloat time, int tstep)
   tavg::run(time);
 
   // Perform inference with wall model
-  if (tstep>0) {
-    auto o_avg = tavg::o_avg();
-    updateRecycledVelocity(nrs, o_avg, verbose); //interpolates velocity on off-wall nodes
+  auto o_avg = tavg::o_avg();
+  updateRecycledVelocity(nrs, o_avg, verbose); //interpolates velocity on off-wall nodes
 
-    o_Upart.copyTo(Upart, Upart.size()); //copy from occa mem to CPU mem
+  o_Upart.copyTo(Upart, Upart.size()); //copy from occa mem to CPU mem
 
-    dlong npts = interpolator->numPoints();
-    smartredis::run_wallModel(nrs, tstep, npts, BdryToV, Upart); // model for the wall shear stress
-    MPI_Barrier(platform->comm.mpiComm);
+  dlong npts = interpolator->numPoints();
+  client->run_wallModel(usrwrk, BdryToV, Upart, npts);
 
-    //fill the infered utau values in work array
-    nrs->o_usrwrk.copyFrom(usrwrk, usrwrk.size());
-  }
+  //fill the infered utau values in work array
+  nrs->o_usrwrk.copyFrom(usrwrk, usrwrk.size());
 
   if (tstep > 1 && (tstep % tAvgWriteInterval)==0) {
      writeStatistics(nrs, time, tstep, "NekAvgData_1D.csv");
   }
 
+  /*
   std::vector<int> bidWall = {1};
   occa::memory o_bidWall = platform->device.malloc(bidWall.size() * sizeof(int), bidWall.data());
 
@@ -427,5 +426,5 @@ void UDF_ExecuteStep(dfloat time, int tstep)
   const dfloat ebar = platform->linAlg->weightedNorm2Many(mesh->Nlocal, 3, nrs->fieldOffset, mesh->o_LMM,  nrs->o_U,  platform->comm.mpiComm)/mesh->volume; // (int ux^2+uy^2+uz^2)/volume
 
   if (platform->comm.mpiRank == 0) printf(" monitor: %d %g %g %g %g %g\n",tstep,time,ubar,ebar,utau,retau);
-
+  */
 }

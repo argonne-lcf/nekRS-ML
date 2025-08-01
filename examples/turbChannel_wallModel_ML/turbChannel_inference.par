@@ -3,24 +3,24 @@
 polynomialOrder = 6
 #startFrom = "restart.fld"
 stopAt = endTime
-endTime = 1000
+endTime = 10
 
 dt = targetCFL=1 + max=2e-2 + initial=5e-3
 timeStepper = tombo2
 
-writeControl = simulationTime 
-writeInterval = 20
+checkpointControl = simulationTime 
+checkpointInterval = 20
 
 regularization = hpfrt + nModes=1 + scalingCoeff=5
-#constFlowRate = meanVelocity=1.0 + direction=X
+constFlowRate = meanVelocity=1.0 + direction=X
 
 [PRESSURE]
 residualTol = 1e-04
 
 [VELOCITY]
-boundaryTypeMap = shl
+boundaryTypeMap = zeroNValue/codedFixedGradient
 viscosity = 1/19000
-density = 1.0
+rho = 1.0
 residualTol = 1e-06
 
 [CASEDATA]

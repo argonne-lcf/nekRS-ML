@@ -22,7 +22,8 @@ public:
   void init_check_run();
   int check_run();
   void put_step_num(int tstep);
-  void append_dataset_to_list(const std::string& dataset_name,
+  void append_dataset_to_list(
+    const std::string& dataset_name,
     const std::string& tensor_name,
     const std::string& list_name,
     dfloat* data,
@@ -30,8 +31,16 @@ public:
     unsigned long int num_cols);
   void checkpoint();
   void init_wallModel_train(int num_wall_points);
-  void put_wallModel_data(int tstep, std::vector<dfloat> wall_shear_stress, std::vector<dlong> BdryToV, std::vector<dfloat> Upart);
-  void run_wallModel(int tstep);
+  void put_wallModel_data(
+    std::vector<dfloat> wall_shear_stress, 
+    std::vector<dlong> BdryToV, 
+    std::vector<dfloat> Upart,
+    int tstep);
+  void run_wallModel(
+    std::vector<dfloat> wall_shear_stress, 
+    std::vector<dlong> BdryToV, 
+    std::vector<dfloat> Upart,
+    int num_wall_points);
 
 private:
   // SmartRedis parameters

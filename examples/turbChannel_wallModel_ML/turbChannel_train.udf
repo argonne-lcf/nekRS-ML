@@ -427,7 +427,7 @@ void UDF_ExecuteStep(dfloat time, int tstep)
     updateRecycledVelocity(nrs, o_avg, verbose); //interpolates velocity on off-wall nodes
     o_Upart.copyTo(Upart); //copy from occa mem to CPU mem
 
-    client->put_wallModel_data(tstep, usrwrk, BdryToV, Upart);
+    client->put_wallModel_data(usrwrk, BdryToV, Upart, tstep);
     MPI_Barrier(platform->comm.mpiComm);
 
     client->put_step_num(tstep);
