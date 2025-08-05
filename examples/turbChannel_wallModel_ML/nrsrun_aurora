@@ -1,0 +1,242 @@
+#!/bin/bash
+set -e
+
+#--------------------------------------
+: ${QUEUE:="lustre_scaling"}
+: ${NEKRS_GPU_MPI:=0}
+: ${NEKRS_BACKEND:="dpcpp"}
+: ${RANKS_FOR_BUILD:=12}
+: ${SIM_RANKS_PER_NODE:=2}
+: ${TRAIN_RANKS_PER_NODE:=2}
+: ${ML_TASK:="train"}
+: ${DEPLOYMENT:="colocated"}
+: ${DB_NODES:=1}
+: ${SIM_NODES:=1}
+: ${TRAIN_NODES:=1}
+: ${SIM_CPU_BIND_LIST:="1:8:16:24:32:40"}
+: ${TRAIN_CPU_BIND_LIST:="53:60:68:76:84:92"}
+: ${OCCA_DPCPP_COMPILER_FLAGS:="-O3 -fsycl -fsycl-targets=intel_gpu_pvc -ftarget-register-alloc-mode=pvc:auto -fma"}
+: ${ONEAPI_SDK:=""}
+: ${FRAMEWORKS_MODULE:="frameworks"}
+: ${VENV_PATH:=""}
+#--------------------------------------
+
+source $NEKRS_HOME/bin/nrsqsub_utils
+setup $# 1
+
+chk_case $TOTAL_RANKS
+
+#--------------------------------------
+# Generate the affinity scripts
+SAFF_FILE=affinity_nrs.sh
+TAFF_FILE=affinity_ml.sh
+if [ ${ZE_FLAT_DEVICE_HIERARCHY} == "COMPOSITE" ] || [[ -z "${ZE_FLAT_DEVICE_HIERARCHY}" ]]; then
+  echo "#!/bin/bash" > $SAFF_FILE
+  echo "num_gpus=\$1" >> $SAFF_FILE
+  echo "shift" >> $SAFF_FILE
+  echo "num_tiles=2" >> $SAFF_FILE
+  echo "gpu_id=\$(((PALS_LOCAL_RANKID / \${num_tiles}) % \${num_gpus}))" >> $SAFF_FILE
+  echo "tile_id=\$((PALS_LOCAL_RANKID % \${num_tiles}))" >> $SAFF_FILE
+  echo "export ZE_AFFINITY_MASK=\$gpu_id.\$tile_id" >> $SAFF_FILE
+  echo "exec \"\$@\"" >> $SAFF_FILE
+
+  echo "#!/bin/bash" > $TAFF_FILE
+  echo "num_gpus=\$1" >> $TAFF_FILE
+  echo "offset=\$2" >> $TAFF_FILE
+  echo "shift" >> $TAFF_FILE
+  echo "shift" >> $TAFF_FILE
+  echo "num_tiles=2" >> $TAFF_FILE
+  echo "gpu_id=\$(((PALS_LOCAL_RANKID / \${num_tiles}) % \${num_gpus} + (offset / num_tiles) ))" >> $TAFF_FILE
+  echo "tile_id=\$((PALS_LOCAL_RANKID % \${num_tiles}))" >> $TAFF_FILE
+  echo "export ZE_AFFINITY_MASK=\$gpu_id.\$tile_id" >> $TAFF_FILE
+  echo "exec \"\$@\"" >> $TAFF_FILE
+elif [ ${ZE_FLAT_DEVICE_HIERARCHY} == "FLAT" ]; then
+  echo "#!/bin/bash" > $SAFF_FILE
+  echo "num_gpus=\$1" >> $SAFF_FILE
+  echo "shift" >> $SAFF_FILE
+  echo "gpu_id=\$((PALS_LOCAL_RANKID % \${num_gpus} ))" >> $SAFF_FILE
+  echo "export ZE_AFFINITY_MASK=\$gpu_id" >> $SAFF_FILE
+  echo "exec \"\$@\"" >> $SAFF_FILE
+
+  echo "#!/bin/bash" > $TAFF_FILE
+  echo "num_gpus=\$1" >> $TAFF_FILE
+  echo "offset=\$2" >> $TAFF_FILE
+  echo "shift" >> $TAFF_FILE
+  echo "shift" >> $TAFF_FILE
+  echo "gpu_id=\$((PALS_LOCAL_RANKID % \${num_gpus} + \${offset} ))" >> $TAFF_FILE
+  echo "export ZE_AFFINITY_MASK=\$gpu_id" >> $TAFF_FILE
+  echo "exec \"\$@\"" >> $TAFF_FILE
+fi
+chmod u+x $SAFF_FILE $TAFF_FILE
+
+#--------------------------------------
+# Generate the workflow config script
+CFILE=ssim_config.yaml
+echo "# Database config" > $CFILE
+echo "database:" >> $CFILE
+echo "    launch: True" >> $CFILE
+echo "    backend: \"redis\"" >> $CFILE
+echo "    deployment: \"${DEPLOYMENT}\"" >> $CFILE
+echo "    port: 6780" >> $CFILE
+if [ ${DEPLOYMENT} == "colocated"  ]; then
+  echo "    network_interface: \"uds\"" >> $CFILE
+else
+  echo "    network_interface: \"hsn0\"" >> $CFILE
+fi
+echo "    exp_name: \"nekRS-ML\"" >> $CFILE
+echo "    launcher: \"pals\"" >> $CFILE
+echo "" >> $CFILE
+echo "# Run config" >> $CFILE
+echo "run_args:" >> $CFILE
+echo "    nodes: ${qnodes}" >> $CFILE
+if [ ${DEPLOYMENT} == "colocated"  ]; then
+  SIM_NODES=$nodes
+  TRAIN_NODES=$nodes
+  SIM_PROCS=$(( SIM_NODES * SIM_RANKS_PER_NODE ))
+  TRAIN_PROCS=$(( TRAIN_NODES * TRAIN_RANKS_PER_NODE ))
+  echo "    db_nodes: ${DB_NODES}" >> $CFILE
+  echo "    sim_nodes: ${SIM_NODES}" >> $CFILE
+  echo "    ml_nodes: ${SIM_NODES}" >> $CFILE
+  echo "    simprocs: ${SIM_PROCS}" >> $CFILE
+  echo "    simprocs_pn: ${SIM_RANKS_PER_NODE}" >> $CFILE
+  echo "    mlprocs: ${TRAIN_PROCS}" >> $CFILE
+  echo "    mlprocs_pn: ${TRAIN_RANKS_PER_NODE}" >> $CFILE
+  echo "    dbprocs_pn: 4" >> $CFILE
+  echo "    sim_cpu_bind: \"list:${SIM_CPU_BIND_LIST}\"" >> $CFILE
+  echo "    ml_cpu_bind: \"list:${TRAIN_CPU_BIND_LIST}\"" >> $CFILE
+  echo "    db_cpu_bind: [100,101,102,103]" >> $CFILE
+elif [ ${DEPLOYMENT} == "clustered"  ]; then
+  SIM_PROCS=$(( SIM_NODES * SIM_RANKS_PER_NODE ))
+  TRAIN_PROCS=$(( TRAIN_NODES * TRAIN_RANKS_PER_NODE ))
+  echo "    db_nodes: ${DB_NODES}" >> $CFILE
+  echo "    sim_nodes: ${SIM_NODES}" >> $CFILE
+  echo "    ml_nodes: ${TRAIN_NODES}" >> $CFILE
+  echo "    simprocs: ${SIM_PROCS}" >> $CFILE
+  echo "    simprocs_pn: ${SIM_RANKS_PER_NODE}" >> $CFILE
+  echo "    mlprocs: ${TRAIN_PROCS}" >> $CFILE
+  echo "    mlprocs_pn: ${TRAIN_RANKS_PER_NODE}" >> $CFILE
+  echo "    dbprocs_pn: 8" >> $CFILE
+  echo "    sim_cpu_bind: \"list:${SIM_CPU_BIND_LIST}\"" >> $CFILE
+  echo "    ml_cpu_bind: \"list:${SIM_CPU_BIND_LIST}\"" >> $CFILE
+  echo "    db_cpu_bind: [1,2,3,4,5,6,7,8]" >> $CFILE
+fi
+echo "" >> $CFILE
+echo "# Simulation config" >> $CFILE
+echo "sim:" >> $CFILE
+echo "    executable: \"${NEKRS_HOME}/bin/nekrs\"" >> $CFILE
+echo "    arguments: \"--setup ${case}.par --backend ${NEKRS_BACKEND} --device-id 0\"" >> $CFILE
+echo "    affinity: \"./${SAFF_FILE}\"" >> $CFILE
+echo "    copy_files: [\"./${case}.usr\",\"./${case}.par\",\"./${case}.udf\",\"./${case}.re2\"]" >> $CFILE
+echo "    link_files: [\"./${SAFF_FILE}\",\".cache\"]" >> $CFILE
+echo "" >> $CFILE
+echo "# Trainer config" >> $CFILE
+echo "train:" >> $CFILE
+if [ ${ML_TASK} == "train" ]; then
+  echo "    executable: \"${PWD}/trainer.py\"" >> $CFILE
+  echo "    device: \"xpu\"" >> $CFILE
+  if [ ${DEPLOYMENT} == "colocated"  ]; then
+    echo "    device_skip: ${SIM_RANKS_PER_NODE}" >> $CFILE
+  elif [ ${DEPLOYMENT} == "clustered"  ]; then
+    echo "    device_skip: 0" >> $CFILE
+  fi
+  echo "    logging: \"info\"" >> $CFILE
+  echo "    affinity: \"\"" >> $CFILE
+  echo "    copy_files: []" >> $CFILE
+  echo "    link_files: [\"./${TAFF_FILE}\"]" >> $CFILE
+else
+  echo "    executable: \"\"" >> $CFILE
+  echo "    device: \"\"" >> $CFILE
+  echo "    device_skip: 0" >> $CFILE
+  echo "    logging: \"\"" >> $CFILE
+  echo "    affinity: \"\"" >> $CFILE
+  echo "    copy_files: []" >> $CFILE
+  echo "    link_files: []" >> $CFILE
+fi
+echo "" >> $CFILE
+echo "# Inference config" >> $CFILE
+echo "inference:" >> $CFILE
+if [ ${ML_TASK} == "inference" ]; then
+  echo "    model_path: \"./model_jit.pt\"" >> $CFILE
+  echo "    backend: \"TORCH\"" >> $CFILE
+  echo "    device: \"CPU\"" >> $CFILE
+  echo "    batch: 0" >> $CFILE
+  echo "    devices_per_node: 1" >> $CFILE
+else
+  echo "    model_path: \"\"" >> $CFILE
+  echo "    backend: \"\"" >> $CFILE
+  echo "    device: \"\"" >> $CFILE
+  echo "    batch: 0" >> $CFILE
+  echo "    devices_per_node: 1" >> $CFILE
+fi
+
+#--------------------------------------
+# Update the .par file with the ML options
+PFILE=${case}.par
+echo "" >> $PFILE
+echo "[ML]" >> $PFILE
+echo "ssimDeployment = ${DEPLOYMENT}" >> $PFILE
+echo "ssimDbNodes = ${DB_NODES}" >> $PFILE
+
+#--------------------------------------
+# Generate the run script
+RFILE=run.sh
+echo "#!/bin/bash" > $RFILE
+
+echo "export TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
+
+echo -e "\necho Jobid: \$PBS_JOBID" >>$RFILE
+echo "echo Running on host \`hostname\`" >>$RFILE
+echo "echo Running on nodes \`cat \$PBS_NODEFILE\`" >>$RFILE
+
+echo "module restore" >> $RFILE
+echo "module load ${FRAMEWORKS_MODULE}" >> $RFILE
+echo "source ${VENV_PATH}" >> $RFILE
+echo "module list" >> $RFILE
+
+echo -e "\nexport NEKRS_HOME=$NEKRS_HOME" >>$RFILE
+#echo "export NEKRS_GPU_MPI=$NEKRS_GPU_MPI" >>$RFILE
+#echo "export MPICH_GPU_SUPPORT_ENABLED=$NEKRS_GPU_MPI" >> $RFILE
+
+echo "export OCCA_DPCPP_COMPILER_FLAGS=\"$OCCA_DPCPP_COMPILER_FLAGS\"" >> $RFILE
+
+# Workaround for MPICH 52.2 see https://docs.alcf.anl.gov/aurora/known-issues/
+#echo "unset MPIR_CVAR_CH4_COLL_SELECTION_TUNING_JSON_FILE" >> $RFILE
+#echo "unset MPIR_CVAR_COLL_SELECTION_TUNING_JSON_FILE" >> $RFILE
+#echo "unset MPIR_CVAR_CH4_POSIX_COLL_SELECTION_TUNING_JSON_FILE" >> $RFILE
+
+# Cray MPI libfabric defaults
+#echo "export FI_CXI_RDZV_THRESHOLD=16384" >> $RFILE
+#echo "export FI_CXI_RDZV_EAGER_SIZE=2048" >> $RFILE
+#echo "export FI_CXI_DEFAULT_CQ_SIZE=131072" >> $RFILE
+#echo "export FI_CXI_DEFAULT_TX_SIZE=1024" >> $RFILE
+#echo "export FI_CXI_OFLOW_BUF_SIZE=12582912" >> $RFILE
+#echo "export FI_CXI_OFLOW_BUF_COUNT=3" >> $RFILE
+#echo "export FI_CXI_REQ_BUF_MIN_POSTED=6" >> $RFILE
+#echo "export FI_CXI_REQ_BUF_SIZE=12582912" >> $RFILE
+#echo "export FI_MR_CACHE_MAX_SIZE=-1" >> $RFILE
+#echo "export FI_MR_CACHE_MAX_COUNT=524288" >> $RFILE
+#echo "export FI_CXI_REQ_BUF_MAX_CACHED=0" >> $RFILE
+#echo "export FI_CXI_REQ_BUF_MIN_POSTED=6" >> $RFILE
+# echo "export FI_CXI_RX_MATCH_MODE=hardware" >> $RFILE
+echo "export FI_CXI_RX_MATCH_MODE=hybrid" >> $RFILE # required by parRSB
+
+# Temporary workaround while waiting on bugfix in runtime
+echo "export UR_L0_USE_COPY_ENGINE=0" >> $RFILE
+
+echo -e "\nexport CCL_ALLTOALLV_MONOLITHIC_KERNEL=0" >> $RFILE
+
+echo -e "\nexport TORCH_PATH=\$( python -c 'import torch; print(torch.__path__[0])' )" >> $RFILE
+echo "export LD_LIBRARY_PATH=\$TORCH_PATH/lib:\$LD_LIBRARY_PATH" >> $RFILE
+echo "export SR_SOCKET_TIMEOUT=10000" >> $RFILE
+
+echo -e "\n# precompilation" >>$RFILE
+CMD_build="mpiexec -n ${RANKS_FOR_BUILD} -ppn ${RANKS_FOR_BUILD} --cpu-bind list:1:8:16:24:32:40:53:60:68:76:84:92 -- ./${SAFF_FILE} ${RANKS_FOR_BUILD} $bin --setup ${case} --backend ${NEKRS_BACKEND} --device-id 0 $extra_args --build-only ${RANKS_FOR_BUILD}"
+add_build_CMD "$RFILE" "$CMD_build" "$TOTAL_RANKS"
+
+echo -e "\n# actual run" >>$RFILE
+echo "python ssim_driver.py" >> $RFILE
+
+echo -e "\n# remove input files" >>$RFILE
+echo "rm turbChannel.*" >>$RFILE
+chmod u+x $RFILE
+
