@@ -24,9 +24,11 @@ Some key functionalities of nekRS-ML are:
 nekRS-ML hosts a series of AI-enabled examples listed below in order of complexity to provide a smooth learning progression. 
 Users can find more details on each of the examples in the  README files contained within the respective directories. 
 
+* [turbChannel_wallModel](./examples/turbChannel_wallModel/): Wall-modeled LES of a turbulent channel flow at a friction Reynolds number of 950 with an equilibrium wall model.
 * [tgv_gnn_offline](./examples/tgv_gnn_offline/): Offline training pipeline to generate data and perform time independent training of the Dist-GNN model.
 * [tgv_gnn_offline_fine_mesh](./examples/tgv_gnn_offline_fine_mesh/): Offline training pipeline to generate data and perform time independent training of the Dist-GNN model on a p-coarsened grid relative to the one used by the nekRS simulation.
 * [tgv_gnn_traj_offline](./examples/tgv_gnn_traj_offline/): Offline training pipeline to generate data and perform time dependent training of the Dist-GNN model.
+* [turbChannel_wallModel_ML](./examples/turbChannel_wallModel_ML/): Online training and inference workflows of a data-driven wall shear stress model for LES applied to a turbulent channel flow at a friction Reynolds number of 950. 
 * [tgv_gnn_online](./examples/tgv_gnn_online/): Online training workflow using SmartSim to cuncurrently generate data and perform time independent training of the Dist-GNN model.
 * [tgv_gnn_traj_online](./examples/tgv_gnn_traj_online/): Online training workflow using SmartSim to cuncurrently generate data and perform time dependent training of the Dist-GNN model.
 * [tgv_gnn_traj_online_adios](./examples/tgv_gnn_traj_online_adios/): Online training workflow using ADIOS2 to cuncurrently generate data and perform time dependent training of the Dist-GNN model.
