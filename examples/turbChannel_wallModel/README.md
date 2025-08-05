@@ -3,7 +3,11 @@
 This example performs wall-modeled LES of a turbulent channel flow at a friction Reynolds number of 950. 
 It was designed by Vishal Kumar at the Barcelona Supercomputing Center and adapted for this version of nekRS.
 
-The example modifies the `.par` and `.udf` files relative to the plain [turbulent channel example](../turbChannel/) as follows ...
+The example modifies the `.box`, `.par`, `.usr` and `.udf` files relative to the plain [turbulent channel example](../turbChannel/) in order to perform a coarse LES with an algebraic model used to predict the shear stress at the wall from the plane-averaged velocity some predefined distance away from the walls.
+The specific wall model used is Reichardt's law, where a Newton solver is used to solve for the friction velocity and ultimately the wall shear stress. 
+This computed wall stress is applied at the boundaries by specifying a `zeroNValue/codedFixedGradient` boundary condition on the velocity and implementing a `codedFixedGradientVelocity()` function in the .oudf file which uses the `nrs->o_usrwrk` array containing the wall shear stress. 
+
+The example is set to run for 200 time units and collect plane-averaged statistics evert 5000 time steps, after which the velocity and Reynolds stresses are plotted and compared to reference [DNS data](./Re950_DNS.txt). 
 
 
 ## Building nekRS
