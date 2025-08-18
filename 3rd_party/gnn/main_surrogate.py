@@ -267,9 +267,12 @@ class Trainer:
         # Get the polynomial order -- for naming the model  
         try:
             main_path = self.cfg.gnn_outputs_path
-            Np = np.loadtxt(main_path + "Np_rank_%d_size_%d" %(RANK, SIZE), dtype=np.float32)
-            poly = np.cbrt(Np) - 1.
-            poly = int(poly)
+            poly = 0
+            if RANK == 0:
+                Np = np.loadtxt(main_path + "Np_rank_%d_size_%d" %(RANK, SIZE), dtype=np.float32)
+                poly = np.cbrt(Np) - 1.
+                poly = int(poly)
+            poly = COMM.bcast(poly, root=0)
         except FileNotFoundError:
             poly = 0
 

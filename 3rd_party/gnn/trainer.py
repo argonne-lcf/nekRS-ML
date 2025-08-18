@@ -594,10 +594,13 @@ class Trainer:
             path_to_glob_ids = main_path + 'global_ids_rank_%d_size_%d' %(RANK,SIZE)
             path_to_unique_local = main_path + 'local_unique_mask_rank_%d_size_%d' %(RANK,SIZE)
             path_to_unique_halo = main_path + 'halo_unique_mask_rank_%d_size_%d' %(RANK,SIZE)
-            path_to_Np = main_path + "Np_rank_%d_size_%d" %(RANK, SIZE)
 
             # Polynomial order
-            self.Np = self.load_data(path_to_Np, dtype=np.float32)
+            self.Np = 0
+            if RANK == 0:
+                path_to_Np = main_path + "Np_rank_%d_size_%d" %(RANK, SIZE)
+                self.Np = self.load_data(path_to_Np, dtype=np.float32)
+            self.Np = COMM.bcast(self.Np, root=0)
 
             # Node positions
             if self.cfg.verbose: log.info('[RANK %d]: Loading positions and global node index' %(RANK))
