@@ -203,9 +203,9 @@ void gnn_t::gnnWrite()
     writeToFileBinary(writePath + "/node_element_ids" + irank + nranks + ".bin", node_element_ids, N, 1);
 
     // Writing number of elements, gll points per element, and product of the two  
-    writeToFile(writePath + "/Nelements" + irank + nranks, &mesh->Nelements, 1, 1);
-    writeToFile(writePath + "/Np" + irank + nranks, &mesh->Np, 1, 1);
-    writeToFile(writePath + "/N" + irank + nranks, &N, 1, 1);
+    //writeToFile(writePath + "/Nelements" + irank + nranks, &mesh->Nelements, 1, 1);
+    //writeToFile(writePath + "/N" + irank + nranks, &N, 1, 1);
+    if (rank == 0) writeToFile(writePath + "/Np" + irank + nranks, &mesh->Np, 1, 1);
 
     // Writing element-local edge index as text file (small)
     //write_edge_index_element_local(writePath + "/edge_index_element_local" + irank + nranks);
