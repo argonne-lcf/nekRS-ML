@@ -41,16 +41,17 @@ if [[ -z "$VENV_PATH" && ! -d ./_ssim ]]; then
   export TORCH_CMAKE_PATH=$( python -c 'import torch;print(torch.utils.cmake_prefix_path)' )
   export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
   export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
-  git clone https://github.com/rickybalin/SmartSim.git
+  git clone https://github.com/CrayLabs/SmartSim.git
   cd SmartSim
-  git checkout rollback_aurora
   pip install -e .
   if [ ${SYSTEM} == "aurora" ]; then
     DEVICE="cpu"
   elif [ ${SYSTEM} == "polaris" ]; then
     DEVICE="gpu"
   fi
-  smart build -v --device $DEVICE --torch_dir $TORCH_CMAKE_PATH --no_tf
+  curl -O https://gist.githubusercontent.com/rickybalin/fcf1d15a26dbbc120f42943041ada827/raw/7241b9011f427f7e5f374d222e2524a337161841/aurora_config.patch
+  git apply aurora_config.patch
+  smart build -v --device cpu --skip-tensorflow --skip-onnx
   smart validate
   cd ..
   pip install torch_geometric==2.5.3
