@@ -47,13 +47,13 @@ Note that a virtual environment with PyTorch Geometric is needed to train the GN
 **From a compute node** execute
 
 ```sh
-./gen_run_script <system_name> </path/to/nekRS>
+../setup_offline.sh <system_name> </path/to/nekRS>
 ```
 
 or
 
 ```sh
-./gen_run_script <system_name> </path/to/nekRS> </path/to/venv/bin/activate>
+./setup_offline.sh <system_name> </path/to/nekRS> </path/to/venv> <number_of_nodes> <time> <proj_id>
 ```
 
 if you have the necessary packages already installed in a Python virtual environment. 
