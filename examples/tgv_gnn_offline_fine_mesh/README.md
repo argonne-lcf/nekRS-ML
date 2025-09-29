@@ -56,7 +56,7 @@ or
 ./setup_offline.sh <system_name> </path/to/nekRS> </path/to/venv> <number_of_nodes> <time> <proj_id>
 ```
 
-if you have the necessary packages already installed in a Python virtual environment.
+if you have the necessary packages already installed in a Python virtual environment, or want to specify a different project, runtime or number of nodes for the run.
 
 The script will produce a `run.sh` script specifically tailored to the desired system and using the desired nekRS install directory.
 
