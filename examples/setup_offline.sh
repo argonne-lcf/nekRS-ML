@@ -76,9 +76,8 @@ function setup_venv() {
 }
 
 function generate_script() {
-  script=nrsrun_${SYSTEM}
-
-  NEKRS_HOME=${NEKRS_HOME} VENV_PATH=${VENV_PATH}/bin/activate PROJ_ID=${PROJ_ID} ./${script} ${CASE_NAME} ${NODES} ${TIME}
+  NEKRS_HOME=${NEKRS_HOME} VENV_PATH=${VENV_PATH}/bin/activate PROJ_ID=${PROJ_ID} \
+    ./nrsrun_${SYSTEM} ${CASE_NAME} ${NODES} ${TIME}
 }
 
 parse_args "$@"

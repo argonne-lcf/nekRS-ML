@@ -32,7 +32,7 @@ echo "echo Running on nodes \`cat \$PBS_NODEFILE\`" >>$RFILE
 
 echo "module restore" >> $RFILE
 echo "module load ${FRAMEWORKS_MODULE}" >> $RFILE
-echo "source ${VENV_PATH}/bin/activate" >> $RFILE
+echo "source ${VENV_PATH}" >> $RFILE
 echo "module list" >> $RFILE
 
 echo -e "\nexport NEKRS_HOME=$NEKRS_HOME" >>$RFILE
