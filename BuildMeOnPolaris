@@ -16,7 +16,7 @@ module restore
 module use /soft/modulefiles/
 module load conda
 conda activate
-module load spack-pe-base cmake
+module load spack-pe-base cmake gcc-native/13
 module list
 #...
 
