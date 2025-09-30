@@ -28,7 +28,7 @@ echo "echo Running on nodes \`cat \$PBS_NODEFILE\`" >>$RFILE
 
 echo "module restore" >> $RFILE
 echo "module use /soft/modulefiles/" >> $RFILE
-echo "module load conda" >> $RFILE
+echo "module load conda gcc-native/13" >> $RFILE
 echo "conda activate" >> $RFILE
 echo "module list" >> $RFILE
 
