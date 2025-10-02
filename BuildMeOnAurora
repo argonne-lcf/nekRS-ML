@@ -13,7 +13,7 @@ fi
 
 #... load the necessary modules here ...
 module restore
-module load frameworks
+module load frameworks/2025.2.0
 module list
 #...
 

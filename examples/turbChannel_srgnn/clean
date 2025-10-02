@@ -1,0 +1,5 @@
+#!/bin/bash
+
+rm -rf _pyg
+rm turbChannel0.f* turbChannel_p10.f* turbChannel.nek5000 turbChannel_p1.nek5000
+rm run.sh
