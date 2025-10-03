@@ -256,6 +256,7 @@ static std::vector<std::string> mlKeys = {
     {"adiosTransport"},
     {"adiosStream"},
     {"gnnPolynomialOrder"},
+    {"superResolutionGNN"},
 };
 
 static std::vector<std::string> deprecatedKeys = {
@@ -2656,6 +2657,18 @@ void parseMLSection(const int rank, setupAide &options, inipp::Ini *ini)
   } else {
     if (rank == 0) std::cout << "WARNING: did not read gnnPolynomialOrder input so setting it to " << nekMeshPOrder << std::endl;
     options.setArgs("GNN POLY ORDER", std::to_string(nekMeshPOrder));
+  }
+
+  std::string srGNNStr;
+  if (ini->extract("ml", "superResolutionGNN", srGNNStr)) {
+    bool srGNN = checkForTrue(srGNNStr);
+    if (srGNN) {
+      options.setArgs("SUPER RESOLUTION GNN", "TRUE");
+    } else {
+      options.setArgs("SUPER RESOLUTION GNN", "FALSE");
+    }
+  } else {
+    options.setArgs("SUPER RESOLUTION GNN", "FALSE");
   }
 }
 

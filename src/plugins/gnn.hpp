@@ -37,7 +37,7 @@ int compareLocalId(const void *a, const void *b);
 class gnn_t 
 {
 public:
-    gnn_t(nrs_t *nrs);
+    gnn_t(nrs_t *nrs, int poly_order = 0);
     ~gnn_t(); 
 
     // attributes 
@@ -60,7 +60,6 @@ private:
     int size;
 
     // nekrs objects 
-    //nrs_t *nrs;
     ogs_t *ogs;
 
     // Graph attributes

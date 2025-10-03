@@ -1,3 +1,5 @@
+#include "gnn.hpp"
+
 static dfloat ReTau;
 static dfloat zLength;
 static dfloat xLength;
@@ -65,68 +67,62 @@ void useric(nrs_t *nrs)
   }
 }
 
-// outfld_wrapper modified from Junoh Hung (ANL)
-void outfld_wrapper(nrs_t *nrs, 
-                    std::unique_ptr<iofld> &checkpointWriter, 
-                    const int N, 
-                    double time, 
-                    int tstep, 
-                    std::string fileName)
+void outfld_wrapper(nrs_t *nrs, std::unique_ptr<iofld> &checkpointWriter, const int N, double time, int tstep, std::string fileName)                                                                                             
 {
   if (!checkpointWriter) {
-    checkpointWriter = iofldFactory::create("nek"); // or "adios"
-    if (platform->comm.mpiRank == 0) {
-      printf("create a new iofldFactory... %s\n", fileName.c_str());
-    }
+  checkpointWriter = iofldFactory::create("nek"); // or "adios"
+  if (platform->comm.mpiRank == 0) {
+   printf("create a new iofldFactory... %s\n", fileName.c_str());
+  }
+ }
+
+ if (!checkpointWriter->isInitialized()) {
+  auto visMesh = (nrs->cht) ? nrs->cds->mesh[0] : nrs->mesh;
+  checkpointWriter->open(visMesh, iofld::mode::write, fileName);
+
+  if (platform->options.compareArgs("LOWMACH", "TRUE")) {
+   checkpointWriter->addVariable("p0th", nrs->p0th[0]);
   }
 
-  if (!checkpointWriter->isInitialized()) {
-    auto newMesh = (nrs->cht) ? nrs->cds->mesh[0] : nrs->mesh;
-    checkpointWriter->open(newMesh, iofld::mode::write, fileName);
-
-    if (platform->options.compareArgs("LOWMACH", "TRUE")) {
-      checkpointWriter->addVariable("p0th", nrs->p0th[0]);
-    }
-
-    if (platform->options.compareArgs("VELOCITY CHECKPOINTING", "TRUE")) {
-      std::vector<occa::memory> o_V;
-      for (int i = 0; i < newMesh->dim; i++) {
-        o_V.push_back(nrs->o_U.slice(i * nrs->fieldOffset, newMesh->Nlocal));
-      }
-      checkpointWriter->addVariable("velocity", o_V);
-    }
-
-    if (platform->options.compareArgs("PRESSURE CHECKPOINTING", "TRUE")) {
-      auto o_p = std::vector<occa::memory>{nrs->o_P.slice(0, newMesh->Nlocal)};
-      checkpointWriter->addVariable("pressure", o_p);
-    }
-
-    for (int i = 0; i < nrs->Nscalar; i++) {
-      if (platform->options.compareArgs("SCALAR" + scalarDigitStr(i) + " CHECKPOINTING", "TRUE")) {
-        const auto temperatureExists = platform->options.compareArgs("SCALAR00 IS TEMPERATURE", "TRUE");
-        std::vector<occa::memory> o_Si = {nrs->cds->o_S.slice(nrs->cds->fieldOffsetScan[i], newMesh->Nlocal)};
-        if (i == 0 && temperatureExists) {
-          checkpointWriter->addVariable("temperature", o_Si);
-        } else {
-           const auto is = (temperatureExists) ? i - 1 : i;
-           checkpointWriter->addVariable("scalar" + scalarDigitStr(is), o_Si);
-        }
-      }
-    }
+  if (platform->options.compareArgs("VELOCITY CHECKPOINTING", "TRUE")) {
+   std::vector<occa::memory> o_V;
+   for (int i = 0; i < visMesh->dim; i++) {
+    o_V.push_back(nrs->o_U.slice(i * nrs->fieldOffset, visMesh->Nlocal));
+   }
+   checkpointWriter->addVariable("velocity", o_V);
   }
 
-  const auto outXYZ = platform->options.compareArgs("CHECKPOINT OUTPUT MESH", "TRUE");
-  const auto FP64 = platform->options.compareArgs("CHECKPOINT PRECISION", "FP64");
-  const auto uniform = (N < 0) ? true : false;
+  if (platform->options.compareArgs("PRESSURE CHECKPOINTING", "TRUE")) {
+   auto o_p = std::vector<occa::memory>{nrs->o_P.slice(0, visMesh->Nlocal)};
+   checkpointWriter->addVariable("pressure", o_p);
+  }
 
-  checkpointWriter->writeAttribute("polynomialOrder", std::to_string(abs(N)));
-  checkpointWriter->writeAttribute("precision", (FP64) ? "64" : "32");
-  checkpointWriter->writeAttribute("uniform", (uniform) ? "true" : "false");
-  checkpointWriter->writeAttribute("outputMesh", (outXYZ) ? "true" : "false");
+  for (int i = 0; i < nrs->Nscalar; i++) {
+   if (platform->options.compareArgs("SCALAR" + scalarDigitStr(i) + " CHECKPOINTING", "TRUE")) {
+    const auto temperatureExists = platform->options.compareArgs("SCALAR00 IS TEMPERATURE", "TRUE");
+    std::vector<occa::memory> o_Si = {nrs->cds->o_S.slice(nrs->cds->fieldOffsetScan[i], visMesh->Nlocal)};
+    if (i == 0 && temperatureExists) {
+     checkpointWriter->addVariable("temperature", o_Si);
+    } else {
+     const auto is = (temperatureExists) ? i - 1 : i;
+     checkpointWriter->addVariable("scalar" + scalarDigitStr(is), o_Si);
+    }
+   }
+  }
+ }
 
-  checkpointWriter->addVariable("time", time);
+ const auto outXYZ = platform->options.compareArgs("CHECKPOINT OUTPUT MESH", "TRUE");
+ const auto FP64 = platform->options.compareArgs("CHECKPOINT PRECISION", "FP64");
+ const auto uniform = (N < 0) ? true : false;
 
-  checkpointWriter->process();
+ checkpointWriter->writeAttribute("polynomialOrder", std::to_string(abs(N)));
+ checkpointWriter->writeAttribute("precision", (FP64) ? "64" : "32");
+ checkpointWriter->writeAttribute("uniform", (uniform) ? "true" : "false");
+ checkpointWriter->writeAttribute("outputMesh", (outXYZ) ? "true" : "false");
+
+ checkpointWriter->addVariable("time", time);
+
+ checkpointWriter->process();
 }
 
 
@@ -147,17 +143,38 @@ void UDF_Setup()
   }
 
   useric(nrs);
+
+  // gnn plugin
+  // first write high order input files
+  int nekMeshPOrder;
+  platform->options.getArgs("POLYNOMIAL DEGREE",nekMeshPOrder);
+  gnn_t* graph_ho = new gnn_t(nrs,nekMeshPOrder);
+  graph_ho->gnnSetup();
+  graph_ho->gnnWrite();
+
+  // then write low order input files
+  int gnnMeshPOrder;
+  platform->options.getArgs("GNN POLY ORDER",gnnMeshPOrder);
+  gnn_t* graph_lo = new gnn_t(nrs,gnnMeshPOrder);
+  graph_lo->gnnSetup();
+  graph_lo->gnnWrite();
 }
 
 void UDF_ExecuteStep(double time, int tstep)
 {
-  // Write interpolated checkpoint at polynomial order 1
-  static std::unique_ptr<iofld> iofld_N1;
+  static std::unique_ptr<iofld> iofld_N7;  // Standard checkpoint at p=7
+  static std::unique_ptr<iofld> iofld_N1;  // Interpolated checkpoint at p=1
+  
   if (nrs->checkpointStep) {
+    // Write standard checkpoint at polynomial order 7 (from .par file)
+    outfld_wrapper(nrs, iofld_N7, 7, time, tstep, "turbChannel_p7");
+    
+    // Write interpolated checkpoint at polynomial order 1
     outfld_wrapper(nrs, iofld_N1, 1, time, tstep, "turbChannel_p1");
   }
 
   if (nrs->lastStep) {
+    if (iofld_N7) iofld_N7->close();
     if (iofld_N1) iofld_N1->close();
   }
 }
