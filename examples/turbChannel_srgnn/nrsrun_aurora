@@ -74,5 +74,7 @@ add_build_CMD "$RFILE" "$CMD_build" "$TOTAL_RANKS"
 echo -e "\n# Run nekRS" >>$RFILE
 echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND}" >> $RFILE
 
+echo -e "\n# Generate training files" >>$RFILE
+echo "python ${NEKRS_HOME}/3rd_party/sr-gnn/nek_to_pt.py --case_path $PWD --target_snap_list turbChannel0.f00000 --input_snap_list turbChannel_p10.f00000 --target_poly_order 7 --input_poly_order 1" >> $RFILE
 chmod u+x $RFILE
 

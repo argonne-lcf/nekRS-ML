@@ -162,19 +162,13 @@ void UDF_Setup()
 
 void UDF_ExecuteStep(double time, int tstep)
 {
-  static std::unique_ptr<iofld> iofld_N7;  // Standard checkpoint at p=7
-  static std::unique_ptr<iofld> iofld_N1;  // Interpolated checkpoint at p=1
-  
+  // Write interpolated checkpoint at polynomial order 1
+  static std::unique_ptr<iofld> iofld_N1;
   if (nrs->checkpointStep) {
-    // Write standard checkpoint at polynomial order 7 (from .par file)
-    outfld_wrapper(nrs, iofld_N7, 7, time, tstep, "turbChannel_p7");
-    
-    // Write interpolated checkpoint at polynomial order 1
     outfld_wrapper(nrs, iofld_N1, 1, time, tstep, "turbChannel_p1");
   }
 
   if (nrs->lastStep) {
-    if (iofld_N7) iofld_N7->close();
     if (iofld_N1) iofld_N1->close();
   }
 }

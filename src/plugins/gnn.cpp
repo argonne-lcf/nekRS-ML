@@ -207,15 +207,11 @@ void gnn_t::gnnWrite()
     writeToFileBinary(writePath + "/node_element_ids" + irank + nranks + ".bin", node_element_ids, N, 1);
 
     // Writing number of elements, gll points per element, and product of the two  
-    //writeToFile(writePath + "/Nelements" + irank + nranks, &mesh->Nelements, 1, 1);
-    //writeToFile(writePath + "/N" + irank + nranks, &N, 1, 1);
     if (rank == 0) writeToFile(writePath + "/Np" + irank + nranks, &mesh->Np, 1, 1);
 
     // Writing element-local edge index as text file (small)
-    //write_edge_index_element_local(writePath + "/edge_index_element_local" + irank + nranks);
-    //write_edge_index_element_local_vertex(writePath + "/edge_index_element_local_vertex" + irank + nranks);
-    writeToFile(writePath + "/edge_index_element_local" + irank + nranks, edge_index_local, num_edges_local, 2);
-    writeToFile(writePath + "/edge_index_element_local_vertex" + irank + nranks, edge_index_local_vertex, num_vertices_local, 2);
+    if (rank == 0) writeToFile(writePath + "/edge_index_element_local", edge_index_local, num_edges_local, 2);
+    if (rank == 0) writeToFile(writePath + "/edge_index_element_local_vertex", edge_index_local_vertex, num_vertices_local, 2);
 }
 
 #ifdef NEKRS_ENABLE_SMARTREDIS

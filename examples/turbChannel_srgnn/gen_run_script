@@ -30,6 +30,19 @@ if [[ -z "$VENV_PATH" && ! -d ./_pyg ]]; then
   TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
   export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
   pip install torch_geometric==2.5.3
+  
+  if [ ${SYSTEM} == "aurora" ]; then
+    git clone https://github.com/rusty1s/pytorch_cluster.git
+    cd pytorch_cluster
+    # Need to force the install to not link with OpenMP, change lines 53-54 to if False:
+    sed -i 's/fopenmp/lgomp/' setup.py
+    CXX=$(which dpcpp) python setup.py install
+    cd ..
+  elif [ ${SYSTEM} == "polaris" ]; then
+    pip install torch-cluster
+  fi
+
+  pip install pymech
   VENV_PATH=${PWD}/_pyg/bin/activate
 elif [ -d ./_pyg ]; then
   echo -e "\033[35mA Python venv was not specified, but found ./_pyg \033[m"
