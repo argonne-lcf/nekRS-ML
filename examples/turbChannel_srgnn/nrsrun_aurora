@@ -77,5 +77,8 @@ echo "python ${NEKRS_HOME}/3rd_party/sr-gnn/nek_to_pt.py --case_path $PWD --targ
 
 echo -e "\n# Train model" >>$RFILE
 echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/sr-gnn/main.py epochs=10 backend=xccl n_element_neighbors=6 data_dir=$PWD/pt_datasets model_dir=$PWD/saved_models" >> $RFILE
+
+echo -e "\n# Perform inference and generate field files" >>$RFILE
+echo "python ${NEKRS_HOME}/3rd_party/sr-gnn/postprocess.py --model_path $PWD/saved_models/saved_models/gnn_3_7_132_128_3_2_2_True.tar --case_path $PWD --output_name ${case} --target_snap_list turbChannel0.f00000 --input_snap_list turbChannel_p10.f00000 --target_poly_order 7 --input_poly_order 1 --n_element_neighbors 6 " >> $RFILE
 chmod u+x $RFILE
 

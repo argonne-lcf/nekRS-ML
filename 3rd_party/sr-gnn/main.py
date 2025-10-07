@@ -64,7 +64,7 @@ try:
         DEVICE_ID = LOCAL_RANK if N_DEVICES>1 else 0
     else:
         DEVICE = torch.device('cpu')
-        DEVICE_ID = 'cpu'
+        DEVICE_ID = 0
 except (ImportError, ModuleNotFoundError) as e:
     WITH_DDP = False
     SIZE = 1
@@ -649,10 +649,11 @@ def train(cfg: DictConfig):
         dist.barrier()
 
     rstr = f'[{RANK}] ::'
-    logger.info(' '.join([
-        rstr,
-        f'Total training time: {time.time() - start} seconds'
-    ]))
+    if RANK == 0:
+        logger.info(' '.join([
+            rstr,
+            f'Total training time: {time.time() - start} seconds'
+        ]))
 
     if RANK == 0:
         if WITH_CUDA or WITH_XPU:  
