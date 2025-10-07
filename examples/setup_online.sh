@@ -87,6 +87,7 @@ function setup_venv() {
       export LD_LIBRARY_PATH=$CUDNN_LIBRARY:$LD_LIBRARY_PATH
     fi
 
+    # We shouldn't run this if ADIOS is ON.
     build_smartsim
 
     export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
