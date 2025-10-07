@@ -65,8 +65,6 @@ echo "export FI_CXI_RX_MATCH_MODE=hybrid" >> $RFILE # required by parRSB
 # Temporary workaround while waiting on bugfix in runtime
 echo "export UR_L0_USE_COPY_ENGINE=0" >> $RFILE
 
-echo -e "\nexport CCL_ALLTOALLV_MONOLITHIC_KERNEL=0" >> $RFILE
-
 echo -e "\n# precompilation" >>$RFILE
 CMD_build="mpiexec -n 12 -ppn 12 --cpu-bind list:1:8:16:24:32:40:53:60:68:76:84:92 -- $bin --setup ${case} --backend ${NEKRS_BACKEND} $extra_args --build-only 12"
 add_build_CMD "$RFILE" "$CMD_build" "$TOTAL_RANKS"
@@ -75,6 +73,9 @@ echo -e "\n# Run nekRS" >>$RFILE
 echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND}" >> $RFILE
 
 echo -e "\n# Generate training files" >>$RFILE
-echo "python ${NEKRS_HOME}/3rd_party/sr-gnn/nek_to_pt.py --case_path $PWD --target_snap_list turbChannel0.f00000 --input_snap_list turbChannel_p10.f00000 --target_poly_order 7 --input_poly_order 1" >> $RFILE
+echo "python ${NEKRS_HOME}/3rd_party/sr-gnn/nek_to_pt.py --case_path $PWD --target_snap_list turbChannel0.f00000 --input_snap_list turbChannel_p10.f00000 --target_poly_order 7 --input_poly_order 1 --n_element_neighbors 6" >> $RFILE
+
+echo -e "\n# Train model" >>$RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/sr-gnn/main.py epochs=10 backend=xccl n_element_neighbors=6 data_dir=$PWD/pt_datasets model_dir=$PWD/saved_models" >> $RFILE
 chmod u+x $RFILE
 

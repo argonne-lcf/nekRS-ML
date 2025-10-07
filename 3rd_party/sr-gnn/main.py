@@ -1,72 +1,79 @@
-from __future__ import absolute_import, division, print_function, annotations
 import os
+import sys
 import socket
-import logging
-
-from typing import Optional, Union, Callable, Tuple, Dict
-
+from typing import Optional, Union, Callable
 import numpy as np
-
 import hydra
+from omegaconf import DictConfig, OmegaConf
 import time
-import torch
-import torch.utils.data
-import torch.utils.data.distributed
-from torch.cuda.amp.grad_scaler import GradScaler
-import torch.multiprocessing as mp
-import torch.distributions as tdist 
 
+import torch
+from torch.cuda.amp.grad_scaler import GradScaler
 import torch.distributed as dist
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as F
-from torchvision import datasets, transforms
-from omegaconf import DictConfig, OmegaConf
 from torch.nn.parallel import DistributedDataParallel as DDP
-Tensor = torch.Tensor
 
 # PyTorch Geometric
 import torch_geometric
 import torch_geometric.nn as tgnn
-import models.gnn as gnn
+from torch_geometric.data import Data
 
-log = logging.getLogger(__name__)
+# GNN model
+from gnn import GNN_Element_Neighbor_Lo_Hi
+import nekrs_graph_setup # needed to load the .pt data
+
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', force=True)
+logger = logging.getLogger(__name__)
+
+Tensor = torch.Tensor
 
 # Get MPI:
 try:
     from mpi4py import MPI
     WITH_DDP = True
-    LOCAL_RANK = os.environ.get('OMPI_COMM_WORLD_LOCAL_RANK', '0')
-    # LOCAL_RANK = os.environ['OMPI_COMM_WORLD_LOCAL_RANK']
-    SIZE = MPI.COMM_WORLD.Get_size()
-    RANK = MPI.COMM_WORLD.Get_rank()
     COMM = MPI.COMM_WORLD
+    SIZE = COMM.Get_size()
+    RANK = COMM.Get_rank()
+    LOCAL_RANK = int(os.getenv("PALS_LOCAL_RANKID"))
+    LOCAL_SIZE = int(os.getenv("PALS_LOCAL_SIZE"))
+    HOST_NAME = MPI.Get_processor_name()
 
-    WITH_CUDA = torch.cuda.is_available()
-    DEVICE = 'gpu' if WITH_CUDA else 'CPU'
+    try:
+        WITH_CUDA = torch.cuda.is_available()
+    except:
+        WITH_CUDA = False
+        if RANK == 0: logger.warning('Found no CUDA devices')
+        pass
 
-    # pytorch will look for these
-    os.environ['RANK'] = str(RANK)
-    os.environ['WORLD_SIZE'] = str(SIZE)
-    # -----------------------------------------------------------
-    # NOTE: Get the hostname of the master node, and broadcast
-    # it to all other nodes It will want the master address too,
-    # which we'll broadcast:
-    # -----------------------------------------------------------
-    MASTER_ADDR = socket.gethostname() if RANK == 0 else None
-    MASTER_ADDR = MPI.COMM_WORLD.bcast(MASTER_ADDR, root=0)
-    os.environ['MASTER_ADDR'] = MASTER_ADDR
-    os.environ['MASTER_PORT'] = str(2345)
+    try:
+        WITH_XPU = torch.xpu.is_available()
+    except:
+        WITH_XPU = False
+        if RANK == 0: logger.warning('Found no XPU devices')
+        pass
 
+    if WITH_CUDA:
+        DEVICE = torch.device('cuda')
+        N_DEVICES = torch.cuda.device_count()
+        DEVICE_ID = LOCAL_RANK if N_DEVICES>1 else 0
+    elif WITH_XPU:
+        DEVICE = torch.device('xpu')
+        N_DEVICES = torch.xpu.device_count()
+        DEVICE_ID = LOCAL_RANK if N_DEVICES>1 else 0
+    else:
+        DEVICE = torch.device('cpu')
+        DEVICE_ID = 'cpu'
 except (ImportError, ModuleNotFoundError) as e:
     WITH_DDP = False
     SIZE = 1
     RANK = 0
     LOCAL_RANK = 0
+    LOCAL_SIZE = 1
     MASTER_ADDR = 'localhost'
-    log.warning('MPI Initialization failed!')
-    log.warning(e)
-
+    logger.warning('MPI Initialization failed!')
+    logger.warning(e)
 
 
 def init_process_group(
@@ -76,7 +83,8 @@ def init_process_group(
 ) -> None:
     if WITH_CUDA:
         backend = 'nccl' if backend is None else str(backend)
-
+    elif WITH_XPU:
+        backend = 'xccl' if backend is None else str(backend)
     else:
         backend = 'gloo' if backend is None else str(backend)
 
@@ -90,9 +98,12 @@ def init_process_group(
 def force_abort():
     time.sleep(2)
     if WITH_DDP:
+        if RANK == 0:
+            logger.info("Aborting...")
         COMM.Abort()
     else:
-        sys.exit("Exiting...")
+        logger.info("Exiting...")
+        sys.exit(1)
 
 def cleanup():
     dist.destroy_process_group()
@@ -104,14 +115,23 @@ def metric_average(val: Tensor):
     return val
 
 class Trainer:
-    def __init__(self, cfg: DictConfig, scaler: Optional[GradScaler] = None):
+    def __init__(self, 
+                 cfg: DictConfig, 
+                 scaler: Optional[GradScaler] = None
+    ) -> None:
         self.cfg = cfg
         self.rank = RANK
         if scaler is None:
             self.scaler = None
-        self.device = 'gpu' if torch.cuda.is_available() else 'cpu'
+        self.device = DEVICE
         self.backend = self.cfg.backend
         if WITH_DDP:
+            os.environ['RANK'] = str(RANK)
+            os.environ['WORLD_SIZE'] = str(SIZE)
+            MASTER_ADDR = socket.gethostname() if RANK == 0 else None
+            MASTER_ADDR = COMM.bcast(MASTER_ADDR, root=0)
+            os.environ['MASTER_ADDR'] = MASTER_ADDR
+            os.environ['MASTER_PORT'] = str(2345)
             init_process_group(RANK, SIZE, backend=self.backend)
         
         # ~~~~ Init torch stuff 
@@ -124,20 +144,17 @@ class Trainer:
 
         # ~~~~ Init datasets
         self.data = self.setup_data()
-        
-        # if WITH_CUDA: 
-        #     self.data['train']['stats'][0][0] = self.data['train']['stats'][0][0].cuda()
-        #     self.data['train']['stats'][0][1] = self.data['train']['stats'][0][1].cuda()
-        #     self.data['train']['stats'][1][0] = self.data['train']['stats'][1][0].cuda()
-        #     self.data['train']['stats'][1][1] = self.data['train']['stats'][1][1].cuda()
-
 
         # ~~~~ Init model and move to gpu 
         self.model = self.build_model()
-        if self.device == 'gpu':
-            self.model.cuda()
+        self.model.to(self.device)
+        self.model.to(self.torch_dtype)
 
         # ~~~~ Set model and checkpoint savepaths:
+        if cfg.model_dir[-1] != '/':
+            cfg.model_dir += '/'
+        if cfg.ckpt_dir[-1] != '/':
+            cfg.ckpt_dir += '/'
         try:
             self.ckpt_path = cfg.ckpt_dir + self.model.get_save_header() + '.tar'
             self.model_path = cfg.model_dir + self.model.get_save_header() + '.tar'
@@ -146,7 +163,7 @@ class Trainer:
             self.model_path = cfg.model_dir + 'model.tar'
 
         # ~~~~ Load model parameters if we are restarting from checkpoint
-        dist.barrier()
+        COMM.Barrier()
         self.epoch = 0
         self.epoch_start = 1
         self.training_iter = 0
@@ -170,11 +187,7 @@ class Trainer:
                 self.loss_hist_train = loss_hist_train_new
                 self.loss_hist_test = loss_hist_test_new
                 self.lr_hist = lr_hist_new 
-        dist.barrier()
-
-        # ~~~~ Wrap model in DDP
-        if WITH_DDP and SIZE > 1:
-            self.model = DDP(self.model)
+        COMM.Barrier()
 
         # ~~~~ Set loss function 
         self.loss_fn = nn.MSELoss()
@@ -192,9 +205,13 @@ class Trainer:
             if RANK == 0: 
                 astr = 'RESTARTING FROM CHECKPOINT -- STATE AT EPOCH %d/%d' %(self.epoch_start-1, self.cfg.epochs)
                 sepstr = '-' * len(astr)
-                log.info(sepstr)
-                log.info(astr)
-                log.info(sepstr)
+                logger.info(sepstr)
+                logger.info(astr)
+                logger.info(sepstr)
+
+        # ~~~~ Wrap model in DDP
+        if WITH_DDP and SIZE > 1:
+            self.model = DDP(self.model, broadcast_buffers=False, gradient_as_bucket_view=True)
 
     def build_model(self) -> nn.Module:
          
@@ -209,7 +226,7 @@ class Trainer:
         n_messagePassing_layers = self.cfg.n_messagePassing_layers
         use_fine_messagePassing = self.cfg.use_fine_messagePassing
         name = self.cfg.model_name
-        model = gnn.GNN_Element_Neighbor_Lo_Hi(
+        model = GNN_Element_Neighbor_Lo_Hi(
                 input_node_channels = input_node_channels,
                 input_edge_channels_coarse = input_edge_channels_coarse,
                 input_edge_channels_fine = input_edge_channels_fine,
@@ -218,6 +235,7 @@ class Trainer:
                 n_mlp_hidden_layers = n_mlp_hidden_layers,
                 n_messagePassing_layers = n_messagePassing_layers,
                 use_fine_messagePassing = use_fine_messagePassing,
+                device = self.device,
                 name = name)
         return model
 
@@ -233,20 +251,34 @@ class Trainer:
         return scheduler
 
     def setup_torch(self):
+        # Random seeds
         torch.manual_seed(self.cfg.seed)
         np.random.seed(self.cfg.seed)
+
+        # Device and intra-op threads
+        if WITH_CUDA:
+            torch.cuda.set_device(DEVICE_ID)
+        elif WITH_XPU:
+            torch.xpu.set_device(DEVICE_ID)
+        torch.set_num_threads(self.cfg.num_threads)
+
+        # Precision
+        if self.cfg.precision == 'fp32':
+            self.torch_dtype = torch.float32
+        else:
+            sys.exit('Only fp32 data type is currently supported')
 
     def setup_data(self):
         kwargs = {}
     
         # multi snapshot - oneshot  
         n_element_neighbors = self.cfg.n_element_neighbors
-        train_dataset = torch.load(self.cfg.data_dir + f"/train_dataset.pt")
-        test_dataset = torch.load(self.cfg.data_dir + f"/valid_dataset.pt")
+        train_dataset = torch.load(self.cfg.data_dir + f"/train_dataset.pt", weights_only=False)
+        test_dataset = torch.load(self.cfg.data_dir + f"/valid_dataset.pt", weights_only=False)
 
         if RANK == 0:
-            log.info('train dataset: %d elements' %(len(train_dataset)))
-            log.info('valid dataset: %d elements' %(len(test_dataset)))
+            logger.info('train dataset: %d elements' %(len(train_dataset)))
+            logger.info('valid dataset: %d elements' %(len(test_dataset)))
 
         # DDP: use DistributedSampler to partition training data
         train_sampler = torch.utils.data.distributed.DistributedSampler(
@@ -286,10 +318,10 @@ class Trainer:
 
     def train_step(
         self,
-        data: DataBatch
+        data: Data
     ) -> Tensor:
         #t_total = time.time()
-        dist.barrier()
+        COMM.Barrier()
         try: 
             _ = data.node_weight
         except AttributeError: 
@@ -299,24 +331,24 @@ class Trainer:
         edge_index_coin = data.edge_index_coin if self.cfg.n_element_neighbors > 0 else None 
         degree = data.degree if self.cfg.n_element_neighbors > 0 else None
 
-        if WITH_CUDA:
-            data.x = data.x.cuda()
-            data.x_mean_lo = data.x_mean_lo.cuda()
-            data.x_mean_hi = data.x_mean_hi.cuda()
-            data.x_std_lo = data.x_std_lo.cuda()
-            data.x_std_hi = data.x_std_hi.cuda()
-            data.node_weight = data.node_weight.cuda()
-            data.y = data.y.cuda()
-            data.edge_index_lo = data.edge_index_lo.cuda()
-            data.edge_index_hi = data.edge_index_hi.cuda()
-            data.pos_norm_lo = data.pos_norm_lo.cuda()
-            data.pos_norm_hi = data.pos_norm_hi.cuda()
-            data.x_batch = data.x_batch.cuda()
-            data.y_batch = data.y_batch.cuda()
-            data.central_element_mask = data.central_element_mask.cuda()
+        if WITH_CUDA or WITH_XPU:
+            data.x = data.x.to(self.device)
+            data.x_mean_lo = data.x_mean_lo.to(self.device)
+            data.x_mean_hi = data.x_mean_hi.to(self.device)
+            data.x_std_lo = data.x_std_lo.to(self.device)
+            data.x_std_hi = data.x_std_hi.to(self.device)
+            data.node_weight = data.node_weight.to(self.device)
+            data.y = data.y.to(self.device)
+            data.edge_index_lo = data.edge_index_lo.to(self.device)
+            data.edge_index_hi = data.edge_index_hi.to(self.device)
+            data.pos_norm_lo = data.pos_norm_lo.to(self.device)
+            data.pos_norm_hi = data.pos_norm_hi.to(self.device)
+            data.x_batch = data.x_batch.to(self.device)
+            data.y_batch = data.y_batch.to(self.device)
+            data.central_element_mask = data.central_element_mask.to(self.device)
             if self.cfg.n_element_neighbors > 0:
-                edge_index_coin = edge_index_coin.cuda()
-                degree = degree.cuda()
+                edge_index_coin = edge_index_coin.to(self.device)
+                degree = degree.to(self.device)
 
         self.optimizer.zero_grad()
 
@@ -346,13 +378,23 @@ class Trainer:
                 data.x_batch = data.edge_index_lo.new_zeros(data.pos_norm_lo.size(0))
             if data.y_batch is None:
                 data.y_batch = data.edge_index_hi.new_zeros(data.pos_norm_hi.size(0))
-            x_interp = tgnn.unpool.knn_interpolate(
-                    x = data.x[mask,:],
-                    pos_x = data.pos_norm_lo[mask,:],
-                    pos_y = data.pos_norm_hi,
-                    batch_x = data.x_batch[mask],
-                    batch_y = data.y_batch,
-                    k = 8)
+            if self.device.type == 'xpu':
+                x_interp = tgnn.unpool.knn_interpolate(
+                        x = data.x[mask,:].cpu(),
+                        pos_x = data.pos_norm_lo[mask,:].cpu(),
+                        pos_y = data.pos_norm_hi.cpu(),
+                        batch_x = data.x_batch[mask].cpu(),
+                        batch_y = data.y_batch.cpu(),
+                        k = 8)
+                x_interp = x_interp.to(self.device)
+            else:
+                x_interp = tgnn.unpool.knn_interpolate(
+                        x = data.x[mask,:],
+                        pos_x = data.pos_norm_lo[mask,:],
+                        pos_y = data.pos_norm_hi,
+                        batch_x = data.x_batch[mask],
+                        batch_y = data.y_batch,
+                        k = 8)
             target = (data.y - x_interp)/(data.x_std_hi + eps)
         else:
             target = (data.y - data.x_mean_hi)/(data.x_std_hi + eps)
@@ -374,7 +416,7 @@ class Trainer:
 
         #if RANK == 0:
         #    if self.training_iter < 500:
-        #        log.info(f"t_1: {t_1}s \t t_2: {t_2}s \t t_total: {t_total}s")
+        #        logger.info(f"t_1: {t_1}s \t t_2: {t_2}s \t t_total: {t_total}s")
         dist.barrier()
 
         return loss
@@ -385,12 +427,12 @@ class Trainer:
     ) -> dict:
         self.model.train()
         start = time.time()
-        running_loss = torch.tensor(0.)
+        running_loss_avg = torch.tensor(0.)
 
         count = torch.tensor(0.)
-        if WITH_CUDA:
-            running_loss = running_loss.cuda()
-            count = count.cuda()
+        if WITH_CUDA or WITH_XPU:
+            running_loss_avg = running_loss_avg.to(self.device)
+            count = count.to(self.device)
 
         train_sampler = self.data['train']['sampler']
         train_loader = self.data['train']['loader']
@@ -399,9 +441,9 @@ class Trainer:
         for bidx, data in enumerate(train_loader):
             #print('Rank %d, bid %d, data:' %(RANK, bidx), data.y[1].shape)
             loss = self.train_step(data)
-            running_loss += loss.item()
-
-            count += 1 # accumulate current batch count 
+            count += 1 # accumulate current batch count
+            running_loss_avg = (running_loss_avg * (count-1) + loss.item()) / count
+ 
             self.training_iter += 1 # accumulate total training iteration
             
             # Log on Rank 0:
@@ -412,7 +454,7 @@ class Trainer:
                     'epoch': epoch,
                     'dt': time.time() - start,
                     'batch_loss': loss.item(),
-                    'running_loss': running_loss,
+                    'running_loss_avg': running_loss_avg,
                 }
                 pre = [
                     f'[{RANK}]',
@@ -423,23 +465,20 @@ class Trainer:
                         f' ({100. * (bidx+1) / len(train_loader):.0f}%)]'
                     ),
                 ]
-                log.info(' '.join([
-                    *pre, *[f'{k}={v:.4f}' for k, v in metrics.items()]
+                logger.info(' '.join([
+                    *pre, *[f'{k}={v:.4e}' for k, v in metrics.items()]
                 ]))
 
-        # divide running loss by number of batches
-        running_loss = running_loss / count
-
         # Allreduce, mean
-        loss_avg = metric_average(running_loss)
+        loss_avg = metric_average(running_loss_avg)
         return {'loss': loss_avg}
 
     def test(self) -> dict:
-        running_loss = torch.tensor(0.)
+        running_loss_avg = torch.tensor(0.)
         count = torch.tensor(0.)
-        if WITH_CUDA:
-            running_loss = running_loss.cuda()
-            count = count.cuda()
+        if WITH_CUDA or WITH_XPU:
+            running_loss_avg = running_loss_avg.to(self.device)
+            count = count.to(self.device)
         self.model.eval()
         test_loader = self.data['test']['loader']
         with torch.no_grad():
@@ -453,24 +492,24 @@ class Trainer:
                 edge_index_coin = data.edge_index_coin if self.cfg.n_element_neighbors > 0 else None
                 degree = data.degree if self.cfg.n_element_neighbors > 0 else None
                 
-                if WITH_CUDA:
-                    data.x = data.x.cuda()
-                    data.x_mean_lo = data.x_mean_lo.cuda()
-                    data.x_mean_hi = data.x_mean_hi.cuda()
-                    data.x_std_lo = data.x_std_lo.cuda()
-                    data.x_std_hi = data.x_std_hi.cuda()
-                    data.node_weight = data.node_weight.cuda()
-                    data.y = data.y.cuda()
-                    data.edge_index_lo = data.edge_index_lo.cuda()
-                    data.edge_index_hi = data.edge_index_hi.cuda()
-                    data.pos_norm_lo = data.pos_norm_lo.cuda()
-                    data.pos_norm_hi = data.pos_norm_hi.cuda()
-                    data.x_batch = data.x_batch.cuda()
-                    data.y_batch = data.y_batch.cuda()
-                    data.central_element_mask = data.central_element_mask.cuda()
+                if WITH_CUDA or WITH_XPU:
+                    data.x = data.x.to(self.device)
+                    data.x_mean_lo = data.x_mean_lo.to(self.device)
+                    data.x_mean_hi = data.x_mean_hi.to(self.device)
+                    data.x_std_lo = data.x_std_lo.to(self.device)
+                    data.x_std_hi = data.x_std_hi.to(self.device)
+                    data.node_weight = data.node_weight.to(self.device)
+                    data.y = data.y.to(self.device)
+                    data.edge_index_lo = data.edge_index_lo.to(self.device)
+                    data.edge_index_hi = data.edge_index_hi.to(self.device)
+                    data.pos_norm_lo = data.pos_norm_lo.to(self.device)
+                    data.pos_norm_hi = data.pos_norm_hi.to(self.device)
+                    data.x_batch = data.x_batch.to(self.device)
+                    data.y_batch = data.y_batch.to(self.device)
+                    data.central_element_mask = data.central_element_mask.to(self.device)
                     if self.cfg.n_element_neighbors > 0:
-                        edge_index_coin = edge_index_coin.cuda()
-                        degree = degree.cuda()
+                        edge_index_coin = edge_index_coin.to(self.device)
+                        degree = degree.to(self.device)
 
                 # 1) Preprocessing: scale input  
                 eps = 1e-10
@@ -498,13 +537,23 @@ class Trainer:
                         data.x_batch = data.edge_index_lo.new_zeros(data.pos_norm_lo.size(0))
                     if data.y_batch is None:
                         data.y_batch = data.edge_index_hi.new_zeros(data.pos_norm_hi.size(0))
-                    x_interp = tgnn.unpool.knn_interpolate(
-                            x = data.x[mask,:],
-                            pos_x = data.pos_norm_lo[mask,:],
-                            pos_y = data.pos_norm_hi,
-                            batch_x = data.x_batch[mask],
-                            batch_y = data.y_batch,
-                            k = 8)
+                    if self.device.type == 'xpu':
+                        x_interp = tgnn.unpool.knn_interpolate(
+                                x = data.x[mask,:].cpu(),
+                                pos_x = data.pos_norm_lo[mask,:].cpu(),
+                                pos_y = data.pos_norm_hi.cpu(),
+                                batch_x = data.x_batch[mask].cpu(),
+                                batch_y = data.y_batch.cpu(),
+                                k = 8)
+                        x_interp = x_interp.to(self.device)
+                    else:
+                        x_interp = tgnn.unpool.knn_interpolate(
+                                x = data.x[mask,:],
+                                pos_x = data.pos_norm_lo[mask,:],
+                                pos_y = data.pos_norm_hi,
+                                batch_x = data.x_batch[mask],
+                                batch_y = data.y_batch,
+                                k = 8)
                     target = (data.y - x_interp)/(data.x_std_hi + eps)
                 else:
                     target = (data.y - data.x_mean_hi)/(data.x_std_hi + eps)
@@ -513,20 +562,12 @@ class Trainer:
                 # loss = self.loss_fn(out_gnn, target) # vanilla mse 
                 loss = torch.mean( data.node_weight * (out_gnn - target)**2 )
 
-                running_loss += loss.item()
                 count += 1
-
-            running_loss = running_loss / count
-            loss_avg = metric_average(running_loss)
+                running_loss_avg = (running_loss_avg * (count-1) + loss.item()) / count
+                
+            loss_avg = metric_average(running_loss_avg)
 
         return {'loss': loss_avg}
-
-
-def run_demo(demo_fn: Callable, world_size: int | str) -> None:
-    mp.spawn(demo_fn,  # type: ignore
-             args=(world_size,),
-             nprocs=int(world_size),
-             join=True)
 
 def train(cfg: DictConfig):
     start = time.time()
@@ -539,9 +580,7 @@ def train(cfg: DictConfig):
         t0 = time.time()
         trainer.epoch = epoch
         train_metrics = trainer.train_epoch(epoch)
-
         trainer.loss_hist_train[epoch-1] = train_metrics["loss"]
-
         epoch_time = time.time() - t0
         epoch_times.append(epoch_time)
 
@@ -559,9 +598,9 @@ def train(cfg: DictConfig):
         if RANK == 0:
             astr = f'[TEST] loss={test_metrics["loss"]:.4e}'
             sepstr = '-' * len(astr)
-            log.info(sepstr)
-            log.info(astr)
-            log.info(sepstr)
+            logger.info(sepstr)
+            logger.info(astr)
+            logger.info(sepstr)
             summary = '  '.join([
                 '[TRAIN]',
                 f'loss={train_metrics["loss"]:.4e}',
@@ -569,9 +608,9 @@ def train(cfg: DictConfig):
                 f' valid_time={valid_time:.4g} sec',
                 f' learning_rate={lr:.6g}'
             ])
-            log.info((sep := '-' * len(summary)))
-            log.info(summary)
-            log.info(sep)
+            logger.info((sep := '-' * len(summary)))
+            logger.info(summary)
+            logger.info(sep)
 
         # ~~~~ Step scheduler based on validation loss
         trainer.scheduler.step(test_metrics["loss"])
@@ -580,9 +619,9 @@ def train(cfg: DictConfig):
         if epoch % cfg.ckptfreq == 0 and RANK == 0:
             astr = 'Checkpointing on root processor, epoch = %d' %(epoch)
             sepstr = '-' * len(astr)
-            log.info(sepstr)
-            log.info(astr)
-            log.info(sepstr)
+            logger.info(sepstr)
+            logger.info(astr)
+            logger.info(sepstr)
 
             if not os.path.exists(cfg.ckpt_dir):
                 os.makedirs(cfg.ckpt_dir)
@@ -610,13 +649,13 @@ def train(cfg: DictConfig):
         dist.barrier()
 
     rstr = f'[{RANK}] ::'
-    log.info(' '.join([
+    logger.info(' '.join([
         rstr,
         f'Total training time: {time.time() - start} seconds'
     ]))
 
     if RANK == 0:
-        if WITH_CUDA:  
+        if WITH_CUDA or WITH_XPU:  
             trainer.model.to('cpu')
         if not os.path.exists(cfg.model_dir):
             os.makedirs(cfg.model_dir)
@@ -642,20 +681,16 @@ def train(cfg: DictConfig):
         torch.save(save_dict, trainer.model_path)
 
 
-def write_full_dataset(cfg: DictConfig):
-    return 
-
-
-
 @hydra.main(version_base=None, config_path='./conf', config_name='config')
 def main(cfg: DictConfig) -> None:
     if RANK == 0:
-        print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
-        print('INPUTS:')
-        print(OmegaConf.to_yaml(cfg)) 
-        print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
+        logger.info('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
+        logger.info('INPUTS:')
+        logger.info(OmegaConf.to_yaml(cfg)) 
+        logger.info('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
 
     train(cfg)
+
     cleanup()
 
 if __name__ == '__main__':

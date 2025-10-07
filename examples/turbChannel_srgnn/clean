@@ -3,5 +3,5 @@
 rm -rf _pyg pytorch_cluster
 rm turbChannel0.f* turbChannel_p10.f* turbChannel.nek5000 turbChannel_p1.nek5000
 rm -r gnn_outputs_poly*
-rm -r pt_datasets
+rm -r pt_datasets saved_models outputs
 rm run.sh

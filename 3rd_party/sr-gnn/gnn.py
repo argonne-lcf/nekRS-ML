@@ -1,12 +1,10 @@
-from __future__ import absolute_import, division, print_function, annotations
-from typing import Optional, Union, Callable, List
+from typing import Optional, Callable, List
 import torch
 from torch import Tensor
 import torch_geometric.nn as tgnn
-from torch_scatter import scatter_mean
 from torch_geometric.nn.conv import MessagePassing
-from torch_geometric.typing import Adj, OptTensor, PairTensor
-from pooling import TopKPooling_Mod, avg_pool_mod, avg_pool_mod_no_x
+#from torch_geometric.typing import Adj, OptTensor, PairTensor
+#from pooling import TopKPooling_Mod, avg_pool_mod, avg_pool_mod_no_x
 
 class GNN(torch.nn.Module):
     def __init__(self, 
@@ -68,9 +66,9 @@ class GNN(torch.nn.Module):
     def forward(
             self,
             x: Tensor,
-            edge_index: LongTensor,
+            edge_index: torch.LongTensor,
             pos: Tensor,
-            batch: Optional[LongTensor] = None) -> Tensor:
+            batch: Optional[torch.LongTensor] = None) -> Tensor:
 
         if batch is None:
             batch = edge_index.new_zeros(x.size(0))
@@ -189,10 +187,10 @@ class GNN_Element_Neighbor(torch.nn.Module):
     def forward(
             self,
             x: Tensor,
-            edge_index: LongTensor,
+            edge_index: torch.LongTensor,
             pos: Tensor,
-            batch: Optional[LongTensor] = None,
-            edge_index_coin: Optional[LongTensor] = None,
+            batch: Optional[torch.LongTensor] = None,
+            edge_index_coin: Optional[torch.LongTensor] = None,
             degree: Optional[Tensor] = None) -> Tensor:
 
         if batch is None:
@@ -262,6 +260,7 @@ class GNN_Element_Neighbor_Lo_Hi(torch.nn.Module):
                  n_mlp_hidden_layers: int, 
                  n_messagePassing_layers: int,
                  use_fine_messagePassing: bool,
+                 device: torch.device,
                  name: Optional[str] = 'gnn'):
         super().__init__()
         
@@ -273,6 +272,7 @@ class GNN_Element_Neighbor_Lo_Hi(torch.nn.Module):
         self.n_mlp_hidden_layers = n_mlp_hidden_layers
         self.n_messagePassing_layers = n_messagePassing_layers
         self.use_fine_messagePassing = use_fine_messagePassing
+        self.device = device
         self.name = name 
 
         # ~~~~ node encoder MLP  
@@ -336,13 +336,13 @@ class GNN_Element_Neighbor_Lo_Hi(torch.nn.Module):
             self,
             x: Tensor,
             mask: Tensor,
-            edge_index_lo: LongTensor,
-            edge_index_hi: LongTensor,
+            edge_index_lo: torch.LongTensor,
+            edge_index_hi: torch.LongTensor,
             pos_lo: Tensor,
             pos_hi: Tensor,
-            batch_lo: Optional[LongTensor] = None,
-            batch_hi: Optional[LongTensor] = None,
-            edge_index_coin: Optional[LongTensor] = None,
+            batch_lo: Optional[torch.LongTensor] = None,
+            batch_hi: Optional[torch.LongTensor] = None,
+            edge_index_coin: Optional[torch.LongTensor] = None,
             degree: Optional[Tensor] = None) -> Tensor:
 
         if batch_lo is None:
@@ -371,13 +371,23 @@ class GNN_Element_Neighbor_Lo_Hi(torch.nn.Module):
             x,e = self.processor_coarse[i](x,e,edge_index_lo,batch_lo,edge_index_coin,degree)
 
         # ~~~~ Interpolate 
-        x = tgnn.unpool.knn_interpolate(
-                x = x[mask,:], 
-                pos_x = pos_lo[mask,:],
-                pos_y = pos_hi,
-                batch_x = batch_lo[mask],
-                batch_y = batch_hi,
-                k = 8)
+        if self.device.type == 'xpu':
+            x = tgnn.unpool.knn_interpolate(
+                    x = x[mask,:].cpu(), 
+                    pos_x = pos_lo[mask,:].cpu(),
+                    pos_y = pos_hi.cpu(),
+                    batch_x = batch_lo[mask].cpu(),
+                    batch_y = batch_hi.cpu(),
+                    k = 8)
+            x = x.to(self.device)
+        else:
+            x = tgnn.unpool.knn_interpolate(
+                    x = x[mask,:], 
+                    pos_x = pos_lo[mask,:],
+                    pos_y = pos_hi,
+                    batch_x = batch_lo[mask],
+                    batch_y = batch_hi,
+                    k = 8)
 
         if self.use_fine_messagePassing: 
             # ~~~~ Fine edge features
@@ -522,9 +532,9 @@ class MessagePassingLayer(torch.nn.Module):
             self,
             x: Tensor,
             e: Tensor,
-            edge_index: LongTensor,
-            batch: Optional[LongTensor] = None, 
-            edge_index_coin: Optional[LongTensor] = None,
+            edge_index: torch.LongTensor,
+            batch: Optional[torch.LongTensor] = None, 
+            edge_index_coin: Optional[torch.LongTensor] = None,
             degree: Optional[Tensor] = None) -> Tensor:
 
         if batch is None:
