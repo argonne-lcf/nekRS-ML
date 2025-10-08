@@ -44,19 +44,19 @@ For example, to build nekRS-ML on Aurora, execute from a compute node
 Scripts are provided to conveniently generate run scripts and config files for the workflow on the different ALCF systems.
 Note that a virtual environment with PyTorch Geometric is needed to train the GNN.
 
-**From a compute node** execute
-
+**From a compute node** execute:
 ```sh
-../setup_offline.sh <system_name> </path/to/nekRS>
+./gen_run_script <system_name> </path/to/nekRS>
 ```
-
 or
+```sh
+./gen_run_script <system_name> </path/to/nekRS> --venv_path </path/to/venv>
+```
+if you have the necessary packages already installed in a Python virtual environment. For more information
+on how to use `gen_run_script`, use `--help`
 
 ```sh
-./setup_offline.sh <system_name> </path/to/nekRS> </path/to/venv> <number_of_nodes> <time> <proj_id>
-```
-
-if you have the necessary packages already installed in a Python virtual environment, or want to specify a different project, runtime or number of nodes for the run.
+./gen_run_script --help
 
 The script will produce a `run.sh` script specifically tailored to the desired system and using the desired nekRS install directory.
 
