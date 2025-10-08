@@ -32,5 +32,4 @@ zLength = 3.141592653
 betaY = 2.2
 
 [ML]
-superResolutionGNN = true # keep for now, but unused atm
 gnnPolynomialOrder = 1
