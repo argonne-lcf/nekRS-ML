@@ -25,6 +25,26 @@ function parse_args() {
   PROJ_ID=${6:-"datascience"}
 }
 
+function check_args() {
+  if [ ${SYSTEM} != "aurora" ] && [ ${SYSTEM} != "polaris" ] && [ ${SYSTEM} != "crux" ]; then
+    echo "Invalid system name!"
+    exit 1
+  fi
+  if [ ! -d ${NEKRS_HOME} ]; then
+    echo "NEKRS_HOME does not exist!"
+    exit 1
+  fi
+}
+
+function check_connection() {
+  if curl -s --head --request GET https://google.com | grep "200 OK" >/dev/null; then
+    echo "Connection to internet is up, continuing..."
+  else
+    echo "No internet connection"
+    exit 1
+  fi
+}
+
 function print_args() {
   echo "SYSTEM    : ${SYSTEM}"
   echo "NEKRS_HOME: ${NEKRS_HOME}"
@@ -41,7 +61,7 @@ function print_args() {
 # them.
 function load_modules() {
   if [ ${SYSTEM} == "aurora" ]; then
-    module load frameworks
+    module load frameworks/2025.2.0
   elif [ ${SYSTEM} == "polaris" ]; then
     module use /soft/modulefiles/
     module load conda
@@ -62,14 +82,31 @@ function setup_venv() {
     echo -e "\033[35mPython venv \"${VENV_PATH}\" doesn't exist, building one now ...\033[m"
     python -m venv --clear ${VENV_PATH} --system-site-packages
     source ${VENV_PATH}/bin/activate
+    
     if [ ${SYSTEM} == "crux" ]; then
       pip install numpy
       pip install torch --index-url https://download.pytorch.org/whl/cpu
       MPICC="cc -shared" pip install --force-reinstall --no-cache-dir --no-binary=mpi4py mpi4py
     fi
-    TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
-    export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
-    pip install torch_geometric==2.5.3
+    
+    if [ ${SYSTEM} != "polaris" ]; then
+      TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
+      export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
+      pip install torch_geometric==2.5.3
+    fi
+
+    if [ ${SYSTEM} == "aurora" ]; then
+      git clone https://github.com/rusty1s/pytorch_cluster.git
+      cd pytorch_cluster
+      # Need to force the install to not link with OpenMP, change lines 53-54 to if False:
+      sed -i 's/fopenmp/lgomp/' setup.py
+      CXX=$(which dpcpp) python setup.py install
+      cd ..
+    elif [ ${SYSTEM} == "polaris" ]; then
+      pip install torch-cluster
+    fi
+
+    pip install pymech
   else
     echo -e "\033[35mPython venv \"${VENV_PATH}\" already exists, reusing it ... \033[m"
   fi
@@ -81,6 +118,8 @@ function generate_script() {
 }
 
 parse_args "$@"
+check_args
+check_connection
 print_args
 load_modules
 setup_venv

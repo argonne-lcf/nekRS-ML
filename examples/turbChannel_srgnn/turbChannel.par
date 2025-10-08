@@ -3,14 +3,12 @@
 polynomialOrder = 7
 startFrom = "restart.fld"
 stopAt = endTime
-#endTime = 165
 endTime = 160.5
 
 dt = targetCFL=2 + max=2e-2 + initial=5e-3
 timeStepper = tombo2
 
 checkpointControl = simulationTime 
-#checkpointInterval = 1
 checkpointInterval = 0.5
 
 regularization = hpfrt + nModes=1 + scalingCoeff=5

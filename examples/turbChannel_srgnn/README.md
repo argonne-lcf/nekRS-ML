@@ -44,7 +44,7 @@ Note that a virtual environment with PyTorch Geometric and other dependencies is
 **From a compute node** execute
 
 ```sh
-./gen_run_script <system_name> </path/to/nekRS>
+../setup_offline.sh <system_name> </path/to/nekRS>
 ```
 
 or
@@ -68,4 +68,4 @@ The `run.sh` script is composed of four steps:
 - The nekRS simulation to generate the SR-GNN input files. This step produces the graph data at the higher and lower polynomial orders in `./gnn_outputs_poly_7` and `./gnn_outputs_poly_1`. It also produces the field data to be used for training at the two polynomial orders, which will be in `turbChannel0.f*` and `turbChannel_p10.f*` files.
 - A preprocessing step to convert the nekRS field data into PyTorch Geometric Data to be used for training. This step produces the `pt_datasets` directory containing the training and validation datasets.
 - SR-GNN training. This step trains the SR-GNN for a few epochs based on the data produced in the previus step. The output of this step is a model checkpoint stored inside `./saved_models`.
-- Finally, the SR-GNN is used to perform inference (i.e., postprocessing) and produce a super-resolved solution field and corresponding error field. This step uses the trained model checkpoint and evaluates on the low-order `turbChannel_p10.f*` files.
+- Finally, the SR-GNN is used to perform inference (i.e., postprocessing) and produce a super-resolved solution field and corresponding error field. This step uses the trained model checkpoint and evaluates it on the low-order `turbChannel_p10.f*` files.
