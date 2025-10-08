@@ -1,6 +1,8 @@
 # Offline training of the SR-GNN model for mesh-based, three-dimensional super-resolution
 
 This example demonstrates the pipeline for training and deploying the SR-GNN model on nekRS field data. It builds upon the [turbulent channel example](../turbChannel/) available with nekRS by modifying the `.par` and `.udf` files and calling on the scripts available in the [SR-GNN repository](../../3rd_party/sr-gnn/).
+The example was adapted from the work of Shivam Barwey (ANL) and is based on this [paper](https://www.sciencedirect.com/science/article/abs/pii/S0045782525003445).
+
 The following important steps and modifications are highlighted for this example:
 
 * The `.par` file is modified to include the `[ML]` section, under which the polynomial order of the interpolated fields is specified with the `gnnPolynomialOrder` parameter. For this example, it is set to 1 in contrast with the target polynimial order used for the nekRS simulation, which is set to 7.
