@@ -70,8 +70,18 @@ function parse_args() {
         exit 1
     esac
   done
+}
 
-  if [ "$DEPLOYMENT" == "offline" ]; then
+function setup_case() {
+  if [ "$ML_TASK" == "train" ]; then
+    # turbChannel_wallModel_ML example
+    CASE_NAME=$(ls *_train.par)
+    CASE_NAME=${CASE_NAME:0:${#CASE_NAME}-10}
+  elif [ "$ML_TASK" == "inference" ]; then
+    # turbChannel_wallModel_ML example
+    CASE_NAME=$(ls *_inference.par)
+    CASE_NAME=${CASE_NAME:0:${#CASE_NAME}-14}
+  elif [ "$DEPLOYMENT" == "offline" ]; then
     # offline example
     CASE_NAME=$(ls *.par)
     CASE_NAME=${CASE_NAME:0:${#CASE_NAME}-4}
@@ -80,9 +90,17 @@ function parse_args() {
     CASE_NAME=$(ls *.par.safe)
     CASE_NAME=${CASE_NAME:0:${#CASE_NAME}-9}
   else
-    # wallmodel example
-    CASE_NAME=$(ls *_train.par)
-    CASE_NAME=${CASE_NAME:0:${#CASE_NAME}-10}
+    echo "Error: Unable to find case name!"
+    exit 1
+  fi
+
+  if [ -n "$ML_TASK" ]; then
+    cp ${CASE_NAME}_${ML_TASK}.box ${CASE_NAME}.box
+    cp ${CASE_NAME}_${ML_TASK}.udf ${CASE_NAME}.udf
+    cp ${CASE_NAME}_${ML_TASK}.usr ${CASE_NAME}.usr
+    cp ${CASE_NAME}_${ML_TASK}.par ${CASE_NAME}.par
+    cp ${CASE_NAME}_${ML_TASK}.re2 ${CASE_NAME}.re2
+    cp ${CASE_NAME}_${ML_TASK}.oudf ${CASE_NAME}.oudf
   fi
 }
 
@@ -184,10 +202,12 @@ function generate_script() {
 
   NEKRS_HOME=${NEKRS_HOME} VENV_PATH=${VENV_PATH}/bin/activate PROJ_ID=${PROJ_ID} \
   DEPLOYMENT=$DEPLOYMENT DB_NODES=$DB_NODES SIM_NODES=$SIM_NODES TRAIN_NODES=$TRAIN_NODES \
+  ML_TASK=${ML_TASK} \
     ./nrsrun_${SYSTEM} ${CASE_NAME} ${NODES} ${TIME}
 }
 
 parse_args "$@"
+setup_case
 print_args
 load_modules
 setup_venv
