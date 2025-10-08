@@ -3,31 +3,87 @@ set -a
 
 SYSTEM=
 NEKRS_HOME=
-VENV_PATH=
-NODES=
-TIME=
-PROJ_ID=
-DEPLOYMENT=
+VENV_PATH="./_gnn"
+NODES=$(cat ${PBS_NODEFILE} | wc -l)
+TIME="01:00"
+PROJ_ID="datascience"
+DEPLOYMENT="colocated"
+ML_TASK=
+CLIENT=
+
 CASE_NAME=
 
+function print_help() {
+  echo "Usage: $0 <SYSTEM> <NEKRS_HOME> [--venv_path | -v <VENV_PATH>]"     \
+    "[--nodes | -n <NODES>] [--time | -t <TIME>] [--proj_id | -p <PROJ_ID>]"\
+    "[--deployment | -d <DEPLOYMENT>] [--help | -h]"
+}
+
 function parse_args() {
-  if [ "$#" -lt 2 ] || [ "$#" -gt 6 ]; then
-    echo "Invalid number of arguments!"
-    echo "Usage:"
-    echo "  $0 SYSTEM NEKRS_HOME [VENV_PATH] [NODES] [TIME] [PROJ_ID] [DEPLOYMENT]"
+  if [ "$#" -lt 2 ]; then
+    print_help
     exit 1
   fi
 
   SYSTEM="${1,,}"
-  NEKRS_HOME=$2
-  VENV_PATH=${3:-"./_ssim"}
-  NODES=${4:-$(cat ${PBS_NODEFILE} | wc -l)}
-  TIME=${5:-"00:30"}
-  PROJ_ID=${6:-"datascience"}
-  DEPLOYMENT=${7:-"colocated"}
+  shift
+  NEKRS_HOME=$1
+  shift
 
-  CASE_NAME=$(ls *.par.safe)
-  CASE_NAME=${CASE_NAME:0:${#CASE_NAME}-9}
+  while [ $# -gt 0 ]; do
+    key="$1"
+    case $key in
+      --venv_path| -v)
+        VENV_PATH=$2
+        shift; shift
+        ;;
+      --nodes| -n)
+        NODES=$2
+        shift; shift
+        ;;
+      --time| -t)
+        TIME=$2
+        shift; shift
+        ;;
+      --proj_id| -p)
+        PROJ_ID=$2
+        shift; shift
+        ;;
+      --deployment| -d)
+        DEPLOYMENT=${2,,}
+        shift; shift
+        ;;
+      --ml_task| -m)
+        ML_TASK=${2,,}
+        shift; shift
+        ;;
+      --client| -c)
+        CLIENT=${2,,}
+        shift; shift
+        ;;
+      --help| -h)
+        print_help
+        exit 0
+        ;;
+      *)
+        print_help
+        exit 1
+    esac
+  done
+
+  if [ "$DEPLOYMENT" == "offline" ]; then
+    # offline example
+    CASE_NAME=$(ls *.par)
+    CASE_NAME=${CASE_NAME:0:${#CASE_NAME}-4}
+  elif [ "${DEPLOYMENT}" == "colocated" ] || [ "${DEPLOYMENT}" == "clustered" ]; then
+    # online example
+    CASE_NAME=$(ls *.par.safe)
+    CASE_NAME=${CASE_NAME:0:${#CASE_NAME}-9}
+  else
+    # wallmodel example
+    CASE_NAME=$(ls *_train.par)
+    CASE_NAME=${CASE_NAME:0:${#CASE_NAME}-10}
+  fi
 }
 
 function print_args() {
@@ -38,6 +94,8 @@ function print_args() {
   echo "TIME      : ${TIME}"
   echo "PROJ_ID   : ${PROJ_ID}"
   echo "DEPLOYMENT: ${DEPLOYMENT}"
+  echo "CLIENT    : ${CLIENT}"
+  echo "ML_TASK   : ${ML_TASK}"
 }
 
 # this maybe not necessary as the nrsrun_${SYSTEM} scripts generate
@@ -51,6 +109,13 @@ function load_modules() {
     module load conda
     conda activate
     module load spack-pe-base cmake
+  elif [ ${SYSTEM} == "crux" ]; then
+    module use /soft/modulefiles/
+    module load PrgEnv-gnu/8.5.0
+    module load gcc-native/12.3
+    module load spack-pe-base/0.8.0
+    module load cmake
+    module load python/3.10.13
   fi
 }
 
@@ -78,21 +143,26 @@ function setup_venv() {
     python -m venv --clear ${VENV_PATH} --system-site-packages
     source ${VENV_PATH}/bin/activate
   
-    if [ ${SYSTEM} == "polaris" ]; then
+    if [ "${SYSTEM}" == "polaris" ]; then
       export CC=cc
       export CXX=CC
       export CUDNN_BASE=/soft/libraries/cudnn/cudnn-12-linux-x64-v9.1.0.70
       export CUDNN_LIBRARY=$CUDNN_BASE/lib/
       export CUDNN_INCLUDE_DIR=$CUDNN_BASE/include/
       export LD_LIBRARY_PATH=$CUDNN_LIBRARY:$LD_LIBRARY_PATH
+    elif [ "${SYSTEM}" == "crux" ]; then
+      pip install numpy
+      pip install torch --index-url https://download.pytorch.org/whl/cpu
+      MPICC="cc -shared" pip install --force-reinstall --no-cache-dir --no-binary=mpi4py mpi4py
     fi
-
-    # We shouldn't run this if ADIOS is ON.
-    build_smartsim
 
     export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
     export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
     pip install torch_geometric==2.5.3
+
+    if [ "${CLIENT}" == "smartredis" ]; then
+      build_smartsim
+    fi
   else
     echo -e "\033[35mPython venv \"${VENV_PATH}\" already exists, reusing it ... \033[m"
   fi
