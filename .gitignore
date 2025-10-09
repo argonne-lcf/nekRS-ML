@@ -12,6 +12,10 @@ logfile
 *.dat
 .cache/
 
+# ML related items
+__pycache__/
+_gnn/
+
 # SmartSim/SmartRedis outputs
 *.out
 *.err
