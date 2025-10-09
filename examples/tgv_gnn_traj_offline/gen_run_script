@@ -3,5 +3,5 @@
 if [ $# -lt 2 ]; then
   ../setup_gnn.sh --help
 else
-  ../setup_gnn.sh $1 $2 --deployment offline ${@:3}
+  ../setup_gnn.sh $1 $2 ${@:3}
 fi

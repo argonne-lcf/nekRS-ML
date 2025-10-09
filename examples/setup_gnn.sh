@@ -3,13 +3,13 @@ set -a
 
 SYSTEM=
 NEKRS_HOME=
-VENV_PATH="./_gnn"
+VENV_PATH="../_gnn"
 NODES=$(cat ${PBS_NODEFILE} | wc -l)
 TIME="01:00"
 PROJ_ID="datascience"
-DEPLOYMENT="colocated"
+DEPLOYMENT="offline"
+CLIENT="posix"
 ML_TASK=
-CLIENT=
 
 CASE_NAME=
 
@@ -70,6 +70,36 @@ function parse_args() {
         exit 1
     esac
   done
+}
+
+function check_args() {
+  if [ ${SYSTEM} != "aurora" ] && [ ${SYSTEM} != "polaris" ] && [ ${SYSTEM} != "crux" ]; then
+    echo "Invalid system name! Supported systems are aurora, polaris and crux."
+    exit 1
+  fi
+  if [ ! -d ${NEKRS_HOME} ]; then
+    echo "NEKRS_HOME does not exist! Check path."
+    exit 1
+  fi
+  if [ ${DEPLOYMENT} != "clustered" ] && [ ${DEPLOYMENT} != "colocated" ] && [ ${DEPLOYMENT} != "offline" ]; then
+    echo "Invalid deployment type! Supported options are offline, clustered and colocated."
+    exit 1
+  fi
+  if [ -n "${ML_TASK}" ] && [ "${ML_TASK}" != "train" ] && [ "${ML_TASK}" != "inference" ]; then
+    echo "Invalid deployment type! Supported options are undefined, train and inference."
+    exit 1
+  fi
+  if [ ${CLIENT} != "smartredis" ] && [ ${CLIENT} != "adios" ] && [ ${CLIENT} != "posix" ]; then
+    echo "Invalid client type! Supported options are posix, smartredis and adios."
+    exit 1
+  fi
+}
+
+function check_connection() {
+  if ! curl -Is --max-time 5 https://example.com >/dev/null; then
+    echo "Connection test failed — check proxy or network settings." >&2
+    exit 1
+  fi
 }
 
 function setup_case() {
@@ -149,6 +179,8 @@ function build_smartsim() {
     DEVICE="gpu"
   fi
 
+  export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
+  export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
   export TORCH_CMAKE_PATH=$( python -c 'import torch;print(torch.utils.cmake_prefix_path)' )
   smart build -v --device $DEVICE --torch_dir $TORCH_CMAKE_PATH --no_tf
   smart validate
@@ -183,6 +215,13 @@ function setup_venv() {
     fi
   else
     echo -e "\033[35mPython venv \"${VENV_PATH}\" already exists, reusing it ... \033[m"
+    if [ "${CLIENT}" == "smartredis" ]; then
+      if ! pip list | grep -q smartsim; then
+        echo -e "\033[35mRequested the smartredis backend, but SmartSim is not installed \033[m"
+        source ${VENV_PATH}/bin/activate
+        build_smartsim
+      fi
+    fi
   fi
 }
 
@@ -207,6 +246,8 @@ function generate_script() {
 }
 
 parse_args "$@"
+check_args
+check_connection
 setup_case
 print_args
 load_modules
