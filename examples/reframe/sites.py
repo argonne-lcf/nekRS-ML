@@ -17,6 +17,7 @@ site_configuration = {
             "name": "aurora",
             "descr": "Aurora at ALCF",
             "modules_system": "lmod",
+            "modules": ["frameworks"],
             "hostnames": [
                 "^aurora-uan*",
                 "^aurora-gateway-[0-9]{4}.*",
@@ -33,6 +34,7 @@ site_configuration = {
                     ],
                     "extras": {
                         "max_local_jobs": 12,
+                        "cpu_bind_list": "list:0-7:8-15:16-23:24-31:32-39:40-47:52-59:60-67:68-75:76-83:84-91:92-99",
                     },
                 },
                 {
@@ -70,7 +72,6 @@ site_configuration = {
                     "type": "file",
                     "name": "reframe.log",
                     "level": "debug2",
-                    "format": "[%(asctime)s] %(levelname)s: %(check_info)s: %(message)s",  # noqa: E501
                     "append": False,
                 },
                 {

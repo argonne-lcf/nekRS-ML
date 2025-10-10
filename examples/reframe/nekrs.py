@@ -8,50 +8,32 @@ import os.path
 
 
 class NekRSBuild(CompileOnlyTest):
-    use_prebuilt = variable(typ.Bool, value=True)
     version = variable(str, value="2024-11-22")
 
     def __init__(self):
         super().__init__()
         self.descr = "nekRS build"
         self.maintainers = ["kris.rowe@anl.gov"]
-        self.tags = {"nekrs"}
-        # self.valid_systems = ['sunspot:compute','aurora:compute','aurora:login']
-        # self.valid_prog_environs = ['PrgEnv-intel']
-        self.modules = ["cmake"]
+        self.tags = {"build"}
 
     # Need stagedir, so must call after setup phase
     # https://reframe-hpc.readthedocs.io/en/stable/regression_test_api.html#reframe.core.pipeline.RegressionTest.stagedir
     @run_before("compile")
     def configure_build(self):
-        if self.use_prebuilt:
-            tarball_prefix = (
-                "/lus/flare/projects/Aurora_AT/test_binary_tarballs"
-            )
-            tarball = f"nekRS_{self.version}_binary.tar.gz"
-            tarball_path = os.path.join(tarball_prefix, tarball)
-            self.build_system = "CustomBuild"
-            self.build_system.commands = ["/bin/true"]
-            self.prebuild_cmds = [f"tar xzf {tarball_path}"]
-            self.install_path = os.path.join(
-                f"{self.stagedir}", "nekRS/install"
-            )
-            self.binary_path = os.path.join(self.install_path, "bin")
-        else:
-            self.sourcesdir = "https://github.com/argonne-lcf/nekRS.git"
-            self.build_system = "CMake"
-            self.build_system.flags_from_environ = False
-            self.build_system.builddir = "build"
-            self.build_system.cc = "mpicc"
-            self.build_system.cxx = "mpicxx"
-            self.build_system.ftn = "mpif77"
-            self.build_system.max_concurrency = 8
-            self.build_system.make_opts = ["install"]
-            self.install_path = os.path.join(f"{self.stagedir}", "install")
-            self.binary_path = os.path.join(self.install_path, "bin")
-            self.build_system.config_opts = [
-                f"-DCMAKE_INSTALL_PREFIX={self.install_path}",
-            ]
+        self.sourcesdir = "https://github.com/argonne-lcf/nekRS-ML.git"
+        self.build_system = "CMake"
+        self.build_system.flags_from_environ = False
+        self.build_system.builddir = "build"
+        self.build_system.cc = "mpicc"
+        self.build_system.cxx = "mpicxx"
+        self.build_system.ftn = "mpif77"
+        self.build_system.max_concurrency = 8
+        self.build_system.make_opts = ["install"]
+        self.install_path = os.path.join(f"{self.stagedir}", "install")
+        self.binary_path = os.path.join(self.install_path, "bin")
+        self.build_system.config_opts = [
+            f"-DCMAKE_INSTALL_PREFIX={self.install_path}",
+        ]
 
     @sanity_function
     def validate_build(self):
@@ -85,14 +67,11 @@ class NekRSTest(RunOnlyTest):
         self.descr = "nekRS test"
         self.maintainers = ["kris.rowe@anl.gov"]
         self.tags = {"nekrs"}
-        self.valid_systems = ["sunspot:compute", "aurora:compute"]
-        self.valid_prog_environs = ["PrgEnv-intel"]
-        self.modules = ["cmake"]
         self.case = nekrs_case
         self.sourcesdir = nekrs_case.directory
         self.readonly_files = [f"{nekrs_case.name}.re2"]
         self.device_id = 0
-        self.cpu_bind = r"list:0-7:8-15:16-23:24-31:32-39:40-47:52-59:60-67:68-75:76-83:84-91:92-99"
+        self.cpu_bind = self.current_partition.extras["cpu_bind_list"]
         self.ranks_per_node = 12
 
     # Need fixture variables, so must call after setup
