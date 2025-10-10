@@ -3,128 +3,140 @@ import reframe.utility.sanity as sn
 import reframe.utility.typecheck as typ
 from reframe.core.backends import getlauncher
 
-import alcf_nodes as alcf
-import os.path 
+from core import CompileOnlyTest, RunOnlyTest
+import os.path
 
-class NekRSBuild(alcf.ALCFCompileOnlyTest):
-    
-  use_prebuilt = variable(typ.Bool, value=True)
-  version = variable(str, value='2024-11-22')
 
-  def __init__(self):
-    super().__init__()
-    self.descr = 'nekRS build'
-    self.maintainers = ['kris.rowe@anl.gov']
-    self.tags = {'nekrs'}
-    # self.valid_systems = ['sunspot:compute','aurora:compute','aurora:login']
-    # self.valid_prog_environs = ['PrgEnv-intel']
-    self.modules = ['cmake']
+class NekRSBuild(CompileOnlyTest):
+    use_prebuilt = variable(typ.Bool, value=True)
+    version = variable(str, value="2024-11-22")
 
-  # Need stagedir, so must call after setup phase
-  # https://reframe-hpc.readthedocs.io/en/stable/regression_test_api.html#reframe.core.pipeline.RegressionTest.stagedir
-  @run_before('compile')
-  def configure_build(self):
-    if self.use_prebuilt:
-      tarball_prefix = '/lus/flare/projects/Aurora_AT/test_binary_tarballs'
-      tarball = f'nekRS_{self.version}_binary.tar.gz'
-      tarball_path = os.path.join(tarball_prefix,tarball)
-      self.build_system = 'CustomBuild'
-      self.build_system.commands = ['/bin/true']
-      self.prebuild_cmds = [f'tar xzf {tarball_path}']
-      self.install_path = os.path.join(f'{self.stagedir}','nekRS/install')
-      self.binary_path = os.path.join(self.install_path,'bin')
-    else:
-      self.sourcesdir = 'https://github.com/argonne-lcf/nekRS.git'
-      self.build_system = 'CMake'
-      self.build_system.flags_from_environ = False
-      self.build_system.builddir = 'build'
-      self.build_system.cc = 'mpicc'
-      self.build_system.cxx = 'mpicxx'
-      self.build_system.ftn = 'mpif77'
-      self.build_system.max_concurrency = 8
-      self.build_system.make_opts = ['install']
-      self.install_path = os.path.join(f'{self.stagedir}','install')
-      self.binary_path = os.path.join(self.install_path,'bin')
-      self.build_system.config_opts = [
-        f'-DCMAKE_INSTALL_PREFIX={self.install_path}',
-      ]
-      
-  @sanity_function
-  def validate_build(self):
-    nekrs_binary = os.path.join(self.binary_path,'nekrs')
-    return sn.assert_true(os.path.isfile(nekrs_binary), f'nekRS binary could not be found in path {nekrs_binary}') 
+    def __init__(self):
+        super().__init__()
+        self.descr = "nekRS build"
+        self.maintainers = ["kris.rowe@anl.gov"]
+        self.tags = {"nekrs"}
+        # self.valid_systems = ['sunspot:compute','aurora:compute','aurora:login']
+        # self.valid_prog_environs = ['PrgEnv-intel']
+        self.modules = ["cmake"]
+
+    # Need stagedir, so must call after setup phase
+    # https://reframe-hpc.readthedocs.io/en/stable/regression_test_api.html#reframe.core.pipeline.RegressionTest.stagedir
+    @run_before("compile")
+    def configure_build(self):
+        if self.use_prebuilt:
+            tarball_prefix = (
+                "/lus/flare/projects/Aurora_AT/test_binary_tarballs"
+            )
+            tarball = f"nekRS_{self.version}_binary.tar.gz"
+            tarball_path = os.path.join(tarball_prefix, tarball)
+            self.build_system = "CustomBuild"
+            self.build_system.commands = ["/bin/true"]
+            self.prebuild_cmds = [f"tar xzf {tarball_path}"]
+            self.install_path = os.path.join(
+                f"{self.stagedir}", "nekRS/install"
+            )
+            self.binary_path = os.path.join(self.install_path, "bin")
+        else:
+            self.sourcesdir = "https://github.com/argonne-lcf/nekRS.git"
+            self.build_system = "CMake"
+            self.build_system.flags_from_environ = False
+            self.build_system.builddir = "build"
+            self.build_system.cc = "mpicc"
+            self.build_system.cxx = "mpicxx"
+            self.build_system.ftn = "mpif77"
+            self.build_system.max_concurrency = 8
+            self.build_system.make_opts = ["install"]
+            self.install_path = os.path.join(f"{self.stagedir}", "install")
+            self.binary_path = os.path.join(self.install_path, "bin")
+            self.build_system.config_opts = [
+                f"-DCMAKE_INSTALL_PREFIX={self.install_path}",
+            ]
+
+    @sanity_function
+    def validate_build(self):
+        nekrs_binary = os.path.join(self.binary_path, "nekrs")
+        return sn.assert_true(
+            os.path.isfile(nekrs_binary),
+            f"nekRS binary could not be found in path {nekrs_binary}",
+        )
+
 
 # Encapsulate case-specific info
 class NekRSCase:
+    def __init__(self, name, directory):
+        self._name = name
+        self._directory = directory
 
-  def __init__(self, name, directory):
-    self._name = name
-    self._directory = directory
+    @property
+    def name(self):
+        return self._name
 
-  @property
-  def name(self): return self._name
+    @property
+    def directory(self):
+        return self._directory
 
-  @property
-  def directory(self): return self._directory
 
-class NekRSTest(alcf.ALCFRunOnlyTest):
+class NekRSTest(RunOnlyTest):
+    nekrs_build = fixture(NekRSBuild, scope="environment")
 
-  nekrs_build = fixture(NekRSBuild, scope='environment')
+    def __init__(self, nekrs_case):
+        super().__init__()
+        self.descr = "nekRS test"
+        self.maintainers = ["kris.rowe@anl.gov"]
+        self.tags = {"nekrs"}
+        self.valid_systems = ["sunspot:compute", "aurora:compute"]
+        self.valid_prog_environs = ["PrgEnv-intel"]
+        self.modules = ["cmake"]
+        self.case = nekrs_case
+        self.sourcesdir = nekrs_case.directory
+        self.readonly_files = [f"{nekrs_case.name}.re2"]
+        self.device_id = 0
+        self.cpu_bind = r"list:0-7:8-15:16-23:24-31:32-39:40-47:52-59:60-67:68-75:76-83:84-91:92-99"
+        self.ranks_per_node = 12
 
-  def __init__(self, nekrs_case):
-    super().__init__()
-    self.descr = 'nekRS test'
-    self.maintainers = ['kris.rowe@anl.gov']
-    self.tags = {'nekrs'}
-    self.valid_systems = ['sunspot:compute','aurora:compute']
-    self.valid_prog_environs = ['PrgEnv-intel']
-    self.modules = ['cmake']
-    self.case = nekrs_case
-    self.sourcesdir = nekrs_case.directory
-    self.readonly_files = [ f'{nekrs_case.name}.re2' ]
-    self.device_id = 0
-    self.cpu_bind = r'list:0-7:8-15:16-23:24-31:32-39:40-47:52-59:60-67:68-75:76-83:84-91:92-99'
-    self.ranks_per_node = 12
+    # Need fixture variables, so must call after setup
+    # See _Early access to fixture objects_ here:
+    # https://reframe-hpc.readthedocs.io/en/stable/regression_test_api.html#reframe.core.builtins.fixture
+    @run_after("setup")
+    def set_paths_exec(self):
+        self.nekrs_home = os.path.realpath(self.nekrs_build.install_path)
+        self.nekrs_binary = os.path.join(self.nekrs_build.binary_path, "nekrs")
+        self.executable = f"gpu_tile_compact.sh {self.nekrs_binary}"
 
-  # Need fixture variables, so must call after setup
-  # See _Early access to fixture objects_ here: 
-  # https://reframe-hpc.readthedocs.io/en/stable/regression_test_api.html#reframe.core.builtins.fixture
-  @run_after('setup')
-  def set_paths_exec(self):
-    self.nekrs_home = os.path.realpath(self.nekrs_build.install_path)
-    self.nekrs_binary = os.path.join(self.nekrs_build.binary_path,'nekrs')
-    self.executable = f'gpu_tile_compact.sh {self.nekrs_binary}'
+    def set_environment(self):
+        self.env_vars |= {
+            "LD_LIBRARY_PATH": f"$LD_LIBRARY_PATH:{self.nekrs_build.install_path}/lib",
+            "NEKRS_HOME": self.nekrs_home,
+            "OCCA_DPCPP_COMPILER_FLAGS": '"-O3 -fsycl -fsycl-targets=intel_gpu_pvc -ftarget-register-alloc-mode=pvc:auto -fma"',
+        }
 
-  def set_environment(self):
-    self.env_vars |= {
-      'LD_LIBRARY_PATH' : f'$LD_LIBRARY_PATH:{self.nekrs_build.install_path}/lib',
-      'NEKRS_HOME' : self.nekrs_home,
-      'OCCA_DPCPP_COMPILER_FLAGS' : '\"-O3 -fsycl -fsycl-targets=intel_gpu_pvc -ftarget-register-alloc-mode=pvc:auto -fma\"'
-    }
-       
-  def set_launcher_options(self):
-    self.total_ranks = self.num_nodes * self.ranks_per_node
-    self.job.launcher.options += [
-      f'-np {self.total_ranks}',
-      f'-ppn {self.ranks_per_node}',
-      f'--cpu-bind={self.cpu_bind}'
-    ]
+    def set_launcher_options(self):
+        self.total_ranks = self.num_nodes * self.ranks_per_node
+        self.job.launcher.options += [
+            f"-np {self.total_ranks}",
+            f"-ppn {self.ranks_per_node}",
+            f"--cpu-bind={self.cpu_bind}",
+        ]
 
-  def set_executable_options(self):
-    self.executable_opts += [
-      f'--setup {self.case.name}',
-      f'--backend DPCPP',
-      f'--device-id {self.device_id}'
-    ]
+    def set_executable_options(self):
+        self.executable_opts += [
+            f"--setup {self.case.name}",
+            f"--backend DPCPP",
+            f"--device-id {self.device_id}",
+        ]
 
-  @run_before('run')
-  def setup_run(self):
-    self.set_environment()
-    self.set_launcher_options()
-    self.set_executable_options()
-    # TODO: Add kernel jitting to self.prerun_cmds[]
+    @run_before("run")
+    def setup_run(self):
+        self.set_environment()
+        self.set_launcher_options()
+        self.set_executable_options()
+        # TODO: Add kernel jitting to self.prerun_cmds[]
 
-  @sanity_function
-  def check_exit_code(self):
-    return sn.assert_found(r'finished with exit code 0', self.stdout, msg='finished with non-zero exit code.')
-
+    @sanity_function
+    def check_exit_code(self):
+        return sn.assert_found(
+            r"finished with exit code 0",
+            self.stdout,
+            msg="finished with non-zero exit code.",
+        )
