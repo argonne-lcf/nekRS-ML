@@ -16,7 +16,8 @@ CASE_NAME=
 function print_help() {
   echo "Usage: $0 <SYSTEM> <NEKRS_HOME> [--venv_path | -v <VENV_PATH>]"     \
     "[--nodes | -n <NODES>] [--time | -t <TIME>] [--proj_id | -p <PROJ_ID>]"\
-    "[--deployment | -d <DEPLOYMENT>] [--help | -h]"
+    "[--deployment | -d <DEPLOYMENT>] [--ml_task | -m <ML_TASK>]"           \
+    "[--client | -c <CLIENT>] [--help | -h]"
 }
 
 function parse_args() {
