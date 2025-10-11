@@ -1,11 +1,13 @@
 import reframe as rfm
 import reframe.utility.sanity as sn
 from nekrs import NekRSCase, NekRSTest
+from pathlib import Path
+import os
 
 
 class NekRSKershawCase(NekRSCase):
     case_name = "kershaw"
-    case_root = "/lus/flare/projects/Aurora_AT/nekRS/cases/kershaw"
+    case_root = os.path.join(Path(os.getcwd()).parent, "kershaw")
 
     def __init__(self, case_number):
         super().__init__(
