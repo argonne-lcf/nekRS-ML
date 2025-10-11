@@ -63,7 +63,7 @@ class NekRSTest(RunOnlyTest):
     nekrs_build = fixture(NekRSBuild, scope="environment")
 
     def __init__(self, nekrs_case):
-        super().__init__()
+        super().__init__(num_nodes=1)
         self.descr = "nekRS test"
         self.maintainers = ["kris.rowe@anl.gov"]
         self.tags = {"nekrs"}
