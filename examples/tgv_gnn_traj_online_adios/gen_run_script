@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [ $# -lt 2 ]; then
-  ../setup_gnn.sh --help
+  ../setup_case.sh --help
 else
-  ../setup_gnn.sh $1 $2 --client adios --deployment colocated ${@:3}
+  ../setup_case.sh $1 $2 --client adios --deployment colocated ${@:3}
 fi
