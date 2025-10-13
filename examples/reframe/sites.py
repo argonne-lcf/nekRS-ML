@@ -52,6 +52,41 @@ site_configuration = {
                 },
             ],
         },
+        {
+            "name": "polaris",
+            "descr": "Polaris at ALCF",
+            "modules_system": "lmod",
+            "modules": ["conda"],
+            "hostnames": [],
+            "partitions": [
+                {
+                    "name": "login",
+                    "descr": "Login nodes",
+                    "scheduler": "local",
+                    "launcher": "alcf_mpiexec",
+                    "environs": [
+                        "PrgEnv-gnu",
+                    ],
+                    "extras": {
+                        "max_local_jobs": 8,
+                    },
+                },
+                {
+                    "name": "compute",
+                    "descr": "Compute nodes",
+                    "scheduler": "pbs",
+                    "launcher": "alcf_mpiexec",
+                    "max_jobs": 128,
+                    "environs": [
+                        "PrgEnv-gnu",
+                    ],
+                    "extras": {
+                        "max_local_jobs": 12,
+                        "cpu_bind_list": "24:16:8:1"
+                    },
+                },
+            ],
+        },
     ],
     "environments": [
         {
@@ -62,6 +97,19 @@ site_configuration = {
             "cc": "icx",
             "cxx": "icpx",
             "ftn": "ifx",
+        },
+        {
+            "name": "PrgEnv-gnu",
+            "prepare_cmds": [
+                "module restore",
+                "module load conda",
+                "conda activate",
+                "module list",
+            ],
+            "target_systems": ["polaris"],
+            "cc": "gcc",
+            "cxx": "g++",
+            "ftn": "gfortran",
         },
     ],
     "logging": [
