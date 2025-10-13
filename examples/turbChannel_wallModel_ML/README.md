@@ -38,19 +38,21 @@ ENABLE_SMARTREDIS=ON ./BuildMeOnAurora
 
 Scripts are provided to conveniently generate run scripts and config files for the workflow on the different ALCF systems.
 
-**From a compute node** execute
+**From a compute node** execute:
+```sh
+./gen_run_script <system_name> </path/to/nekRS> [-m <ml_task>]
+```
+where `ml_task` is either `train` or `inference` (default is `train`).
 
 ```sh
-./gen_run_script <system_name> </path/to/nekRS> <ML task>
+./gen_run_script <system_name> </path/to/nekRS> --venv_path </path/to/venv>
 ```
-
-or
+if you have the necessary packages already installed in a Python virtual environment. For more information
+on how to use `gen_run_script`, use `--help`
 
 ```sh
-./gen_run_script <system_name> </path/to/nekRS> <ML task> </path/to/venv/bin/activate>
+./gen_run_script --help
 ```
-
-if you have the necessary packages already installed in a Python virtual environment.
 
 The script will produce a `run.sh` script specifically tailored to the desired system, using the desired nekRS install directory and performing either training or inference of the wall shear stress model.
 

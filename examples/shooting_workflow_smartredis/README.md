@@ -6,7 +6,7 @@ The flow problem is based on the turbulence channel flow LES, for which the deta
 The main differences between this example and simple online training of time dependent GNN surrogate are in the `driver.py` workflow driver script. 
 Specifically, the workflow runner alternates between fine-tuning of the GNN and deploying the model for inference.
 During fine-tuning, both nekRS and GNN training are running concurrently.
-During inference, only the GNN is run advanding the velocity field in time.
+During inference, only the GNN is run advancing the velocity field in time.
 As usual, the plugins are called from  `UDF_Setup()` and `UDF_ExecuteStep()`. 
 Note that at the end of the run, nekRS writes a checkpoint to the SmartSim database, which is used as initial condition to GNN inference.
 
@@ -20,13 +20,13 @@ Requirements:
 * PyTorch and PyTorch Geometric (for the examples using the GNN)
 * SmartSim and SmartRedis (for the examples using SmartSim as a workflow driver)
 
-To build nekRS and the required dependencoes, first clone our GitHub repository:
+To build nekRS and the required dependencies, first clone our GitHub repository:
 
 ```sh
 https://github.com/argonne-lcf/nekRS-ML.git
 ```
 
-Then, simply execute one of the build scripts contained in the reposotory. 
+Then, simply execute one of the build scripts contained in the repository. 
 The HPC systems currently supported are:
 * [Polaris](https://docs.alcf.anl.gov/polaris/) (Argonne LCF)
 * [Aurora](https://docs.alcf.anl.gov/aurora/) (Argonne LCF) 
@@ -38,24 +38,21 @@ For example, to build nekRS-ML on Aurora, execute from a compute node
 ENABLE_SMARTREDIS=ON ./BuildMeOnAurora
 ```
 
-## Runnig the example
+## Running the example
 
 Scripts are provided to conveniently generate run scripts and config files for the workflow on the different ALCF systems.
 Note that a virtual environment with PyTorch Geometric and SmartSim/SmartRedis is needed to train the GNN online.
 
-**From a compute node** execute
-
+**From a compute node** execute:
 ```sh
 ./gen_run_script <system_name> </path/to/nekRS>
 ```
-
 or
-
 ```sh
-./gen_run_script <system_name> </path/to/nekRS> </path/to/venv/bin/activate>
+./gen_run_script <system_name> </path/to/nekRS> --venv_path </path/to/venv/bin/activate>
 ```
-
-if you have the necessary packages already installed in a Python virtual environment. 
+if you have the necessary packages already installed in a Python virtual environment. For more information
+on how to use `gen_run_script`, use `--help`
 
 The script will produce a `run.sh` script specifically tailored to the desired system and using the desired nekRS install directory. 
 

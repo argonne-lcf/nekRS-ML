@@ -2,6 +2,6 @@
 
 rm -r nekRS-ML outputs
 rm affinity_* config.yaml run.sh launch_db.py stop_db.py
-rm -rf SmartSim _ssim
+rm -rf SmartSim 
 rm turbChannel.par turbChannel.box turbChannel.re2
 
