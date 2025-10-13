@@ -82,17 +82,17 @@ If a build script for a specific HPC system is not available, please submit an i
 To run any of the AI-enabled examples listed above, simply `cd` to the example directory of interest and **from a compute node** execute
 
 ```sh
-../setup_case.sh <system_name> </path/to/nekRS>
+./gen_run_script <system_name> </path/to/nekRS>
 ```
 
 or
 
 ```sh
-../setup_case.sh <system_name> </path/to/nekRS> -v </path/to/venv/bin/activate>
+./gen_run_script <system_name> </path/to/nekRS> -v </path/to/venv/bin/activate>
 ```
 
 if you have the necessary packages already installed in a Python virtual environment. 
-For more information on the `setup_case.sh` script, run `./setup_case.sh -h`.
+For more information on all the options available to configure the `gen_run_script` scripts, run `./gen_run_script -h`.
 
 The case setup script will produce a `run.sh` script specifically tailored to the desired system and using the desired nekRS install directory. 
 
