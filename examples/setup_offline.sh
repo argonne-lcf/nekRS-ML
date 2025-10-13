@@ -37,10 +37,8 @@ function check_args() {
 }
 
 function check_connection() {
-  if curl -s --head --request GET https://google.com | grep "200 OK" >/dev/null; then
-    echo "Connection to internet is up, continuing..."
-  else
-    echo "No internet connection"
+  if ! curl -Is --max-time 5 https://example.com >/dev/null; then
+    echo "Connection test failed — check proxy or network settings." >&2
     exit 1
   fi
 }

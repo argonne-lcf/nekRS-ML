@@ -1,0 +1,66 @@
+#!/bin/bash
+set -e
+
+#--------------------------------------
+: ${QUEUE:="prod"}
+: ${NEKRS_GPU_MPI:=0}
+: ${NEKRS_BACKEND:="CUDA"}
+: ${RANKS_PER_NODE:=2}
+: ${CPU_BIND_LIST:="24:16:8:1"}
+: ${VENV_PATH:=""}
+#--------------------------------------
+
+source $NEKRS_HOME/bin/nrsqsub_utils
+setup $# 1
+
+TOTAL_RANKS=$(( nodes * RANKS_PER_NODE ))
+chk_case $TOTAL_RANKS
+
+#--------------------------------------
+# Generate the run script
+RFILE=run.sh
+echo "#!/bin/bash" > $RFILE
+
+echo "export TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
+
+echo -e "\necho Jobid: \$PBS_JOBID" >>$RFILE
+echo "echo Running on host \`hostname\`" >>$RFILE
+echo "echo Running on nodes \`cat \$PBS_NODEFILE\`" >>$RFILE
+
+echo "module restore" >> $RFILE
+echo "module use /soft/modulefiles/" >> $RFILE
+echo "module load conda/2025-09-25" >> $RFILE
+echo "conda activate" >> $RFILE
+echo "source ${VENV_PATH}" >> $RFILE
+echo "module list" >> $RFILE
+
+echo -e "\nexport NEKRS_HOME=$NEKRS_HOME" >>$RFILE
+echo "export NEKRS_CACHE_BCAST=$NEKRS_CACHE_BCAST" >>$RFILE
+echo "export NEKRS_LOCAL_TMP_DIR=/local/scratch" >>$RFILE
+echo "export NEKRS_GPU_MPI=$NEKRS_GPU_MPI" >>$RFILE
+echo "export MPICH_MPIIO_HINTS=$MPICH_MPIIO_HINTS" >>$RFILE
+echo "export MPICH_MPIIO_STATS=0" >>$RFILE
+echo "export MPICH_GPU_SUPPORT_ENABLED=0" >> $RFILE
+echo "export MPICH_OFI_NIC_POLICY=NUMA" >> $RFILE
+
+echo -e "\n# Precompilation" >>$RFILE
+CMD_build="mpiexec -n 4 -ppn 4 --cpu-bind list:${CPU_BIND_LIST} -- $bin --setup ${case} --backend ${NEKRS_BACKEND} $extra_args --build-only 4"
+add_build_CMD "$RFILE" "$CMD_build" "$TOTAL_RANKS"
+
+echo -e "\n# Run nekRS" >>$RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND}" >> $RFILE
+
+echo -e "\n# Generate training files" >>$RFILE
+echo "python ${NEKRS_HOME}/3rd_party/sr-gnn/nek_to_pt.py --case_path $PWD --target_snap_list turbChannel0.f00000 --input_snap_list turbChannel_p10.f00000 --target_poly_order 7 --input_poly_order 1 --n_element_neighbors 6" >> $RFILE
+
+echo -e "\n# Train model" >>$RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/sr-gnn/main.py epochs=3 backend=nccl n_element_neighbors=6 data_dir=$PWD/pt_datasets model_dir=$PWD/saved_models" >> $RFILE
+
+echo -e "\n# Perform inference and generate files for visualization" >>$RFILE
+echo "python ${NEKRS_HOME}/3rd_party/sr-gnn/postprocess.py --model_path $PWD/saved_models/gnn_3_7_132_128_3_2_2_True.tar --case_path $PWD --output_name ${case} --target_snap_list turbChannel0.f00000 --input_snap_list turbChannel_p10.f00000 --target_poly_order 7 --input_poly_order 1 --n_element_neighbors 6 " >> $RFILE
+echo "cd predictions/gnn_3_7_132_128_3_2_2_True" >> $RFILE
+echo "$NEKRS_HOME/bin/nrsvis turbChannel_pred" >> $RFILE
+echo "$NEKRS_HOME/bin/nrsvis turbChannel_error" >> $RFILE
+echo "cd ../../" >> $RFILE
+chmod u+x $RFILE
+
