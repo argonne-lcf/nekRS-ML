@@ -64,7 +64,7 @@
 ### Ledgend
 `Dist-GNN`: [Distributed-GNN](https://ieeexplore.ieee.org/abstract/document/10820662) for global field modeling.
 
-`SR-GNN`: [Super-Resolution-GNN]((https://www.sciencedirect.com/science/article/abs/pii/S0045782525003445)) for local super-resolution of coarse fields.
+`SR-GNN`: [Super-Resolution-GNN](https://www.sciencedirect.com/science/article/abs/pii/S0045782525003445) for local super-resolution of coarse fields.
 
 `GAB`: gabls1
 
