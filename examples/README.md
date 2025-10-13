@@ -1,4 +1,21 @@
-# Demonstrated features 
+# Demonstrated features of nekRS-ML examples
+
+## nekRS-ML examples
+
+|                              | Dist-GNN | SR-GNN | Offline | Online w/ SmartSim | Online w/ ADIOS2 | p-coarsening |
+|------------------------------|----------|--------|---------|--------------------|------------------|--------------|
+| tgv_gnn_offline              |   x      |        |  x      |                    |                  |              |
+| tgv_gnn_offline_fine_mesh    |   x      |        |  x      |                    |                  |       x      |
+| tgv_gnn_traj_offline         |   x      |        |  x      |                    |                  |              |
+| turbChannel_wallModel_ML     |          |        |         |        x           |                  |              |
+| tgv_gnn_online               |   x      |        |         |        x           |                  |              |
+| tgv_gnn_traj_online          |   x      |        |         |        x           |                  |              |
+| tgv_gnn_traj_online_adios    |   x      |        |         |                    |        x         |              |
+| shooting_workflow_smartredis |   x      |        |         |        x           |                  |              |
+| shooting_workflow_adios      |   x      |        |         |                    |        x         |              |
+
+
+## Plain nekRS examples
 
 |                          | GAB | KTC | LMA | TPF | MVC | HMI | EDN | CHT | HIT |
 |--------------------------|-----|-----|-----|-----|-----|-----|-----|-----|-----|
@@ -45,6 +62,10 @@
 | user output              |     |     |     |  x  |     |     |     |     |     |
 
 ### Ledgend
+`Dist-GNN`: [Distributed-GNN](https://ieeexplore.ieee.org/abstract/document/10820662) for global field modeling.
+
+`SR-GNN`: [Super-Resolution-GNN]((https://www.sciencedirect.com/science/article/abs/pii/S0045782525003445)) for local super-resolution of coarse fields.
+
 `GAB`: gabls1
 
 `KTC`: ktauChannel
