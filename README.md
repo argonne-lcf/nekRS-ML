@@ -25,7 +25,7 @@ nekRS-ML hosts a series of AI-enabled examples listed below in order of complexi
 Users can find more details on each of the examples in the  README files contained within the respective directories. 
 
 * [tgv_gnn_offline](./examples/tgv_gnn_offline/): Offline training pipeline to generate data and perform time independent training of the Dist-GNN model.
-* [tgv_gnn_offline_fine_mesh](./examples/tgv_gnn_offline_fine_mesh/): Offline training pipeline to generate data and perform time independent training of the Dist-GNN model on a p-coarsened grid relative to the one used by the nekRS simulation.
+* [tgv_gnn_offline_coarse_mesh](./examples/tgv_gnn_offline_coarse_mesh/): Offline training pipeline to generate data and perform time independent training of the Dist-GNN model on a p-coarsened grid relative to the one used by the nekRS simulation.
 * [tgv_gnn_traj_offline](./examples/tgv_gnn_traj_offline/): Offline training pipeline to generate data and perform time dependent training of the Dist-GNN model.
 * [turbChannel_wallModel_ML](./examples/turbChannel_wallModel_ML/): Online training and inference workflows of a data-driven wall shear stress model for LES applied to a turbulent channel flow at a friction Reynolds number of 950. This example is an extension to [turbChannel_wallModel](./examples/turbChannel_wallModel/), which uses an algebraic equilibrium wall model (no ML).
 * [tgv_gnn_online](./examples/tgv_gnn_online/): Online training workflow using SmartSim to cuncurrently generate data and perform time independent training of the Dist-GNN model.

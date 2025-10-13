@@ -5,7 +5,7 @@
 |                              | Dist-GNN | SR-GNN | Offline | Online w/ SmartSim | Online w/ ADIOS2 | p-coarsening |
 |------------------------------|----------|--------|---------|--------------------|------------------|--------------|
 | tgv_gnn_offline              |   x      |        |  x      |                    |                  |              |
-| tgv_gnn_offline_fine_mesh    |   x      |        |  x      |                    |                  |       x      |
+| tgv_gnn_offline_coarse_mesh  |   x      |        |  x      |                    |                  |       x      |
 | tgv_gnn_traj_offline         |   x      |        |  x      |                    |                  |              |
 | turbChannel_wallModel_ML     |          |        |         |        x           |                  |              |
 | tgv_gnn_online               |   x      |        |         |        x           |                  |              |

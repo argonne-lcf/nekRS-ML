@@ -4,7 +4,7 @@ cd tgv_gnn_offline
 ./clean
 cd ..
 
-cd tgv_gnn_offline_fine_mesh
+cd tgv_gnn_offline_coarse_mesh
 ./clean
 cd ..
 
