@@ -154,15 +154,19 @@ function setup_case() {
 }
 
 function print_args() {
-  echo "SYSTEM    : ${SYSTEM}"
-  echo "NEKRS_HOME: ${NEKRS_HOME}"
-  echo "VENV_PATH : ${VENV_PATH}"
-  echo "NODES     : ${NODES}"
-  echo "TIME      : ${TIME}"
-  echo "PROJ_ID   : ${PROJ_ID}"
-  echo "DEPLOYMENT: ${DEPLOYMENT}"
-  echo "CLIENT    : ${CLIENT}"
-  echo "ML_TASK   : ${ML_TASK}"
+  echo "SYSTEM     : ${SYSTEM}"
+  echo "NEKRS_HOME : ${NEKRS_HOME}"
+  echo "VENV_PATH  : ${VENV_PATH}"
+  echo "NODES      : ${NODES}"
+  echo "TIME       : ${TIME}"
+  echo "PROJ_ID    : ${PROJ_ID}"
+  echo "DEPLOYMENT : ${DEPLOYMENT}"
+  echo "CLIENT     : ${CLIENT}"
+  echo "ML_TASK    : ${ML_TASK}"
+  echo "DB_NODES   : ${DB_NODES}"
+  echo "SIM_NODES  : ${SIM_NODES}"
+  echo "TRAIN_NODES: ${TRAIN_NODES}"
+  echo "CASE_NAME  : ${CASE_NAME}"
 }
 
 # this maybe not necessary as the nrsrun_${SYSTEM} scripts generate
