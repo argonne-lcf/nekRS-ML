@@ -13,27 +13,23 @@ class NekRSBuild(CompileOnlyTest):
     def __init__(self):
         super().__init__()
         self.descr = "nekRS build"
-        self.maintainers = ["kris.rowe@anl.gov"]
+        self.maintainers = ["kris.rowe@anl.gov", "tratnayaka@anl.gov"]
         self.tags = {"build"}
 
-    # Need stagedir, so must call after setup phase
-    # https://reframe-hpc.readthedocs.io/en/stable/regression_test_api.html#reframe.core.pipeline.RegressionTest.stagedir
     @run_before("compile")
     def configure_build(self):
         self.sourcesdir = "https://github.com/argonne-lcf/nekRS-ML.git"
         self.build_system = "CMake"
         self.build_system.flags_from_environ = False
         self.build_system.builddir = "build"
-        self.build_system.cc = "mpicc"
-        self.build_system.cxx = "mpicxx"
-        self.build_system.ftn = "mpif77"
         self.build_system.max_concurrency = 16
         self.build_system.make_opts = ["install"]
         self.install_path = os.path.join(f"{self.stagedir}", "install")
         self.binary_path = os.path.join(self.install_path, "bin")
         self.build_system.config_opts = [
             f"-DCMAKE_INSTALL_PREFIX={self.install_path}",
-            f"-DENABLE_ADIOS=OFF",
+            "-DENABLE_ADIOS=OFF",
+            "-DENABLE_SMARTREDIS=OFF",
         ]
 
     @sanity_function
@@ -71,7 +67,6 @@ class NekRSTest(RunOnlyTest):
         self.case_name = nekrs_case.name
         self.sourcesdir = nekrs_case.directory
         self.readonly_files = [f"{nekrs_case.name}.re2"]
-        self.device_id = 0
 
     @run_after("setup")
     def set_paths_exec(self):
@@ -83,8 +78,20 @@ class NekRSTest(RunOnlyTest):
         self.env_vars |= {
             "LD_LIBRARY_PATH": f"$LD_LIBRARY_PATH:{self.nekrs_build.install_path}/lib",
             "NEKRS_HOME": self.nekrs_home,
-            "OCCA_DPCPP_COMPILER_FLAGS": '"-O3 -fsycl -fsycl-targets=intel_gpu_pvc -ftarget-register-alloc-mode=pvc:auto -fma"',
         }
+
+        if "OCCA_DPCPP_COMPILER_FLAGS" in self.current_partition.extras:
+            self.env_vars |= {
+                "OCCA_DPCPP_COMPILER_FLAGS": f'"{self.current_partition.extras["OCCA_DPCPP_COMPILER_FLAGS"]}"'
+            }
+        if "OCCA_CXX" in self.current_partition.extras:
+            self.env_vars |= {
+                "OCCA_CXX": f'"{self.current_partition.extras["OCCA_CXX"]}"'
+            }
+        if "OCCA_CXXFLAGS" in self.current_partition.extras:
+            self.env_vars |= {
+                "OCCA_CXXFLAGS": f'"{self.current_partition.extras["OCCA_CXXFLAGS"]}"'
+            }
 
     def set_launcher_options(self):
         self.cpu_bind = self.current_partition.extras["cpu_bind_list"]
@@ -97,9 +104,11 @@ class NekRSTest(RunOnlyTest):
         ]
 
     def set_executable_options(self):
+        self.device_id = 0
+        self.backend = self.current_partition.extras["backend"]
         self.executable_opts += [
             f"--setup {self.case_name}",
-            f"--backend DPCPP",
+            f"--backend {self.backend}",
             f"--device-id {self.device_id}",
         ]
 

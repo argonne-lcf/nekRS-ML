@@ -48,6 +48,10 @@ site_configuration = {
                     "extras": {
                         "max_local_jobs": 12,
                         "cpu_bind_list": "list:0-7:8-15:16-23:24-31:32-39:40-47:52-59:60-67:68-75:76-83:84-91:92-99",
+                        "backend": "DPCPP",
+                        "OCCA_CXX": "icpx",
+                        "OCCA_CXXFLAGS": "-O3 -g -fdebug-info-for-profiling -gline-tables-only",
+                        "OCCA_DPCPP_COMPILER_FLAGS": "-O3 -fsycl -fsycl-targets=intel_gpu_pvc -ftarget-register-alloc-mode=pvc:auto -fma",
                     },
                 },
             ],
