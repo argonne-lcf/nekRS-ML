@@ -13,7 +13,7 @@ from omegaconf import DictConfig, OmegaConf
 import torch
 try:
     import intel_extension_for_pytorch as ipex
-except ModuleNotFoundError as e:
+except Exception as e:
     pass
 
 from torch.utils.data import DataLoader

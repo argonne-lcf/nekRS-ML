@@ -30,6 +30,7 @@ https://github.com/argonne-lcf/nekRS-ML.git
 
 Then, simply execute one of the build scripts contained in the repository.
 The HPC systems currently supported are for this example are:
+* [Polaris](https://docs.alcf.anl.gov/polaris/) (Argonne LCF)
 * [Aurora](https://docs.alcf.anl.gov/aurora/) (Argonne LCF)
 
 For example, to build nekRS-ML on Aurora, execute from a compute node
@@ -46,13 +47,13 @@ Note that a virtual environment with PyTorch Geometric and other dependencies is
 **From a compute node** execute
 
 ```sh
-../setup_offline.sh <system_name> </path/to/nekRS>
+./gen_run_script <system_name> </path/to/nekRS>
 ```
 
 or
 
 ```sh
-./setup_offline.sh <system_name> </path/to/nekRS> </path/to/venv>
+./gen_run_script <system_name> </path/to/nekRS> -v </path/to/venv>
 ```
 if you have the necessary packages already installed in a Python virtual environment.
 

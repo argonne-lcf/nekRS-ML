@@ -596,11 +596,6 @@ def train(cfg: DictConfig):
         trainer.lr_hist[epoch-1] = lr
 
         if RANK == 0:
-            astr = f'[TEST] loss={test_metrics["loss"]:.4e}'
-            sepstr = '-' * len(astr)
-            logger.info(sepstr)
-            logger.info(astr)
-            logger.info(sepstr)
             summary = '  '.join([
                 '[TRAIN]',
                 f'loss={train_metrics["loss"]:.4e}',
@@ -611,6 +606,11 @@ def train(cfg: DictConfig):
             logger.info((sep := '-' * len(summary)))
             logger.info(summary)
             logger.info(sep)
+            astr = f'[VALIDATION] loss={test_metrics["loss"]:.4e}'
+            sepstr = '-' * len(astr)
+            logger.info(sepstr)
+            logger.info(astr)
+            logger.info(sepstr)
 
         # ~~~~ Step scheduler based on validation loss
         trainer.scheduler.step(test_metrics["loss"])
