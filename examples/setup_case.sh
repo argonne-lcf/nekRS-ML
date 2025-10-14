@@ -112,6 +112,25 @@ function check_args() {
     echo "Invalid client type! Supported options are posix, smartredis and adios."
     exit 1
   fi
+  if [ ${DEPLOYMENT} == "colocated" ]; then
+    if [ "$SIM_NODES" -ne "$NODES" ] && [ "$TRAIN_NODES" -ne "$NODES" ]; then
+      echo "Invalid number of simulation and/or training nodes."
+      echo "The number of simulation and training nodes must equal the number of nodes of the job."
+      exit 1
+    fi
+    if [ "$DB_NODES" -ne "1" ]; then
+      echo "Invalid number of database nodes."
+      echo "With the colocated deployment, the database nodes is set to 1 since it is not sharded."
+      exit 1
+    fi
+  fi
+  if [ ${DEPLOYMENT} == "clustered" ]; then
+    if [ $((DB_NODES + SIM_NODES + TRAIN_NODES)) -ne "$NODES" ]; then
+      echo "Invalid number of database, simulation and training nodes."
+      echo "The sum of nodes assigned to each component must equal the total number of nodes of the job."
+      exit 1
+    fi
+  fi
 }
 
 function check_connection() {
