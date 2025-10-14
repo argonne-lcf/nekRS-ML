@@ -1,6 +1,7 @@
 #!/bin/bash
 set -a
 
+# user input
 SYSTEM=
 NEKRS_HOME=
 VENV_PATH="../_gnn"
@@ -10,14 +11,19 @@ PROJ_ID="datascience"
 DEPLOYMENT="offline"
 CLIENT="posix"
 ML_TASK=
-
+DB_NODES=1
+SIM_NODES=1
+TRAIN_NODES=1
+# case name is automatically found
 CASE_NAME=
 
 function print_help() {
-  echo "Usage: $0 <SYSTEM> <NEKRS_HOME> [--venv_path | -v <VENV_PATH>]"     \
-    "[--nodes | -n <NODES>] [--time | -t <TIME>] [--proj_id | -p <PROJ_ID>]"\
-    "[--deployment | -d <DEPLOYMENT>] [--ml_task | -m <ML_TASK>]"           \
-    "[--client | -c <CLIENT>] [--help | -h]"
+  echo -e "Usage: $0 <SYSTEM> <NEKRS_HOME> [--venv_path | -v <VENV_PATH>]"\
+    "[--nodes | -n <NODES>] [--time | -t <TIME>]\n\t"                     \
+    "[--proj_id | -p <PROJ_ID>] [--deployment | -d <DEPLOYMENT>]"         \
+    "[--ml_task | -m <ML_TASK>] [--client | -c <CLIENT>]\n\t"             \
+    "[--db_nodes | -dn <DB_NODES>] [--sim_nodes | -sn <SIM_NODES>]"       \
+    "[--train_nodes | -tn <TRAIN_NODES>] [--help | -h]"
 }
 
 function parse_args() {
@@ -60,6 +66,18 @@ function parse_args() {
         ;;
       --client| -c)
         CLIENT=${2,,}
+        shift; shift
+        ;;
+      --db_nodes| -dn)
+        DB_NODES=$2
+        shift; shift
+        ;;
+      --sim_nodes| -sn)
+        SIM_NODES=$2
+        shift; shift
+        ;;
+      --train_nodes| -tn)
+        TRAIN_NODES=$2
         shift; shift
         ;;
       --help| -h)
@@ -227,19 +245,6 @@ function setup_venv() {
 }
 
 function generate_script() {
-  DB_NODES=1
-  SIM_NODES=1
-  TRAINER_NODES=1
-  if [ ${DEPLOYMENT} == "clustered" ]; then
-    echo "Running on $NODES total nodes ..."
-    echo "Enter the number of database nodes:"
-    read DB_NODES
-    echo "Enter the number simulation nodes:"
-    read SIM_NODES
-    echo "and enter the number of trainer nodes:"
-    read TRAIN_NODES
-  fi
-
   NEKRS_HOME=${NEKRS_HOME} VENV_PATH=${VENV_PATH}/bin/activate PROJ_ID=${PROJ_ID} \
   DEPLOYMENT=$DEPLOYMENT DB_NODES=$DB_NODES SIM_NODES=$SIM_NODES TRAIN_NODES=$TRAIN_NODES \
   ML_TASK=${ML_TASK} \
