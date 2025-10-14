@@ -37,7 +37,7 @@ function check_args() {
 }
 
 function check_connection() {
-  if curl -s --head --request GET https://google.com | grep "200 OK" >/dev/null; then
+  if ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
     echo "Connection to internet is up, continuing..."
   else
     echo "No internet connection"

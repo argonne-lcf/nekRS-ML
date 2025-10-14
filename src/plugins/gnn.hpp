@@ -37,7 +37,7 @@ int compareLocalId(const void *a, const void *b);
 class gnn_t 
 {
 public:
-    gnn_t(nrs_t *nrs, int poly_order = 0);
+    gnn_t(nrs_t *nrs, int poly_order = 0, bool log_verbose = false);
     ~gnn_t(); 
 
     // attributes 
@@ -103,9 +103,9 @@ private:
 
     // binary write functions 
     void write_edge_index_binary(const std::string& filename);
-    void write_edge_index_element_local_vertex_binary(const std::string& filename);
+    void write_edge_index_element_local_vertex_binary(const std::string& filename); 
 
-    // for prints 
+    // for print statements
     bool verbose = false; 
 
     // model features

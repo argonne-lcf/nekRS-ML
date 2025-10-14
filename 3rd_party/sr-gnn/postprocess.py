@@ -263,16 +263,17 @@ def main():
 
                 # 2) Evaluate model 
                 out_gnn = model(
-                x = x_scaled,
-                mask = data.central_element_mask,
-                edge_index_lo = data.edge_index_lo,
-                edge_index_hi = data.edge_index_hi,
-                pos_lo = data.pos_norm_lo,
-                pos_hi = data.pos_norm_hi,
-                #batch_lo = data.x_batch,
-                #batch_hi = data.y_batch,
-                edge_index_coin = data.edge_index_coin if args.n_element_neighbors>0 else None,
-                degree = data.degree if args.n_element_neighbors>0 else None)
+                    x = x_scaled,
+                    mask = data.central_element_mask,
+                    edge_index_lo = data.edge_index_lo,
+                    edge_index_hi = data.edge_index_hi,
+                    pos_lo = data.pos_norm_lo,
+                    pos_hi = data.pos_norm_hi,
+                    #batch_lo = data.x_batch,
+                    #batch_hi = data.y_batch,
+                    edge_index_coin = data.edge_index_coin if args.n_element_neighbors>0 else None,
+                    degree = data.degree if args.n_element_neighbors>0 else None
+                )
 
                 # 3) set the target
                 if args.use_residual:

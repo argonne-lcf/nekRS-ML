@@ -256,7 +256,7 @@ static std::vector<std::string> mlKeys = {
     {"adiosTransport"},
     {"adiosStream"},
     {"gnnPolynomialOrder"},
-    {"superResolutionGNN"},
+    {"srGNNMultiscale"},
 };
 
 static std::vector<std::string> deprecatedKeys = {
@@ -2660,15 +2660,15 @@ void parseMLSection(const int rank, setupAide &options, inipp::Ini *ini)
   }
 
   std::string srGNNStr;
-  if (ini->extract("ml", "superResolutionGNN", srGNNStr)) {
+  if (ini->extract("ml", "srGNNMultiscale", srGNNStr)) {
     bool srGNN = checkForTrue(srGNNStr);
     if (srGNN) {
-      options.setArgs("SUPER RESOLUTION GNN", "TRUE");
+      options.setArgs("SR GNN MULTISCALE", "TRUE");
     } else {
-      options.setArgs("SUPER RESOLUTION GNN", "FALSE");
+      options.setArgs("SR GNN MULTISCALE", "FALSE");
     }
   } else {
-    options.setArgs("SUPER RESOLUTION GNN", "FALSE");
+    options.setArgs("SR GNN MULTISCALE", "FALSE");
   }
 }
 

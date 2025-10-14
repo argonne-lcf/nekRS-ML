@@ -259,7 +259,7 @@ def get_pygeom_dataset_lo_hi_pymech(data_xlo_path: str,
                        fraction_valid : Optional[float] = 0.1,
                        n_element_neighbors : Optional[int] = 0) -> Tuple[List,List]:
     t_load = time.time()
-    logger.info('In get_pygeom_dataset_lo_hi_pymech. Loading data and making pygeom dataset...')
+    logger.debug('In get_pygeom_dataset_lo_hi_pymech. Loading data and making pygeom dataset...')
     edge_index_lo = np.loadtxt(edge_index_path_lo, dtype=np.int64).T
     edge_index_lo = torch.tensor(edge_index_lo)
     edge_index_hi = np.loadtxt(edge_index_path_hi, dtype=np.int64).T
@@ -442,7 +442,7 @@ def get_pygeom_dataset_lo_hi_pymech_incr(data_x_path: List[str],
                        fraction_valid : Optional[float] = 0.1,
                        n_element_neighbors : Optional[int] = 0) -> Tuple[List,List]:
     t_load = time.time()
-    logger.info('In get_pygeom_dataset_lo_hi_pymech_incr. Loading data and making pygeom dataset...')
+    logger.debug('In get_pygeom_dataset_lo_hi_pymech_incr. Loading data and making pygeom dataset...')
     
     data_xlo_path = data_x_path[:-1]
     data_xhi_path = data_x_path[1:]

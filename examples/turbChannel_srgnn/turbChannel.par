@@ -3,13 +3,13 @@
 polynomialOrder = 7
 startFrom = "restart.fld"
 stopAt = endTime
-endTime = 160.5
+endTime = 165
 
 dt = targetCFL=2 + max=2e-2 + initial=5e-3
 timeStepper = tombo2
 
 checkpointControl = simulationTime 
-checkpointInterval = 0.5
+checkpointInterval = 1
 
 regularization = hpfrt + nModes=1 + scalingCoeff=5
 #constFlowRate = meanVelocity=1.0 + direction=X
@@ -31,3 +31,4 @@ betaY = 2.2
 
 [ML]
 gnnPolynomialOrder = 1
+srGNNMultiscale = true

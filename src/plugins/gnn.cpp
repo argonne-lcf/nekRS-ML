@@ -63,12 +63,14 @@ void writeToFileBinaryF(const std::string& filename, dfloat* data, int nRows, in
     writeToFileBinary(filename, data, nRows, nCols);
 }
 
-gnn_t::gnn_t(nrs_t *nrs_, int poly_order)
+gnn_t::gnn_t(nrs_t *nrs_, int poly_order, bool log_verbose)
 {
     // set MPI rank and size 
     MPI_Comm &comm = platform->comm.mpiComm;
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &size);
+
+    verbose = log_verbose;
 
     // parse poly_order value
     if (poly_order <= 0) {
@@ -151,16 +153,12 @@ void gnn_t::gnnSetup()
 {
     if (verbose) std::cout << "[RANK " << rank << "] -- in gnnSetup()" << std::endl;
 
-    // do not use multiscale flag if mesh is p=1    
-    int poly_order = mesh->Nq - 1; 
-    if (poly_order == 1)
-    {
-        multiscale = false;
+    // set multiscale flag
+    int poly_order = mesh->Nq - 1;
+    if (platform->options.compareArgs("SR GNN MULTISCALE", "TRUE") && poly_order > 1) {
+        multiscale = true;
     }
-    if (multiscale)
-    {
-        if (verbose) std::cout << "[RANK " << rank << "] -- using multiscale flag" << std::endl;
-    }
+    if (verbose) std::cout << "[RANK " << rank << "] -- using multiscale flag: " << multiscale << std::endl;
 
     get_graph_nodes(); // populates graphNodes
     if (multiscale) add_p1_neighbors(); // adds additional edges on mesh nodes (p=1)  

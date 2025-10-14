@@ -37,6 +37,7 @@ def write_dataset(args: argparse.Namespace):
         input_path = f"{args.case_path}/{input_snap}" 
         target_path = f"{args.case_path}/{target_snap}"
 
+        logger.info(f"Loading data from {input_snap} and {target_snap}")
         dataset = ngs.get_pygeom_dataset_lo_hi_pymech(
                                 data_xlo_path = input_path, 
                                 data_xhi_path = target_path,
