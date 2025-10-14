@@ -182,7 +182,7 @@ void gnn_t::gnnWrite()
     writePath = currentPath.string();
     int poly_order = mesh->Nq - 1; 
     writePath = writePath + "_poly_" + std::to_string(poly_order);
-    if (multiscale) writePath = writePath + "_multiscale";
+    //if (multiscale) writePath = writePath + "_multiscale"; // unnecessary and breaks SR-GNN pre-processing pipeline
     if (rank == 0)
     {
         if (!std::filesystem::exists(writePath))
