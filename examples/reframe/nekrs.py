@@ -20,6 +20,9 @@ class NekRSBuild(CompileOnlyTest):
     def configure_build(self):
         self.sourcesdir = "https://github.com/argonne-lcf/nekRS-ML.git"
         self.build_system = "CMake"
+        self.build_system.cc = "mpicc"
+        self.build_system.cxx = "mpicxx"
+        self.build_system.ftn = "mpif77"
         self.build_system.flags_from_environ = False
         self.build_system.builddir = "build"
         self.build_system.max_concurrency = 16

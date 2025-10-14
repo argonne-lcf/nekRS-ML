@@ -30,7 +30,7 @@ site_configuration = {
                     "scheduler": "local",
                     "launcher": "alcf_mpiexec",
                     "environs": [
-                        "PrgEnv-intel",
+                        "PrgEnv-Aurora",
                     ],
                     "extras": {
                         "max_local_jobs": 12,
@@ -43,7 +43,7 @@ site_configuration = {
                     "launcher": "alcf_mpiexec",
                     "max_jobs": 128,
                     "environs": [
-                        "PrgEnv-intel",
+                        "PrgEnv-Aurora",
                     ],
                     "extras": {
                         "max_local_jobs": 12,
@@ -94,13 +94,10 @@ site_configuration = {
     ],
     "environments": [
         {
-            "name": "PrgEnv-intel",
+            "name": "PrgEnv-Aurora",
             "modules": ["frameworks"],
             "prepare_cmds": ["module restore", "module list"],
             "target_systems": ["aurora"],
-            "cc": "icx",
-            "cxx": "icpx",
-            "ftn": "ifx",
         },
         {
             "name": "PrgEnv-gnu",
