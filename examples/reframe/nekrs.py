@@ -2,7 +2,7 @@ import reframe as rfm
 import reframe.utility.sanity as sn
 import reframe.utility.typecheck as typ
 from reframe.core.backends import getlauncher
-
+from pathlib import Path
 from core import CompileOnlyTest, RunOnlyTest
 import os.path
 
@@ -27,12 +27,13 @@ class NekRSBuild(CompileOnlyTest):
         self.build_system.cc = "mpicc"
         self.build_system.cxx = "mpicxx"
         self.build_system.ftn = "mpif77"
-        self.build_system.max_concurrency = 8
+        self.build_system.max_concurrency = 16
         self.build_system.make_opts = ["install"]
         self.install_path = os.path.join(f"{self.stagedir}", "install")
         self.binary_path = os.path.join(self.install_path, "bin")
         self.build_system.config_opts = [
             f"-DCMAKE_INSTALL_PREFIX={self.install_path}",
+            f"-DENABLE_ADIOS=OFF",
         ]
 
     @sanity_function
@@ -46,9 +47,9 @@ class NekRSBuild(CompileOnlyTest):
 
 # Encapsulate case-specific info
 class NekRSCase:
-    def __init__(self, name, directory):
+    def __init__(self, name):
         self._name = name
-        self._directory = directory
+        self._directory = os.path.join(Path(os.getcwd()).parent, name)
 
     @property
     def name(self):
@@ -67,16 +68,11 @@ class NekRSTest(RunOnlyTest):
         self.descr = "nekRS test"
         self.maintainers = ["kris.rowe@anl.gov"]
         self.tags = {"nekrs"}
-        self.case = nekrs_case
+        self.case_name = nekrs_case.name
         self.sourcesdir = nekrs_case.directory
         self.readonly_files = [f"{nekrs_case.name}.re2"]
         self.device_id = 0
-        self.cpu_bind = self.current_partition.extras["cpu_bind_list"]
-        self.ranks_per_node = 12
 
-    # Need fixture variables, so must call after setup
-    # See _Early access to fixture objects_ here:
-    # https://reframe-hpc.readthedocs.io/en/stable/regression_test_api.html#reframe.core.builtins.fixture
     @run_after("setup")
     def set_paths_exec(self):
         self.nekrs_home = os.path.realpath(self.nekrs_build.install_path)
@@ -91,6 +87,8 @@ class NekRSTest(RunOnlyTest):
         }
 
     def set_launcher_options(self):
+        self.cpu_bind = self.current_partition.extras["cpu_bind_list"]
+        self.ranks_per_node = self.current_partition.extras["max_local_jobs"]
         self.total_ranks = self.num_nodes * self.ranks_per_node
         self.job.launcher.options += [
             f"-np {self.total_ranks}",
@@ -100,7 +98,7 @@ class NekRSTest(RunOnlyTest):
 
     def set_executable_options(self):
         self.executable_opts += [
-            f"--setup {self.case.name}",
+            f"--setup {self.case_name}",
             f"--backend DPCPP",
             f"--device-id {self.device_id}",
         ]
@@ -110,7 +108,6 @@ class NekRSTest(RunOnlyTest):
         self.set_environment()
         self.set_launcher_options()
         self.set_executable_options()
-        # TODO: Add kernel jitting to self.prerun_cmds[]
 
     @sanity_function
     def check_exit_code(self):
