@@ -316,7 +316,7 @@ class Trainer:
         try:
             poly = np.cbrt(self.Np) - 1.
             poly = int(poly)
-        except FileNotFoundError:
+        except:
             poly = 0
 
         # Full model
@@ -596,11 +596,11 @@ class Trainer:
             path_to_unique_halo = main_path + 'halo_unique_mask_rank_%d_size_%d' %(RANK,SIZE)
 
             # Polynomial order
-            self.Np = 0
+            self.Np = np.array([0], dtype=np.float32)
             if RANK == 0:
                 path_to_Np = main_path + "Np_rank_%d_size_%d" %(RANK, SIZE)
                 self.Np = self.load_data(path_to_Np, dtype=np.float32)
-            self.Np = COMM.bcast(self.Np, root=0)
+            COMM.Bcast(self.Np, root=0)
 
             # Node positions
             if self.cfg.verbose: log.info('[RANK %d]: Loading positions and global node index' %(RANK))
