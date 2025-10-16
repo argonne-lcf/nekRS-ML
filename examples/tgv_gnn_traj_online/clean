@@ -2,6 +2,5 @@
 
 rm -r nekRS-ML outputs
 rm affinity_* ssim_config.yaml run.sh
-rm -rf SmartSim 
 rm tgv.par
 

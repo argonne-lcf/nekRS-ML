@@ -57,7 +57,7 @@ if you have the necessary packages already installed in a Python virtual environ
 You can specify SmartSim database nodes, simulation nodes and train nodes using `-dn`,
 `-sn` and `-tn` respectively. For example, for a 7 node job with clustered deployment,
 ```sh
-./gen_run_script <system_name> </path/to/nekRS> -d clustered -dn 3 -sn 1 -tn 3
+./gen_run_script <system_name> </path/to/nekRS> -d clustered -dn 3 -sn 2 -tn 2
 ```
 
 For more information on how to use `gen_run_script`, use `--help`:

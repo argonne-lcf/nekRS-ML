@@ -1,5 +1,11 @@
 #!/bin/bash
 
+rm -rf _env
+
+if [ -d SmartSim ]; then
+  rm -rf SmartSim
+fi
+
 cd tgv_gnn_offline
 ./clean
 cd ..

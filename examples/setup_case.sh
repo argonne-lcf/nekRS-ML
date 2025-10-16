@@ -4,7 +4,7 @@ set -a
 # user input
 SYSTEM=
 NEKRS_HOME=
-VENV_PATH="../_gnn"
+VENV_PATH="../_env"
 NODES=$(cat ${PBS_NODEFILE} | wc -l)
 TIME="01:00"
 PROJ_ID="datascience"
@@ -215,6 +215,8 @@ function load_modules() {
 }
 
 function build_smartsim() {
+  CASE_DIR=$PWD
+  cd ../
   git clone https://github.com/rickybalin/SmartSim.git
   cd SmartSim
   git checkout rollback_aurora
@@ -232,6 +234,7 @@ function build_smartsim() {
   smart build -v --device $DEVICE --torch_dir $TORCH_CMAKE_PATH --no_tf
   smart validate
   cd ..
+  cd $CASE_DIR
 }
 
 function setup_venv() {
@@ -262,10 +265,10 @@ function setup_venv() {
     fi
   else
     echo -e "\033[35mPython venv \"${VENV_PATH}\" already exists, reusing it ... \033[m"
+    source ${VENV_PATH}/bin/activate
     if [ "${CLIENT}" == "smartredis" ]; then
-      if ! pip list | grep -q smartsim; then
+      if ! pip show smartsim > /dev/null 2>&1; then
         echo -e "\033[35mRequested the smartredis backend, but SmartSim is not installed \033[m"
-        source ${VENV_PATH}/bin/activate
         build_smartsim
       fi
     fi

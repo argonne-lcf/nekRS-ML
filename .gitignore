@@ -17,9 +17,10 @@ __pycache__/
 _gnn/
 
 # SmartSim/SmartRedis outputs
+SmartSim/
 *.out
 *.err
-*/outputs/
+*outputs/
 *.colocated_launcher.sh
 *-db.log
 *.rdb
