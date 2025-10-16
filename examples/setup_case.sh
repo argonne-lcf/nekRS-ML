@@ -215,6 +215,14 @@ function load_modules() {
 }
 
 function build_smartsim() {
+  if [ "${SYSTEM}" == "polaris" ]; then
+      export CC=cc
+      export CXX=CC
+      export CUDNN_BASE=/soft/libraries/cudnn/cudnn-12-linux-x64-v9.1.0.70
+      export CUDNN_LIBRARY=$CUDNN_BASE/lib/
+      export CUDNN_INCLUDE_DIR=$CUDNN_BASE/include/
+      export LD_LIBRARY_PATH=$CUDNN_LIBRARY:$LD_LIBRARY_PATH
+  fi
   CASE_DIR=$PWD
   cd ../
   git clone https://github.com/rickybalin/SmartSim.git
@@ -243,14 +251,7 @@ function setup_venv() {
     python -m venv --clear ${VENV_PATH} --system-site-packages
     source ${VENV_PATH}/bin/activate
   
-    if [ "${SYSTEM}" == "polaris" ]; then
-      export CC=cc
-      export CXX=CC
-      export CUDNN_BASE=/soft/libraries/cudnn/cudnn-12-linux-x64-v9.1.0.70
-      export CUDNN_LIBRARY=$CUDNN_BASE/lib/
-      export CUDNN_INCLUDE_DIR=$CUDNN_BASE/include/
-      export LD_LIBRARY_PATH=$CUDNN_LIBRARY:$LD_LIBRARY_PATH
-    elif [ "${SYSTEM}" == "crux" ]; then
+    if [ ${SYSTEM} == "crux" ]; then
       pip install numpy
       pip install torch --index-url https://download.pytorch.org/whl/cpu
       MPICC="cc -shared" pip install --force-reinstall --no-cache-dir --no-binary=mpi4py mpi4py
@@ -258,7 +259,19 @@ function setup_venv() {
 
     export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
     export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
-    pip install torch_geometric==2.5.3
+    if [ ${SYSTEM} == "aurora" ]; then
+      pip install torch_geometric==2.5.3
+      git clone https://github.com/rusty1s/pytorch_cluster.git
+      cd pytorch_cluster
+      # Need to force the install to not link with OpenMP, change lines 53-54 to if False:
+      sed -i 's/fopenmp/lgomp/' setup.py
+      CXX=$(which dpcpp) python setup.py install
+      cd ..
+    elif [ ${SYSTEM} == "polaris" ]; then
+      pip install torch-cluster
+    fi
+    
+    pip install pymech
 
     if [ "${CLIENT}" == "smartredis" ]; then
       build_smartsim

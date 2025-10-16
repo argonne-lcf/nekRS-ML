@@ -63,18 +63,24 @@ void writeToFileBinaryF(const std::string& filename, dfloat* data, int nRows, in
     writeToFileBinary(filename, data, nRows, nCols);
 }
 
-gnn_t::gnn_t(nrs_t *nrs_)
+gnn_t::gnn_t(nrs_t *nrs_, int poly_order, bool log_verbose)
 {
-    //nrs = nrs_; // set nekrs object
-
     // set MPI rank and size 
     MPI_Comm &comm = platform->comm.mpiComm;
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &size);
 
-    // create GNN mesh if needed
+    verbose = log_verbose;
+
+    // parse poly_order value
+    if (poly_order <= 0) {
+        platform->options.getArgs("GNN POLY ORDER", gnnMeshPOrder);
+    } else {
+        gnnMeshPOrder = poly_order;
+    }
     nekMeshPOrder = nrs_->mesh->N;
-    platform->options.getArgs("GNN POLY ORDER",gnnMeshPOrder);
+
+    // create GNN mesh if needed
     if (gnnMeshPOrder == nekMeshPOrder){
         mesh = nrs_->mesh;
     } else if (gnnMeshPOrder < nekMeshPOrder) {
@@ -147,16 +153,12 @@ void gnn_t::gnnSetup()
 {
     if (verbose) std::cout << "[RANK " << rank << "] -- in gnnSetup()" << std::endl;
 
-    // do not use multiscale flag if mesh is p=1    
-    int poly_order = mesh->Nq - 1; 
-    if (poly_order == 1)
-    {
-        multiscale = false;
+    // set multiscale flag
+    int poly_order = mesh->Nq - 1;
+    if (platform->options.compareArgs("SR GNN MULTISCALE", "TRUE") && poly_order > 1) {
+        multiscale = true;
     }
-    if (multiscale)
-    {
-        if (verbose) std::cout << "[RANK " << rank << "] -- using multiscale flag" << std::endl;
-    }
+    if (verbose) std::cout << "[RANK " << rank << "] -- using multiscale flag: " << multiscale << std::endl;
 
     get_graph_nodes(); // populates graphNodes
     if (multiscale) add_p1_neighbors(); // adds additional edges on mesh nodes (p=1)  
@@ -180,7 +182,7 @@ void gnn_t::gnnWrite()
     writePath = currentPath.string();
     int poly_order = mesh->Nq - 1; 
     writePath = writePath + "_poly_" + std::to_string(poly_order);
-    if (multiscale) writePath = writePath + "_multiscale";
+    //if (multiscale) writePath = writePath + "_multiscale"; // unnecessary and breaks SR-GNN pre-processing pipeline
     if (rank == 0)
     {
         if (!std::filesystem::exists(writePath))
@@ -203,15 +205,11 @@ void gnn_t::gnnWrite()
     writeToFileBinary(writePath + "/node_element_ids" + irank + nranks + ".bin", node_element_ids, N, 1);
 
     // Writing number of elements, gll points per element, and product of the two  
-    //writeToFile(writePath + "/Nelements" + irank + nranks, &mesh->Nelements, 1, 1);
-    //writeToFile(writePath + "/N" + irank + nranks, &N, 1, 1);
     if (rank == 0) writeToFile(writePath + "/Np" + irank + nranks, &mesh->Np, 1, 1);
 
     // Writing element-local edge index as text file (small)
-    //write_edge_index_element_local(writePath + "/edge_index_element_local" + irank + nranks);
-    //write_edge_index_element_local_vertex(writePath + "/edge_index_element_local_vertex" + irank + nranks);
-    writeToFile(writePath + "/edge_index_element_local" + irank + nranks, edge_index_local, num_edges_local, 2);
-    writeToFile(writePath + "/edge_index_element_local_vertex" + irank + nranks, edge_index_local_vertex, num_vertices_local, 2);
+    if (rank == 0) writeToFile(writePath + "/edge_index_element_local", edge_index_local, num_edges_local, 2);
+    if (rank == 0) writeToFile(writePath + "/edge_index_element_local_vertex", edge_index_local_vertex, num_vertices_local, 2);
 }
 
 #ifdef NEKRS_ENABLE_SMARTREDIS

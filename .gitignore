@@ -25,4 +25,6 @@ SmartSim/
 *-db.log
 *.rdb
 
+# ML related artefacts
+__pycache__/
 

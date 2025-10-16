@@ -12,9 +12,8 @@ else
 fi
 
 #... load the necessary modules here ...
-module restore
 module use /soft/modulefiles/
-module load conda
+module load conda/2025-09-25
 conda activate
 module load spack-pe-base cmake
 module list
