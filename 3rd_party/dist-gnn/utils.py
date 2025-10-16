@@ -47,7 +47,7 @@ def init_process_group(
     if WITH_CUDA:
         backend = 'nccl' if backend is None else str(backend)
     elif WITH_XPU:
-        backend = 'ccl' if backend is None else str(backend)
+        backend = 'xccl' if backend is None else str(backend)
     else:
         backend = 'gloo' if backend is None else str(backend)
 

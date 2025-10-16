@@ -1,23 +1,29 @@
 #!/bin/bash
 set -a
 
+# user input
 SYSTEM=
 NEKRS_HOME=
-VENV_PATH="../_gnn"
+VENV_PATH="../_env"
 NODES=$(cat ${PBS_NODEFILE} | wc -l)
 TIME="01:00"
 PROJ_ID="datascience"
 DEPLOYMENT="offline"
 CLIENT="posix"
 ML_TASK=
-
+DB_NODES=1
+SIM_NODES=1
+TRAIN_NODES=1
+# case name is automatically found
 CASE_NAME=
 
 function print_help() {
-  echo "Usage: $0 <SYSTEM> <NEKRS_HOME> [--venv_path | -v <VENV_PATH>]"     \
-    "[--nodes | -n <NODES>] [--time | -t <TIME>] [--proj_id | -p <PROJ_ID>]"\
-    "[--deployment | -d <DEPLOYMENT>] [--ml_task | -m <ML_TASK>]"           \
-    "[--client | -c <CLIENT>] [--help | -h]"
+  echo -e "Usage: $0 <SYSTEM> <NEKRS_HOME> [--venv_path | -v <VENV_PATH>]"\
+    "[--nodes | -n <NODES>] [--time | -t <TIME>]\n\t"                     \
+    "[--proj_id | -p <PROJ_ID>] [--deployment | -d <DEPLOYMENT>]"         \
+    "[--ml_task | -m <ML_TASK>] [--client | -c <CLIENT>]\n\t"             \
+    "[--db_nodes | -dn <DB_NODES>] [--sim_nodes | -sn <SIM_NODES>]"       \
+    "[--train_nodes | -tn <TRAIN_NODES>] [--help | -h]"
 }
 
 function parse_args() {
@@ -62,6 +68,18 @@ function parse_args() {
         CLIENT=${2,,}
         shift; shift
         ;;
+      --db_nodes| -dn)
+        DB_NODES=$2
+        shift; shift
+        ;;
+      --sim_nodes| -sn)
+        SIM_NODES=$2
+        shift; shift
+        ;;
+      --train_nodes| -tn)
+        TRAIN_NODES=$2
+        shift; shift
+        ;;
       --help| -h)
         print_help
         exit 0
@@ -93,6 +111,30 @@ function check_args() {
   if [ ${CLIENT} != "smartredis" ] && [ ${CLIENT} != "adios" ] && [ ${CLIENT} != "posix" ]; then
     echo "Invalid client type! Supported options are posix, smartredis and adios."
     exit 1
+  fi
+  if [ ${DEPLOYMENT} == "colocated" ]; then
+    if [ "$SIM_NODES" -ne "$NODES" ] && [ "$TRAIN_NODES" -ne "$NODES" ]; then
+      echo "Invalid number of simulation and/or training nodes."
+      echo "The number of simulation and training nodes must equal the number of nodes of the job."
+      exit 1
+    fi
+    if [ "$DB_NODES" -ne "1" ]; then
+      echo "Invalid number of database nodes."
+      echo "With the colocated deployment, the database nodes is set to 1 since it is not sharded."
+      exit 1
+    fi
+  fi
+  if [ ${DEPLOYMENT} == "clustered" ]; then
+    if [ "$DB_NODES" -eq "2" ]; then
+      echo "Invalid number of database nodes."
+      echo "SmartSim does not allow clustered databases of 2 nodes, DB_NODES can be 1 or >=3."
+      exit 1
+    fi
+    if [ $((DB_NODES + SIM_NODES + TRAIN_NODES)) -ne "$NODES" ]; then
+      echo "Invalid number of database, simulation and training nodes."
+      echo "The sum of nodes assigned to each component must equal the total number of nodes of the job."
+      exit 1
+    fi
   fi
 }
 
@@ -136,15 +178,19 @@ function setup_case() {
 }
 
 function print_args() {
-  echo "SYSTEM    : ${SYSTEM}"
-  echo "NEKRS_HOME: ${NEKRS_HOME}"
-  echo "VENV_PATH : ${VENV_PATH}"
-  echo "NODES     : ${NODES}"
-  echo "TIME      : ${TIME}"
-  echo "PROJ_ID   : ${PROJ_ID}"
-  echo "DEPLOYMENT: ${DEPLOYMENT}"
-  echo "CLIENT    : ${CLIENT}"
-  echo "ML_TASK   : ${ML_TASK}"
+  echo "SYSTEM     : ${SYSTEM}"
+  echo "NEKRS_HOME : ${NEKRS_HOME}"
+  echo "VENV_PATH  : ${VENV_PATH}"
+  echo "NODES      : ${NODES}"
+  echo "TIME       : ${TIME}"
+  echo "PROJ_ID    : ${PROJ_ID}"
+  echo "DEPLOYMENT : ${DEPLOYMENT}"
+  echo "CLIENT     : ${CLIENT}"
+  echo "ML_TASK    : ${ML_TASK}"
+  echo "DB_NODES   : ${DB_NODES}"
+  echo "SIM_NODES  : ${SIM_NODES}"
+  echo "TRAIN_NODES: ${TRAIN_NODES}"
+  echo "CASE_NAME  : ${CASE_NAME}"
 }
 
 # this maybe not necessary as the nrsrun_${SYSTEM} scripts generate
@@ -177,7 +223,8 @@ function build_smartsim() {
       export CUDNN_INCLUDE_DIR=$CUDNN_BASE/include/
       export LD_LIBRARY_PATH=$CUDNN_LIBRARY:$LD_LIBRARY_PATH
   fi
-
+  CASE_DIR=$PWD
+  cd ../
   git clone https://github.com/rickybalin/SmartSim.git
   cd SmartSim
   git checkout rollback_aurora
@@ -195,6 +242,7 @@ function build_smartsim() {
   smart build -v --device $DEVICE --torch_dir $TORCH_CMAKE_PATH --no_tf
   smart validate
   cd ..
+  cd $CASE_DIR
 }
 
 function setup_venv() {
@@ -230,10 +278,10 @@ function setup_venv() {
     fi
   else
     echo -e "\033[35mPython venv \"${VENV_PATH}\" already exists, reusing it ... \033[m"
+    source ${VENV_PATH}/bin/activate
     if [ "${CLIENT}" == "smartredis" ]; then
-      if ! pip list | grep -q smartsim; then
+      if ! pip show smartsim > /dev/null 2>&1; then
         echo -e "\033[35mRequested the smartredis backend, but SmartSim is not installed \033[m"
-        source ${VENV_PATH}/bin/activate
         build_smartsim
       fi
     fi
@@ -241,19 +289,6 @@ function setup_venv() {
 }
 
 function generate_script() {
-  DB_NODES=1
-  SIM_NODES=1
-  TRAINER_NODES=1
-  if [ ${DEPLOYMENT} == "clustered" ]; then
-    echo "Running on $NODES total nodes ..."
-    echo "Enter the number of database nodes:"
-    read DB_NODES
-    echo "Enter the number simulation nodes:"
-    read SIM_NODES
-    echo "and enter the number of trainer nodes:"
-    read TRAIN_NODES
-  fi
-
   NEKRS_HOME=${NEKRS_HOME} VENV_PATH=${VENV_PATH}/bin/activate PROJ_ID=${PROJ_ID} \
   DEPLOYMENT=$DEPLOYMENT DB_NODES=$DB_NODES SIM_NODES=$SIM_NODES TRAIN_NODES=$TRAIN_NODES \
   ML_TASK=${ML_TASK} \

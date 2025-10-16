@@ -141,6 +141,7 @@ def launch_clDB(cfg, nodelist, nNodes):
             mlNodes = ','.join(nodelist[cfg.run_args.sim_nodes + cfg.run_args.db_nodes: \
                                     cfg.run_args.sim_nodes + cfg.run_args.db_nodes + \
                                     cfg.run_args.ml_nodes])
+            ml_head_node = mlNodes.split(',')[0]
         print(f"Database running on {cfg.run_args.db_nodes} nodes:")
         print(dbNodes)
         print(f"Simulatiom running on {cfg.run_args.sim_nodes} nodes:")
@@ -215,7 +216,7 @@ def launch_clDB(cfg, nodelist, nNodes):
     # Setup and launch the training script
     if (cfg.train.executable):
         ml_exe = cfg.train.executable
-        ml_exe = ml_exe + ' ' + cfg.train.arguments + f' master_addr={socket.gethostname()}'
+        ml_exe = ml_exe + ' ' + cfg.train.arguments + f' master_addr={ml_head_node}'
         if (cfg.database.launcher=='local'):
             ml_settings = RunSettings(
                            'python',
