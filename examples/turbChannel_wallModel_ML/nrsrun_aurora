@@ -77,7 +77,7 @@ echo "database:" >> $CFILE
 echo "    launch: True" >> $CFILE
 echo "    backend: \"redis\"" >> $CFILE
 echo "    deployment: \"${DEPLOYMENT}\"" >> $CFILE
-echo "    port: 6780" >> $CFILE
+echo "    port: 6782" >> $CFILE
 if [ ${DEPLOYMENT} == "colocated"  ]; then
   echo "    network_interface: \"uds\"" >> $CFILE
 else
