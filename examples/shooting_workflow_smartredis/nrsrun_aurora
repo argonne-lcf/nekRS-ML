@@ -107,9 +107,9 @@ echo "database:" >> $CFILE
 echo "    launch: True" >> $CFILE
 echo "    backend: \"redis\"" >> $CFILE
 echo "    deployment: \"${DEPLOYMENT}\"" >> $CFILE
-echo "    port: 6780" >> $CFILE
+echo "    port: 6782" >> $CFILE
 if [ ${DEPLOYMENT} == "colocated"  ]; then
-  echo "    network_interface: \"udf\"" >> $CFILE
+  echo "    network_interface: \"uds\"" >> $CFILE
 else
   echo "    network_interface: \"hsn0\"" >> $CFILE
 fi
@@ -165,9 +165,9 @@ echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/main.py\"" >> $CFILE
 #echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
 echo "    affinity: \"\"" >> $CFILE
 if [ ${DEPLOYMENT} == "colocated"  ]; then
-  echo "    arguments: \"device_skip=${SIM_RANKS_PER_NODE} backend=ccl halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
+  echo "    arguments: \"device_skip=${SIM_RANKS_PER_NODE} backend=xccl halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
 elif [ ${DEPLOYMENT} == "clustered"  ]; then
-  echo "    arguments: \"backend=ccl halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
+  echo "    arguments: \"backend=xccl halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
 fi
 echo "    copy_files: []" >> $CFILE
 echo "    link_files: [\"./${TAFF_FILE}\"]" >> $CFILE
@@ -176,7 +176,7 @@ echo "# Inference config" >> $CFILE
 echo "inference:" >> $CFILE
 echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/inference.py\"" >> $CFILE
 echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
-echo "    arguments: \"model_task=inference rollout_steps=100 backend=ccl halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
+echo "    arguments: \"model_task=inference rollout_steps=100 backend=xccl halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
 echo "    copy_files: []" >> $CFILE
 echo "    link_files: [\"./${TAFF_FILE}\"]" >> $CFILE
 
@@ -185,6 +185,7 @@ echo "    link_files: [\"./${TAFF_FILE}\"]" >> $CFILE
 PFILE=${case}.par
 echo "" >> $PFILE
 echo "[ML]" >> $PFILE
+echo "gnnPolynomialOrder = 7" >> $PFILE
 echo "ssimDeployment = ${DEPLOYMENT}" >> $PFILE
 echo "ssimDbNodes = ${DB_NODES}" >> $PFILE
 
@@ -233,9 +234,15 @@ echo "export FI_CXI_RX_MATCH_MODE=hybrid" >> $RFILE # required by parRSB
 # Temporary workaround while waiting on bugfix in runtime
 echo "export UR_L0_USE_COPY_ENGINE=0" >> $RFILE
 
-echo -e "\nexport CCL_ALLTOALLV_MONOLITHIC_KERNEL=0" >> $RFILE
+echo -e "\nexport CCL_PROCESS_LAUNCHER=pmix" >> $RFILE
+echo "export CCL_ATL_TRANSPORT=mpi" >> $RFILE
+echo "export CCL_ALLREDUCE_SCALEOUT=direct:0-1048576,rabenseifner:1048577-max" >> $RFILE
+echo "export CCL_KVS_CONNECTION_TIMEOUT=300" >> $RFILE
+echo "export CCL_ALLTOALLV_MONOLITHIC_KERNEL=0" >> $RFILE
 
-echo -e "\nexport TORCH_PATH=\$( python -c 'import torch; print(torch.__path__[0])' )" >> $RFILE
+echo -e "\nexport SR_LOG_FILE=stdout" >> $RFILE
+echo "export SR_LOG_LEVEL=QUIET" >> $RFILE
+echo "export TORCH_PATH=\$( python -c 'import torch; print(torch.__path__[0])' )" >> $RFILE
 echo "export LD_LIBRARY_PATH=\$TORCH_PATH/lib:\$LD_LIBRARY_PATH" >> $RFILE
 echo "export SR_SOCKET_TIMEOUT=10000" >> $RFILE
 

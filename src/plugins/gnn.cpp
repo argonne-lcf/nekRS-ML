@@ -1,7 +1,9 @@
 
 #include "nrs.hpp"
+#include "mesh.h"
 #include "platform.hpp"
 #include "nekInterfaceAdapter.hpp"
+#include "meshNekReader.hpp"
 #include "ogsInterface.h"
 #include "gnn.hpp"
 #include <cstdlib>
@@ -61,20 +63,59 @@ void writeToFileBinaryF(const std::string& filename, dfloat* data, int nRows, in
     writeToFileBinary(filename, data, nRows, nCols);
 }
 
-gnn_t::gnn_t(nrs_t *nrs_)
+gnn_t::gnn_t(nrs_t *nrs_, int poly_order, bool log_verbose)
 {
-    nrs = nrs_; // set nekrs object
-    mesh = nrs->mesh; // set mesh object
-    ogs = mesh->ogs; // set ogs object
-
     // set MPI rank and size 
     MPI_Comm &comm = platform->comm.mpiComm;
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &size);
 
+    verbose = log_verbose;
+
+    // parse poly_order value
+    if (poly_order <= 0) {
+        platform->options.getArgs("GNN POLY ORDER", gnnMeshPOrder);
+    } else {
+        gnnMeshPOrder = poly_order;
+    }
+    nekMeshPOrder = nrs_->mesh->N;
+
+    // create GNN mesh if needed
+    if (gnnMeshPOrder == nekMeshPOrder){
+        mesh = nrs_->mesh;
+    } else if (gnnMeshPOrder < nekMeshPOrder) {
+        if (rank == 0) std::cout << "Generating GNN mesh with polynomial degree ..." << gnnMeshPOrder << std::endl;
+        mesh = new mesh_t();
+        mesh->Nelements = nrs_->mesh->Nelements;
+        mesh->dim = nrs_->mesh->dim;
+        mesh->Nverts = nrs_->mesh->Nverts;
+        mesh->Nfaces = nrs_->mesh->Nfaces;
+        mesh->NfaceVertices = nrs_->mesh->NfaceVertices;
+        meshLoadReferenceNodesHex3D(mesh, gnnMeshPOrder, 0);
+        mesh->o_x = platform->device.malloc<dfloat>(mesh->Nlocal);
+        mesh->o_y = platform->device.malloc<dfloat>(mesh->Nlocal);
+        mesh->o_z = platform->device.malloc<dfloat>(mesh->Nlocal);
+        nrs_->mesh->interpolate(nrs_->mesh->o_x, mesh, mesh->o_x);
+        nrs_->mesh->interpolate(nrs_->mesh->o_y, mesh, mesh->o_y);
+        nrs_->mesh->interpolate(nrs_->mesh->o_z, mesh, mesh->o_z);
+        meshGlobalIds(mesh);
+        meshParallelGatherScatterSetup(mesh,
+                                 mesh->Nelements * mesh->Np,
+                                 mesh->globalIds,
+                                 comm,
+                                 OOGS_AUTO,
+                                 0);
+    } else {
+        if (rank == 0) std::cout << "\nError: GNN polynimial degree must be <= nekRS degree\n" << std::endl;
+        MPI_Abort(comm, 1);
+    }
+    ogs = mesh->ogs;
+    fieldOffset = mesh->Np * (mesh->Nelements);
+    fieldOffset = alignStride<dfloat>(fieldOffset);
+
     // allocate memory 
     N = mesh->Nelements * mesh->Np; // total number of nodes
-    pos_node = new dfloat[N * 3](); 
+    pos_node = new dfloat[N * mesh->dim](); 
     node_element_ids = new dlong[N]();
     local_unique_mask = new dlong[N](); 
     halo_unique_mask = new dlong[N]();
@@ -82,13 +123,19 @@ gnn_t::gnn_t(nrs_t *nrs_)
     graphNodes = (graphNode_t*) calloc(N, sizeof(graphNode_t)); // full domain
     graphNodes_element = (graphNode_t*) calloc(mesh->Np, sizeof(graphNode_t)); // a single element
 
-    if (verbose) printf("\n[RANK %d] -- Finished instantiating gnn_t object\n", rank);
-    if (verbose) printf("[RANK %d] -- The number of elements is %d \n", rank, mesh->Nelements);
+    if (verbose) {
+        printf("\n[RANK %d] -- Finished instantiating gnn_t object\n", rank);
+        printf("[RANK %d] -- The polynomial degree of the GNN mesh is %d \n", rank, gnnMeshPOrder);
+        printf("[RANK %d] -- The number of elements of the GNN mesh is %d \n", rank, mesh->Nelements);
+        printf("[RANK %d] -- The number of nodes of the GNN mesh is %d \n", rank, N);
+        fflush(stdout);
+    }
 }
 
 gnn_t::~gnn_t()
 {
-    if (verbose) printf("[RANK %d] -- gnn_t destructor\n", rank);
+    if (verbose) std::cout << "[RANK " << rank << "] -- gnn_t destructor\n" << std::endl;
+    if (gnnMeshPOrder < nekMeshPOrder) delete mesh;
     delete[] pos_node;
     delete[] node_element_ids;
     delete[] local_unique_mask;
@@ -104,18 +151,14 @@ gnn_t::~gnn_t()
 
 void gnn_t::gnnSetup()
 {
-    if (verbose) printf("[RANK %d] -- in gnnSetup() \n", rank);
+    if (verbose) std::cout << "[RANK " << rank << "] -- in gnnSetup()" << std::endl;
 
-    // do not use multiscale flag if mesh is p=1    
-    int poly_order = mesh->Nq - 1; 
-    if (poly_order == 1)
-    {
-        multiscale = false;
+    // set multiscale flag
+    int poly_order = mesh->Nq - 1;
+    if (platform->options.compareArgs("SR GNN MULTISCALE", "TRUE") && poly_order > 1) {
+        multiscale = true;
     }
-    if (multiscale)
-    {
-        if (verbose) printf("[RANK %d] -- using multiscale flag \n", rank);
-    }
+    if (verbose) std::cout << "[RANK " << rank << "] -- using multiscale flag: " << multiscale << std::endl;
 
     get_graph_nodes(); // populates graphNodes
     if (multiscale) add_p1_neighbors(); // adds additional edges on mesh nodes (p=1)  
@@ -139,7 +182,7 @@ void gnn_t::gnnWrite()
     writePath = currentPath.string();
     int poly_order = mesh->Nq - 1; 
     writePath = writePath + "_poly_" + std::to_string(poly_order);
-    if (multiscale) writePath = writePath + "_multiscale";
+    //if (multiscale) writePath = writePath + "_multiscale"; // unnecessary and breaks SR-GNN pre-processing pipeline
     if (rank == 0)
     {
         if (!std::filesystem::exists(writePath))
@@ -152,33 +195,21 @@ void gnn_t::gnnWrite()
     std::string irank = "_rank_" + std::to_string(rank);
     std::string nranks = "_size_" + std::to_string(size);
 
-    // // Writing as text files:
-    // write_edge_index(writePath + "/edge_index" + irank + nranks);
-    // writeToFile(writePath + "/pos_node" + irank + nranks, pos_node, N, 3);
-    // writeToFile(writePath + "/node_element_ids" + irank + nranks, node_element_ids, N, 1); 
-    // writeToFile(writePath + "/local_unique_mask" + irank + nranks, local_unique_mask, N, 1); 
-    // writeToFile(writePath + "/halo_unique_mask" + irank + nranks, halo_unique_mask, N, 1); 
-    // writeToFile(writePath + "/global_ids" + irank + nranks, mesh->globalIds, N, 1);
-
     // Writing as binary files: 
     //write_edge_index_binary(writePath + "/edge_index" + irank + nranks + ".bin");
-    writeToFileBinary(writePath + "/edge_index" + irank + nranks + ".bin", edge_index, num_edges, 2);
     writeToFileBinary(writePath + "/pos_node" + irank + nranks + ".bin", pos_node, N, 3);
-    writeToFileBinary(writePath + "/node_element_ids" + irank + nranks + ".bin", node_element_ids, N, 1); 
     writeToFileBinary(writePath + "/local_unique_mask" + irank + nranks + ".bin", local_unique_mask, N, 1); 
     writeToFileBinary(writePath + "/halo_unique_mask" + irank + nranks + ".bin", halo_unique_mask, N, 1); 
     writeToFileBinary(writePath + "/global_ids" + irank + nranks + ".bin", mesh->globalIds, N, 1);
+    writeToFileBinary(writePath + "/edge_index" + irank + nranks + ".bin", edge_index, num_edges, 2);
+    writeToFileBinary(writePath + "/node_element_ids" + irank + nranks + ".bin", node_element_ids, N, 1);
 
     // Writing number of elements, gll points per element, and product of the two  
-    writeToFile(writePath + "/Nelements" + irank + nranks, &mesh->Nelements, 1, 1);
-    writeToFile(writePath + "/Np" + irank + nranks, &mesh->Np, 1, 1);
-    writeToFile(writePath + "/N" + irank + nranks, &N, 1, 1);
+    if (rank == 0) writeToFile(writePath + "/Np" + irank + nranks, &mesh->Np, 1, 1);
 
     // Writing element-local edge index as text file (small)
-    //write_edge_index_element_local(writePath + "/edge_index_element_local" + irank + nranks);
-    //write_edge_index_element_local_vertex(writePath + "/edge_index_element_local_vertex" + irank + nranks);
-    writeToFile(writePath + "/edge_index_element_local" + irank + nranks, edge_index_local, num_edges_local, 2);
-    writeToFile(writePath + "/edge_index_element_local_vertex" + irank + nranks, edge_index_local_vertex, num_vertices_local, 2);
+    if (rank == 0) writeToFile(writePath + "/edge_index_element_local", edge_index_local, num_edges_local, 2);
+    if (rank == 0) writeToFile(writePath + "/edge_index_element_local_vertex", edge_index_local_vertex, num_vertices_local, 2);
 }
 
 #ifdef NEKRS_ENABLE_SMARTREDIS
@@ -196,8 +227,6 @@ void gnn_t::gnnWriteDB(smartredis_client_t* client)
     // Writing the graph data
     client->_client->put_tensor("pos_node" + irank + nranks, pos_node, {3,num_nodes},
                     SRTensorTypeDouble, SRMemLayoutContiguous);
-    //client->_client->put_tensor("node_element_ids" + irank + nranks, node_element_ids, {num_nodes,1},
-    //                SRTensorTypeInt32, SRMemLayoutContiguous);
     client->_client->put_tensor("local_unique_mask" + irank + nranks, local_unique_mask, {num_nodes},
                     SRTensorTypeInt32, SRMemLayoutContiguous);
     client->_client->put_tensor("halo_unique_mask" + irank + nranks, halo_unique_mask, {num_nodes},
@@ -208,18 +237,10 @@ void gnn_t::gnnWriteDB(smartredis_client_t* client)
     // Writing edge information
     client->_client->put_tensor("edge_index" + irank + nranks, edge_index, {2,num_edg},
                     SRTensorTypeInt32, SRMemLayoutContiguous);
-    //client->_client->put_tensor("edge_index_element_local" + irank + nranks, edge_index_local, {2,num_edg_l},
-    //                SRTensorTypeInt32, SRMcemLayoutContiguous);
-    //client->_client->put_tensor("edge_index_element_local_vertex" + irank + nranks, edge_index_local_vertex, {2,num_vert_l},
-    //                SRTensorTypeInt32, SRMemLayoutContiguous);
 
     // Writing some graph statistics
-    //client->_client->put_tensor("Nelements" + irank + nranks, &mesh->Nelements, {1},
-    //                SRTensorTypeInt32, SRMemLayoutContiguous);
     client->_client->put_tensor("Np" + irank + nranks, &mesh->Np, {1},
                     SRTensorTypeInt32, SRMemLayoutContiguous);
-    //client->_client->put_tensor("N" + irank + nranks, &N, {1},
-    //                SRTensorTypeInt32, SRMemLayoutContiguous);
 
     MPI_Barrier(comm);
     if (verbose) printf("[RANK %d] -- done sending graph data to DB \n", rank);
@@ -228,11 +249,12 @@ void gnn_t::gnnWriteDB(smartredis_client_t* client)
 
 void gnn_t::gnnWriteADIOS(adios_client_t* client)
 {
-    if (verbose) printf("[RANK %d] -- in gnnWriteADIOS() \n", rank);
     MPI_Comm &comm = platform->comm.mpiComm;
+#if defined(NEKRS_ENABLE_ADIOS)
+    if (verbose && rank == 0) printf("[RANK %d] -- in gnnWriteADIOS() \n", rank);
     unsigned long _size = size;
     unsigned long _rank = rank;
-    client->_num_dim = nrs->mesh->dim;
+    client->_num_dim = mesh->dim;
 
     // Get global size of data
     int global_N, global_num_edges;
@@ -258,12 +280,6 @@ void gnn_t::gnnWriteADIOS(adios_client_t* client)
     client->_offset_num_edges = offset_num_edges;
 
     // Define ADIOS2 variables to send
-    //auto posFloats = client->_stream_io.DefineVariable<dfloat>("pos_node", {_size * _N * 3}, {_rank * _N * 3}, {_N * 3});
-    //auto locInts = client->_stream_io.DefineVariable<dlong>("local_unique_mask", {_size * _N}, {_rank * _N}, {_N});
-    //auto haloInts = client->_stream_io.DefineVariable<dlong>("halo_unique_mask", {_size * _N}, {_rank * _N}, {_N});
-    //auto globInts = client->_stream_io.DefineVariable<hlong>("global_ids", {_size * _N}, {_rank * _N}, {_N});
-    //auto edgeInts = client->_stream_io.DefineVariable<dlong>("edge_index", {_size * 2 * _num_edges}, {_rank * 2 * _num_edges}, {2 * _num_edges});
-    //auto NpInts = client->_stream_io.DefineVariable<dlong>("Np", {1}, {1}, {1});
     auto posFloats = client->_write_io.DefineVariable<dfloat>("pos_node", 
                                                             {client->_global_N * client->_num_dim}, 
                                                             {client->_offset_N * client->_num_dim}, 
@@ -308,6 +324,11 @@ void gnn_t::gnnWriteADIOS(adios_client_t* client)
     graphWriter.Close();
     MPI_Barrier(comm);
     if (verbose and rank == 0) printf("[RANK %d] -- done sending graph data \n", rank);
+#else
+    if (verbose and rank == 0) printf("[RANK %d] -- ADIOS is not enabled!, Falling back to binary write.\n", rank);
+    fflush(stdout);
+    gnnWrite();
+#endif
 }
 
 void gnn_t::get_node_positions()
@@ -383,9 +404,12 @@ void gnn_t::get_node_masks()
     }
 
     // SB: test 
-    if (verbose) printf("[RANK %d] -- \tN: %d \n", rank, N);
-    if (verbose) printf("[RANK %d] -- \tNlocal: %d \n", rank, Nlocal);
-    if (verbose) printf("[RANK %d] -- \tNhalo: %d \n", rank, Nhalo);
+    if (verbose) {
+        printf("[RANK %d] -- \tN: %d \n", rank, N);
+        printf("[RANK %d] -- \tNlocal: %d \n", rank, Nlocal);
+        printf("[RANK %d] -- \tNhalo: %d \n", rank, Nhalo);
+        fflush(stdout);
+    }
 
     // ~~~~ For parsing the local coincident nodes
     if (Nlocal)
@@ -956,6 +980,19 @@ void gnn_t::write_edge_index_element_local_vertex_binary(const std::string& file
             // file_cpu << idx_nei << '\t' << idx_own << '\n';
             file_cpu.write(reinterpret_cast<const char*>(&idx_nei), sizeof(dlong));
             file_cpu.write(reinterpret_cast<const char*>(&idx_own), sizeof(dlong));
+        }
+    }
+}
+
+void gnn_t::interpolateField(nrs_t* nrs, occa::memory& o_field_fine, dfloat* field_coarse, int dim)
+{
+    if (gnnMeshPOrder == nekMeshPOrder){
+        o_field_fine.copyTo(field_coarse, dim * fieldOffset);
+    } else if (gnnMeshPOrder < nekMeshPOrder){
+        auto o_tmp = platform->deviceMemoryPool.reserve<dfloat>(fieldOffset);
+        for (int i = 0; i < dim; i++) {
+            nrs->mesh->interpolate(o_field_fine.slice(i * nrs->fieldOffset, nrs->fieldOffset), mesh, o_tmp);
+            o_tmp.copyTo(field_coarse + i * fieldOffset, fieldOffset);
         }
     }
 }

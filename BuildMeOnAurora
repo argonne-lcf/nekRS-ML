@@ -2,7 +2,7 @@
 set -a
 
 if [ "$#" -ne 1 ]; then
-  echo "Usage: $0 <path to NEKRS_HOME>"
+  echo "Usage: ./BuildMeOnAurora <path to NEKRS_HOME>"
   echo -e "If okay with the default \$HOME/.local/nekrs, press ENTER to continue"
   echo "Or press Ctrl+C to quit"
   read -r -s KEY

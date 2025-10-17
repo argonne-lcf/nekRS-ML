@@ -255,6 +255,8 @@ static std::vector<std::string> mlKeys = {
     {"adiosEngine"},
     {"adiosTransport"},
     {"adiosStream"},
+    {"gnnPolynomialOrder"},
+    {"srGNNMultiscale"},
 };
 
 static std::vector<std::string> deprecatedKeys = {
@@ -2646,6 +2648,27 @@ void parseMLSection(const int rank, setupAide &options, inipp::Ini *ini)
   std::string adiosStream;
   if (ini->extract("ml", "adiosStream", adiosStream)) {
     options.setArgs("ADIOS ML STREAM", adiosStream);
+  }
+
+  int gnnPolyOrder, nekMeshPOrder;
+  options.getArgs("POLYNOMIAL DEGREE",nekMeshPOrder);
+  if (ini->extract("ml", "gnnPolynomialOrder", gnnPolyOrder)) {
+    options.setArgs("GNN POLY ORDER", std::to_string(gnnPolyOrder));
+  } else {
+    if (rank == 0) std::cout << "WARNING: did not read gnnPolynomialOrder input so setting it to " << nekMeshPOrder << std::endl;
+    options.setArgs("GNN POLY ORDER", std::to_string(nekMeshPOrder));
+  }
+
+  std::string srGNNStr;
+  if (ini->extract("ml", "srGNNMultiscale", srGNNStr)) {
+    bool srGNN = checkForTrue(srGNNStr);
+    if (srGNN) {
+      options.setArgs("SR GNN MULTISCALE", "TRUE");
+    } else {
+      options.setArgs("SR GNN MULTISCALE", "FALSE");
+    }
+  } else {
+    options.setArgs("SR GNN MULTISCALE", "FALSE");
   }
 }
 

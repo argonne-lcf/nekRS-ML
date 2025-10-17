@@ -14,8 +14,10 @@ It is meant to be a sandbox showcasing ways in which ML methods and *in-situ* wo
 
 Some key functionalities of nekRS-ML are:
 
-* [Graph neural network (GNN) modeling](./3rd_party/gnn/): [Dist-GNN](https://ieeexplore.ieee.org/abstract/document/10820662) is a scalable and consistent GNN for mesh-modeling of dynamical systems on very large graphs. It relies on tailored neural message passing layers and loss constructions to guarantee arithmetic consistency on domain-decomposed graphs partitioned similarly to a CFD mesh. It can be used to perform both time dependent modeling (e.g., advance the solution field) and time independent modeling (e.g., predict a flow quantity from another). 
-* [Conversion tools for mesh-based distributed GNN modeling](./src/plugins/gnn.hpp): NekRS-ML provides a GNN plugin capable of extracting the necessary information from nekRS to contruct the partitioned graph needed by Dist-GNN. The same GNN plugin and the [trajectory generation plugin](./src/plugins/trajGen.hpp) can be used to extract the field information from nekRS to produce training data for the Dist-GNN. 
+* Graph neural network (GNN) modeling: 
+  * [Dist-GNN](./3rd_party/dist-gnn/) is a scalable and consistent GNN for mesh-modeling of dynamical systems on very large graphs. It relies on tailored neural message passing layers and loss constructions to guarantee arithmetic consistency on domain-decomposed graphs partitioned similarly to a CFD mesh. It can be used to perform both time dependent modeling (e.g., advance the solution field) and time independent modeling (e.g., predict a flow quantity from another). For detailed information on the Dist-GNN model, please see the following [paper](https://ieeexplore.ieee.org/abstract/document/10820662).
+  * [SR-GNN](./3rd_party/sr-gnn/) is a GNN for mesh-based, three-dimensional super-resolution of fluid flows. The SR-GNN model operates on individual elements (and their small neighborhood if set up as such), but not on the full mesh/graph of the domain, thus unlike the Dist-GNN model this one is local in nature. SR-GNN is comprised of coarse- and fine-scale message passing layers for multi-scale modeling. For detailed information on the SR-GNN model, please see the following [paper](https://www.sciencedirect.com/science/article/abs/pii/S0045782525003445).
+* [Conversion tools for mesh-based distributed GNN modeling](./src/plugins/gnn.hpp): NekRS-ML provides a GNN plugin capable of extracting the necessary information from nekRS to contruct the partitioned graph needed by Dist-GNN. The same GNN plugin and the [trajectory generation plugin](./src/plugins/trajGen.hpp) can be used to extract the field information from nekRS to produce training data for the Dist-GNN. The GNN and trajectory generation plugins can create graphs and the respective training data from p-coarsened nekRS meshes to enable development of surrogates on coarser discretizations.  
 * [Data streaming with ADIOS2](./src/plugins/adiosStreamer.hpp): nekRS v24 comes with ADIOS2 for I/O, thus nekRS-ML expands the usage of ADIOS2 to enable data streaming between nekRS and GNN training, enabling online (or *in-situ*) training/fine-tuning of the ML models.  
 * [In-memory data staging with SmartSim](./src/plugins/smartRedis.hpp): nekRS-ML can also be linked to the [SmartRedis](https://github.com/CrayLabs/SmartRedis) library, which when coupled with a [SmartSim](https://github.com/CrayLabs/SmartSim) workflow enables online training and inference with in-memory data-staging. 
 
@@ -25,7 +27,10 @@ nekRS-ML hosts a series of AI-enabled examples listed below in order of complexi
 Users can find more details on each of the examples in the  README files contained within the respective directories. 
 
 * [tgv_gnn_offline](./examples/tgv_gnn_offline/): Offline training pipeline to generate data and perform time independent training of the Dist-GNN model.
+* [tgv_gnn_offline_coarse_mesh](./examples/tgv_gnn_offline_coarse_mesh/): Offline training pipeline to generate data and perform time independent training of the Dist-GNN model on a p-coarsened grid relative to the one used by the nekRS simulation.
 * [tgv_gnn_traj_offline](./examples/tgv_gnn_traj_offline/): Offline training pipeline to generate data and perform time dependent training of the Dist-GNN model.
+* [tuurbChannel_srgnn](./examples/turbChannel_srgnn/): Offline training pipeline to generate data, perform training, and evaluate the model through inference with the SR-GNN model. 
+* [turbChannel_wallModel_ML](./examples/turbChannel_wallModel_ML/): Online training and inference workflows of a data-driven wall shear stress model for LES applied to a turbulent channel flow at a friction Reynolds number of 950. This example is an extension to [turbChannel_wallModel](./examples/turbChannel_wallModel/), which uses an algebraic equilibrium wall model (no ML).
 * [tgv_gnn_online](./examples/tgv_gnn_online/): Online training workflow using SmartSim to cuncurrently generate data and perform time independent training of the Dist-GNN model.
 * [tgv_gnn_traj_online](./examples/tgv_gnn_traj_online/): Online training workflow using SmartSim to cuncurrently generate data and perform time dependent training of the Dist-GNN model.
 * [tgv_gnn_traj_online_adios](./examples/tgv_gnn_traj_online_adios/): Online training workflow using ADIOS2 to cuncurrently generate data and perform time dependent training of the Dist-GNN model.
@@ -56,8 +61,9 @@ Other branches available in the repository should be considered experimental.
 
 Then, simply execute one of the build scripts contained in the reposotory. 
 The HPC systems currently supported are:
-* Polaris (Argonne LCF)
-* Aurora (Argonne LCF) 
+* [Polaris](https://docs.alcf.anl.gov/polaris/) @ Argonne LCF
+* [Aurora](https://docs.alcf.anl.gov/aurora/) @ Argonne LCF
+* [Crux](https://docs.alcf.anl.gov/crux/) @ Argonne LCF (limited support for ML-enabled exampels)
 
 For example, to build nekRS-ML on Aurora without the SmartRedis client, execute from a compute node
 
@@ -82,9 +88,18 @@ To run any of the AI-enabled examples listed above, simply `cd` to the example d
 ./gen_run_script <system_name> </path/to/nekRS>
 ```
 
-The script will produce a `run.sh` script specifically tailored for the desired system and using the desired nekRS install directory. 
+or
 
-Fially, the examples are run **from the compute nodes** executing
+```sh
+./gen_run_script <system_name> </path/to/nekRS> -v </path/to/venv/bin/activate>
+```
+
+if you have the necessary packages already installed in a Python virtual environment. 
+For more information on all the options available to configure the `gen_run_script` scripts, run `./gen_run_script -h`.
+
+The case setup script will produce a `run.sh` script specifically tailored to the desired system and using the desired nekRS install directory. 
+
+Finally, the examples are run **from the compute nodes** executing
 
 ```sh
 ./run.sh

@@ -1,7 +1,7 @@
 # Solution shooting workflow with a GNN surrogate model using ADIOS2
 
-This example combines online training of a GNN surrogate model with inference of the trained model to shoot the solution forward and thus accelerate a long simulation compaign. 
-The workflow leverages the following assumption -- for a sufficiently accurate, robust and fast surrogate model, trained to advance the solution with a time step size larger than that required by the CFL constraints of nekRS, the simulation campaign can be acelerated by replacing nekRS with the surrogate and shoot the solution forward in time, where it can then be picked back up by nekRS for more model fine-tuning. 
+This example combines online training of a GNN surrogate model with inference of the trained model to shoot the solution forward and thus accelerate a long simulation campaign.
+The workflow leverages the following assumption -- for a sufficiently accurate, robust and fast surrogate model, trained to advance the solution with a time step size larger than that required by the CFL constraints of nekRS, the simulation campaign can be accelerated by replacing nekRS with the surrogate and shoot the solution forward in time, where it can then be picked back up by nekRS for more model fine-tuning. 
 The flow problem is based on the turbulence channel flow LES, for which the details are in the [turbChannel example](../turbChannel/README.md).
 
 The workflow is composed of the following two stages:
@@ -12,7 +12,7 @@ The workflow is composed of the following two stages:
 The workflow is set up using ADIOS2 to share data between nekRS, the GNN training module, and the GNN inference module. 
 Specifically, the following information is shared between components:
 
-* The data structures needed to build the GNN grpah from the nekRS mesh. This information is shared through the file system because it is needed by the inferencing step as well, thus it needs to be persistent beyond the nekRS run. These data structures are computed once before the nekRS time step loop and written in `graph.bp` with ADIOS2.
+* The data structures needed to build the GNN graph from the nekRS mesh. This information is shared through the file system because it is needed by the inferencing step as well, thus it needs to be persistent beyond the nekRS run. These data structures are computed once before the nekRS time step loop and written in `graph.bp` with ADIOS2.
 * The pair of solution snapshots at every mesh node which represent the input and output data to the GNN model. These are streamed (data is shared through the high-speed network, not through the file system) from nekRS to the GNN trainer with the ADIOS2 SST engine. nekRS is configured to share these snapshot at a predetermined frequency set in the `turbChannel.udf` file.
 * A small file called `check-run.bp` used to tell nekRS to exit cleanly when the GNN trainer reaches a stopping point (e.g., a preset maximum  number of iterations or a tolerance on the training loss).
 * A solution checkpoint for the last nekRS time step saved as the simulation exit cleanly. This is stored in `checkpoint.bp` and is loaded by the inference module as an initial condition to then advance the solution state with the GNN.
@@ -27,36 +27,49 @@ The plugin API are called from the `turbChannel.udf` file, specifically within `
 
 ## Building nekRS
 
-To build nekRS with the GNN plugin, simply execute the build script [BuildMeOnAurora](../../BuildMeOnAurora) from the top directory
-```bash
-source BuildMeOnAurora
+Requirements:
+* Linux, Mac OS X (Microsoft WSL and Windows is not supported) 
+* GNU/oneAPI/NVHPC/ROCm compilers (C++17/C99 compatible)
+* MPI-3.1 or later
+* CMake version 3.21 or later 
+* PyTorch and PyTorch Geometric (for the examples using the GNN)
+
+To build nekRS and the required dependencies, first clone our GitHub repository:
+
+```sh
+https://github.com/argonne-lcf/nekRS-ML.git
 ```
 
-NOTE: you can disable building SmartRedis for this example since it is performing online training with the ADIOS2 backend. 
+Then, simply execute one of the build scripts contained in the repository. 
+The HPC systems currently supported are:
+* [Polaris](https://docs.alcf.anl.gov/polaris/) (Argonne LCF)
+* [Aurora](https://docs.alcf.anl.gov/aurora/) (Argonne LCF) 
 
-## Runnig the example
+For example, to build nekRS-ML on Aurora, execute from a compute node
 
-Scripts are provided in the example to conveniently generate run scripts and config files for the workflow on the different ALCF systems.
-Note that a virtual environment with PyTorch Geometric is needed for the GNN.
-If you don't specify a virtual environment path, the script will create one for you.
-From an interactive session on the compute nodes, first execute
-```bash
-./gen_run_script
+```sh
+./BuildMeOnAurora
 ```
 
-taking notice of some of the variables to set. 
-Specifically, make sure to set 
+## Running the example
 
-```
-SYSTEM # the ALCF system to run on (aurora, polaris)
-DEPLOYMENT # the deployment strategy for the workflow (colocated, clustered)
-NEKRS_HOME # path to the nekRS install directory
-VENV_PATH # path to the Python venv activate script
-PROJ_ID # project name for the allocation
-QUEUE # name of the queue to run on
-```
+Scripts are provided to conveniently generate run scripts and config files for the workflow on the different ALCF systems.
+Note that a virtual environment with PyTorch Geometric is needed to train the GNN online.
 
-The script generates the run script, which is executed with
+**From a compute node** execute:
+```sh
+./gen_run_script <system_name> </path/to/nekRS>
+```
+or
+```sh
+./gen_run_script <system_name> </path/to/nekRS> --venv_path </path/to/venv/bin/activate>
+```
+if you have the necessary packages already installed in a Python virtual environment. For more information how to use `gen_run_script`, use `--help`.
+
+The script will produce a `run.sh` script specifically tailored to the desired system and using the desired nekRS install directory. 
+
+Finally, simply execute the run script **from the compute nodes** with
+
 ```bash
 ./run.sh
 ```

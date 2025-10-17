@@ -12,12 +12,19 @@ logfile
 *.dat
 .cache/
 
+# ML related items
+__pycache__/
+_env/
+
 # SmartSim/SmartRedis outputs
+SmartSim/
 *.out
 *.err
-*/outputs/
+*outputs/
 *.colocated_launcher.sh
 *-db.log
 *.rdb
 
+# ML related artefacts
+__pycache__/
 

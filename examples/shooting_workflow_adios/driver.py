@@ -4,6 +4,7 @@ import sys
 from omegaconf import DictConfig, OmegaConf
 import hydra
 import subprocess
+import socket
 from time import sleep
 from typing import Optional, Tuple
 from statistics import harmonic_mean
@@ -115,6 +116,7 @@ class ShootingWorkflow():
         if self.cfg.train.affinity:
             cmd += f"{self.cfg.train.affinity} {self.cfg.run_args.simprocs_pn} {skip} "
         cmd += f"python {self.cfg.train.executable} {self.cfg.train.arguments}"
+        cmd += f" master_addr={socket.gethostname()}"
         print("Launching GNN training ...")
         self.train_proc['process'] = subprocess.Popen(cmd,
                                 executable="/bin/bash",
@@ -140,7 +142,8 @@ class ShootingWorkflow():
         if self.cfg.train.affinity:
             cmd += f"{self.cfg.train.affinity} {self.cfg.run_args.simprocs_pn} {skip} "
         cmd += f"python {self.cfg.inference.executable} " + \
-               f"{self.cfg.inference.arguments} model_dir={self.run_dir}/saved_models/"
+               f"{self.cfg.inference.arguments} model_dir={self.run_dir}/saved_models/" + \
+               f" master_addr={socket.gethostname()}"
         print("\nLaunching GNN inference ...")
         self.infer_proc['process'] = subprocess.Popen(cmd,
                                 executable="/bin/bash",
@@ -184,7 +187,7 @@ class ShootingWorkflow():
                             else:
                                 proc['status'] = "failed"
                                 failure = True
-                        print(f"Process {proc['name']} status: {proc['status']}",flush=True)
+                        print(f"{proc['name']} status: {proc['status']}",flush=True)
                 if finished == len(processes): all_finished = True
                 if failure:
                    self.kill_processes(processes)
@@ -224,24 +227,26 @@ class ShootingWorkflow():
         """
         with open(f'{self.log_dir}/nekrs_0.out','r') as fh:
             for l in fh:
+                if 'unique number of gridpoints' in l:
+                    num_nodes = int(l.split(':')[-1].strip())
                 if 'runtime statistics' in l:
                     nekrs_steps = int(l.split('(')[-1].split(' ')[0].split('=')[-1])
                 if ' solve ' in l:
                     nekrs_time = float(l.split('solve')[-1].split('s')[0].strip())
                 if ' udfExecuteStep ' in l:
                     udf_time = float(l.split('udfExecuteStep')[-1].split('s')[0].strip())
-        with open(f'{self.run_dir}/turbChannel.box','r') as fh:
-            for l in fh:
-                if 'nelx' in l:
-                    elms = l.split()
-        elms = elms[:3]
-        elms = [int(item)*-1 for item in elms]
-        with open(f'{self.run_dir}/turbChannel.par','r') as fh:
-            for l in fh:
-                if 'polynomialOrder' in l:
-                    p = int(l.split()[-1].strip())
-        num_nodes = elms[0] * elms[1] * elms[2] * (p+1)**3 / 1.0e6
-        return num_nodes * nekrs_steps / (nekrs_time - udf_time)
+        #with open(f'{self.run_dir}/turbChannel.box','r') as fh:
+        #    for l in fh:
+        #        if 'nelx' in l:
+        #            elms = l.split()
+        #elms = elms[:3]
+        #elms = [int(item)*-1 for item in elms]
+        #with open(f'{self.run_dir}/turbChannel.par','r') as fh:
+        #    for l in fh:
+        #        if 'polynomialOrder' in l:
+        #            p = int(l.split()[-1].strip())
+        #num_nodes = elms[0] * elms[1] * elms[2] * (p+1)**3
+        return (num_nodes / 1.0e6) * nekrs_steps / (nekrs_time - udf_time)
     
     def compute_fom_train(self) -> Tuple[float,float]:
         """Compute the triaing and transfer FOM from reading log files

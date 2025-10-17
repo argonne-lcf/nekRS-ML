@@ -37,14 +37,18 @@ int compareLocalId(const void *a, const void *b);
 class gnn_t 
 {
 public:
-    gnn_t(nrs_t *nrs);
+    gnn_t(nrs_t *nrs, int poly_order = 0, bool log_verbose = false);
     ~gnn_t(); 
 
+    // attributes 
+    mesh_t *mesh;
+    int fieldOffset;
     std::string writePath;
 
     // member functions 
     void gnnSetup();
     void gnnWrite();
+    void interpolateField(nrs_t* nrs, occa::memory& o_field_fine, dfloat* field_coarse, int dim);
 #ifdef NEKRS_ENABLE_SMARTREDIS
     void gnnWriteDB(smartredis_client_t* client);
 #endif
@@ -56,11 +60,11 @@ private:
     int size;
 
     // nekrs objects 
-    nrs_t *nrs;
-    mesh_t *mesh;
     ogs_t *ogs;
 
     // Graph attributes
+    int gnnMeshPOrder;
+    int nekMeshPOrder;
     dlong N;
     hlong num_edges;
     int num_edges_local;
@@ -99,9 +103,9 @@ private:
 
     // binary write functions 
     void write_edge_index_binary(const std::string& filename);
-    void write_edge_index_element_local_vertex_binary(const std::string& filename);
+    void write_edge_index_element_local_vertex_binary(const std::string& filename); 
 
-    // for prints 
+    // for print statements
     bool verbose = false; 
 
     // model features

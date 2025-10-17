@@ -1,0 +1,48 @@
+#!/bin/bash
+
+rm -rf _env
+
+if [ -d SmartSim ]; then
+  rm -rf SmartSim
+fi
+
+cd tgv_gnn_offline
+./clean
+cd ..
+
+cd tgv_gnn_offline_coarse_mesh
+./clean
+cd ..
+
+cd tgv_gnn_traj_offline
+./clean
+cd ..
+
+cd tgv_gnn_online
+./clean
+cd ..
+
+cd tgv_gnn_traj_online
+./clean
+cd ..
+
+cd tgv_gnn_traj_online_adios 
+./clean
+cd ..
+
+cd shooting_workflow_adios
+./clean
+cd ..
+
+cd shooting_workflow_smartredis
+./clean
+cd ..
+
+cd turbChannel_wallModel
+./clean
+cd ..
+
+cd turbChannel_wallModel_ML
+./clean
+cd ..
+

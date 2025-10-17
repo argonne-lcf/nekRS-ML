@@ -1,6 +1,7 @@
 # general imports
 import os
 import sys 
+import socket
 from omegaconf import DictConfig, OmegaConf
 import hydra
 import psutil
@@ -31,6 +32,7 @@ class ShootingWorkflow():
         self.inference_iter = -1
         self.run_dir = os.getcwd()
         self.log_dir = os.path.join(self.run_dir,'nekRS-ML')
+        self.host = socket.gethostname()
 
         # Parse the node list from the scheduler
         self.parseNodeList()
@@ -270,7 +272,7 @@ class ShootingWorkflow():
             SSDB = self.nekrs_model.run_settings.env_vars['SSDB']
             env_vars = {'SSDB': SSDB}
         ml_exe = self.cfg.train.executable
-        ml_exe = ml_exe + ' ' + self.cfg.train.arguments
+        ml_exe = ml_exe + ' ' + self.cfg.train.arguments + f' master_addr={self.train_nodes.split(',')[0]}'
         ml_settings = PalsMpiexecSettings(
                            'python',
                            exe_args=ml_exe,
@@ -306,7 +308,7 @@ class ShootingWorkflow():
             SSDB = self.nekrs_model.run_settings.env_vars['SSDB']
             env_vars = {'SSDB': SSDB}
         ml_exe = self.cfg.inference.executable
-        ml_exe = ml_exe + ' ' + self.cfg.inference.arguments
+        ml_exe = ml_exe + ' ' + self.cfg.inference.arguments + f' master_addr={self.host}'
         ml_exe = ml_exe + f' model_dir={os.getcwd()}/nekRS-ML/train_{self.fine_tune_iter}/saved_models/'
         ml_settings = PalsMpiexecSettings(
                            'python',
@@ -419,7 +421,7 @@ class ShootingWorkflow():
         print('\n\nWorkflow FOM:')
         print(f'\tFOM_nekrs [million mesh nodes x nekRS steps / nekRS time] = {fom_nekrs:.4g}')
         print(f'\tFOM_train [million graph nodes x train steps / train time] = {fom_train:.4g}')
-        print(f'\tFOM_transfer [TB / transfer time] = {fom_transfer:.4g}')
+        print(f'\tFOM_transfer [GB / transfer time] = {fom_transfer:.4g}')
         print(f'\tFOM_inference [million graph nodes x inference steps / inference time] = {fom_inference:.4g}')
         fom_finetune = harmonic_mean([fom_nekrs,fom_train,fom_transfer])
         print(f'\tFOM_finetune = {fom_finetune:.4g}')

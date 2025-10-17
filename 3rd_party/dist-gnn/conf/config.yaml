@@ -1,0 +1,85 @@
+# @package _global_
+verbose: False
+timers: False
+postprocess: False
+seed: 12
+backend: nccl
+num_threads: 1
+logfreq: 10
+ckptfreq: 10000
+batch_size: 1
+val_batch_size: 1
+precision: fp32
+fp16_allreduce: False
+restart: False
+master_addr: none
+master_port: 2345
+device_skip: 0 # temporary workaround to skip GPU on a node
+
+# Modeling task
+model_task: "train"
+time_dependency: "time_independent" # {time_independent, time_dependent}
+consistency: True
+use_residual: False
+rollout_steps: 0
+
+# learning rate schedule 
+phase1_steps: 100 
+phase2_steps: 0
+phase3_steps: 0
+lr_phase12: 0.0001
+lr_phase23: 0.0001
+
+# model arch properties 
+hidden_channels: 32
+n_mlp_hidden_layers: 5
+n_messagePassing_layers: 4
+layer_norm: False
+
+# Halo swap mode 
+halo_swap_mode : none
+
+# Correctness validation
+target_loss: 0
+
+# plotting the connecivity (can take some time)
+plot_connectivity : False
+
+# specify path to gnn_outputs here (case directory)  
+gnn_outputs_path: ${work_dir}/gnn_outputs_poly_7/
+traj_data_path: ${work_dir}/traj_poly_1/
+
+# Online training
+online: False
+online_update_freq: 10
+client: 
+    backend: "smartredis"
+    db_nodes: 1
+    adios_engine: 'SST'
+    adios_transport: 'WAN' # WAN, MPI, UCX, RDMA
+
+
+hydra:
+  job:
+    chdir: false
+
+    #defaults:
+    #  - override hydra/hydra_logging: colorlog
+    #  - override hydra/job_logging: colorlog
+
+# path to original working directory
+# hydra hijacks working directory by changing it to the new log directory
+# so its useful to have this path as a special variable
+# https://hydra.cc/docs/next/tutorials/basic/running_your_app/working_directory
+work_dir: ${hydra:runtime.cwd}
+# path to folder with data
+data_dir: ${work_dir}/datasets/
+# path to folder for checkpointing
+ckpt_dir: ${work_dir}/ckpt/ 
+# path to saved model directory
+model_dir: ${work_dir}/saved_models/ 
+# path to save profile data  
+profile_dir: ${work_dir}/outputs/profiles/new_timers/ 
+# path to save inference results 
+inference_dir: ${work_dir}/outputs/inference/
+
