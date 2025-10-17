@@ -113,18 +113,18 @@ echo "    affinity: \"./${SAFF_FILE}\"" >> $CFILE
 echo "" >> $CFILE
 echo "# Trainer config" >> $CFILE
 echo "train:" >> $CFILE
-echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/main.py\"" >> $CFILE
+echo "    executable: \"${NEKRS_HOME}/3rd_party/dist-gnn/main.py\"" >> $CFILE
 #echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
 echo "    affinity: \"\"" >> $CFILE
 if [ ${DEPLOYMENT} == "colocated"  ]; then
-  echo "    arguments: \"device_skip=${SIM_RANKS_PER_NODE} precision=bf16 phase1_steps=500 hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=nccl halo_swap_mode=all_to_all_opt online=True client.backend=adios client.adios_transport=WAN online_update_freq=50 time_dependency=time_dependent verbose=True\"" >> $CFILE
+  echo "    arguments: \"device_skip=${SIM_RANKS_PER_NODE} precision=bf16 phase1_steps=200 hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=nccl halo_swap_mode=all_to_all_opt online=True client.backend=adios client.adios_transport=WAN online_update_freq=50 time_dependency=time_dependent verbose=True\"" >> $CFILE
 elif [ ${DEPLOYMENT} == "clustered"  ]; then
   echo "    arguments: \"precision=bf16 phase1_steps=500 hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=nccl halo_swap_mode=all_to_all_opt online=True client.backend=adios online_update_freq=50 time_dependency=time_dependent verbose=True\"" >> $CFILE
 fi
 echo "" >> $CFILE
 echo "# Inference config" >> $CFILE
 echo "inference:" >> $CFILE
-echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/inference.py\"" >> $CFILE
+echo "    executable: \"${NEKRS_HOME}/3rd_party/dist-gnn/inference.py\"" >> $CFILE
 #echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
 echo "    affinity: \"\"" >> $CFILE
 echo "    arguments: \"model_task=inference rollout_steps=200 hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=nccl halo_swap_mode=all_to_all_opt online=True client.backend=adios time_dependency=time_dependent verbose=True\"" >> $CFILE
@@ -142,9 +142,19 @@ echo "adiosStream = async" >> $PFILE
 #--------------------------------------
 # Generate the run script
 RFILE=run.sh
-echo "#!/bin/bash" > $RFILE
+echo "#!/bin/bash -l" > $RFILE
+echo "##PBS -S /bin/bash" >> $RFILE
+echo "##PBS -N nekrs-ml" >> $RFILE
+echo "##PBS -l walltime=${TIME}:00" >> $RFILE
+echo "##PBS -l select=$NODES" >> $RFILE
+echo "##PBS -l select=home:eagle" >> $RFILE
+echo "##PBS -k doe" >> $RFILE
+echo "##PBS -j oe" >> $RFILE
+echo "##PBS -A $PROJ_ID" >> $RFILE
+echo "##PBS -q $QUEUE" >> $RFILE
+echo "#cd \$PBS_O_WORKDIR" >> $RFILE
 
-echo "export TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
+echo -e "\nexport TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
 
 echo -e "\necho Jobid: \$PBS_JOBID" >>$RFILE
 echo "echo Running on host \`hostname\`" >>$RFILE

@@ -187,7 +187,7 @@ class ShootingWorkflow():
                             else:
                                 proc['status'] = "failed"
                                 failure = True
-                        print(f"Process {proc['name']} status: {proc['status']}",flush=True)
+                        print(f"{proc['name']} status: {proc['status']}",flush=True)
                 if finished == len(processes): all_finished = True
                 if failure:
                    self.kill_processes(processes)
