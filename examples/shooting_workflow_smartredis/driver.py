@@ -272,7 +272,7 @@ class ShootingWorkflow():
             SSDB = self.nekrs_model.run_settings.env_vars['SSDB']
             env_vars = {'SSDB': SSDB}
         ml_exe = self.cfg.train.executable
-        ml_exe = ml_exe + ' ' + self.cfg.train.arguments + f' master_addr={self.host}'
+        ml_exe = ml_exe + ' ' + self.cfg.train.arguments + f' master_addr={self.train_nodes.split(',')[0]}'
         ml_settings = PalsMpiexecSettings(
                            'python',
                            exe_args=ml_exe,

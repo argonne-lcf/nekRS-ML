@@ -1,53 +1,7 @@
 #!/bin/bash
-set -a
 
-if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
-  echo "Usages:"
-  echo "    $0 <system name> <path to NEKRS_HOME>"
-  echo "    $0 <system name> <path to NEKRS_HOME> <path to VENV>"
-  exit 1
+if [ $# -lt 2 ]; then
+  ../setup_case.sh --help
+else
+  ../setup_case.sh $1 $2 ${@:3}
 fi
-
-SYSTEM="${1,,}"
-NEKRS_HOME=$2
-VENV_PATH=$3
-PROJ_ID="datascience"
-QUEUE="debug"
-
-if [ ${SYSTEM} == "aurora" ]; then
-  module load frameworks
-elif [ ${SYSTEM} == "polaris" ]; then
-  module use /soft/modulefiles/
-  module load conda
-  conda activate
-  module load spack-pe-base cmake
-fi
-
-if [[ -z "$VENV_PATH" && ! -d ./_pyg ]]; then
-  echo -e "\033[35mA Python venv was not specified, building one now ...\033[m"
-  python -m venv --clear _pyg --system-site-packages
-  source _pyg/bin/activate
-  TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
-  export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
-  pip install torch_geometric==2.5.3
-  VENV_PATH=${PWD}/_pyg/bin/activate
-elif [ -d ./_pyg ]; then
-  echo -e "\033[35mA Python venv was not specified, but fuond ./_pyg \033[m"
-  VENV_PATH=${PWD}/_pyg/bin/activate
-fi
-
-echo "Setting up case:"
-echo "    system: ${SYSTEM}"
-echo "    venv: ${VENV_PATH}"
-echo "    NEKRS_HOME: ${NEKRS_HOME}"
-echo
-
-script_name=nrsrun_${SYSTEM}
-NODES=`cat $PBS_NODEFILE | wc -l`
-
-NEKRS_HOME=$NEKRS_HOME \
-PROJ_ID=$PROJ_ID \
-QUEUE=$QUEUE \
-VENV_PATH=$VENV_PATH \
-./${script_name} tgv $NODES 00:30
-

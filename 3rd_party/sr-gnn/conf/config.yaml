@@ -1,0 +1,43 @@
+# @package _global_
+seed: 42
+epochs: 1
+backend: nccl
+lr_init: 0.001
+# momentum: 0.5
+num_threads: 1
+logfreq: 100
+ckptfreq: 10
+batch_size: 4
+test_batch_size: 4
+precision: fp32
+fp16_allreduce: False
+restart: False
+
+# architecture stuff 
+model_name: gnn
+hidden_channels: 128
+n_mlp_hidden_layers: 2
+n_messagePassing_layers: 2
+n_element_neighbors: 0
+use_residual: true
+use_fine_messagePassing: true
+
+hydra:
+  job:
+    chdir: true
+
+    #defaults:
+    #  - override hydra/hydra_logging: colorlog
+    #  - override hydra/job_logging: colorlog
+
+# path to original working directory
+# hydra hijacks working directory by changing it to the new log directory
+# so its useful to have this path as a special variable
+# https://hydra.cc/docs/next/tutorials/basic/running_your_app/working_directory
+work_dir: ${hydra:runtime.cwd}
+# path to folder with data
+data_dir: ${work_dir}/datasets/single_scale/
+# path to folder for checkpointing
+ckpt_dir: ${work_dir}/ckpt/ 
+# path to saved model directory
+model_dir: ${work_dir}/saved_models/single_scale/ 

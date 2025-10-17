@@ -1,0 +1,472 @@
+//
+// nekRS User Defined File
+//
+#include <math.h>
+#include "udf.hpp"
+#include "nrs.hpp"
+#include "plugins/tavg.hpp"
+#include "mesh.h"
+#include "pointInterpolation.hpp"
+
+static std::string caseType;
+static dfloat ReTau;
+static dfloat zLength;
+static dfloat xLength;
+static dfloat betaY;
+static int tAvgWriteInterval;
+static int NUMBER_ELEMENTS_X;
+static int NUMBER_ELEMENTS_Y;
+static int NUMBER_ELEMENTS_Z;
+
+static int Nfields = 11;
+static std::vector<dfloat> usrwrk;
+
+// recycling inlets
+using velInflowData = std::tuple<dlong, dfloat, dfloat, dfloat, dfloat>;
+std::vector<velInflowData> velInflowList;
+
+static deviceMemory<dlong> o_BdryToV;
+static deviceMemory<dfloat> o_Upart;
+std::vector<dlong> BdryToV;
+std::vector<dfloat> Upart;
+
+static pointInterpolation_t *interpolator = nullptr;
+
+static int Nblock;
+static dfloat visc;
+
+#ifdef __okl__
+#include "turbChannel.oudf"
+#endif
+
+/* User Functions */
+
+//void planarAverage(nrs_t *nrs)
+//{
+//  const auto fieldOffsetByte = nrs->fieldOffset * sizeof(dfloat);
+//  planarAvg(nrs->mesh, "xz", NUMBER_ELEMENTS_X, NUMBER_ELEMENTS_Y, NUMBER_ELEMENTS_Z, 3, nrs->fieldOffset, o_work); // o_work tavg-ed 9-slots data
+//}
+
+void writeStatistics(nrs_t *nrs, dfloat time, int tstep, const std::string& fname)
+{
+  auto mesh = nrs->mesh;
+
+  const auto np = (platform->comm.mpiRank == 0) ? NUMBER_ELEMENTS_Y * mesh->N : 0;
+  const auto offset = np;
+
+  static pointInterpolation_t *interpolator = nullptr;
+  static std::vector<dfloat> xp, yp, zp;
+
+  if (!interpolator) {
+
+    const auto yMin = platform->linAlg->min(mesh->Nlocal, mesh->o_y, platform->comm.mpiComm);
+    const auto yMax = platform->linAlg->max(mesh->Nlocal, mesh->o_y, platform->comm.mpiComm);
+
+    if (np) {
+      const auto x0 = 0.0;
+      float y0;
+      const auto z0 = 0.0;
+
+      for (int i = 0; i < np; i++) {
+        y0 = (static_cast<dfloat>(i)/(np-1)) * (yMax-yMin) + yMin;
+        //y0 = (static_cast<dfloat>(i)/(np-1));
+        //y0 = (1.0 + tanh(betaY*(2.0*y0-1.0))/tanh(betaY)) - 1.0;
+        xp.push_back(x0);
+        yp.push_back(y0);
+        zp.push_back(z0);
+        //if (platform->comm.mpiRank==0)
+        //  printf("Averaging points x,y,z = %g %g %g \n",
+        //       x0, y0, z0);
+      }
+    }
+
+    interpolator = new pointInterpolation_t(mesh, platform->comm.mpiComm);
+    interpolator->setPoints(xp, yp, zp);
+    interpolator->find(pointInterpolation_t::VerbosityLevel::Detailed);
+
+    if (platform->comm.mpiRank == 0) { 
+      std::ofstream f(fname, std::ios::app);
+      f << R"(Points:0,Points:1,Points:2)"
+        << R"(,AVVEL:0,AVVEL:1,AVVEL:2,AVPRE)"
+        << R"(,AVVE2:0,AVVE2:1,AVVE2:2,AVVXY:0,AVVXY:1,AVVXY:2,AVPR2)"
+        << std::endl;
+      f.close();
+    }
+  }
+
+  poolDeviceMemory<dfloat> o_fields1D(Nfields * yp.size());
+  poolDeviceMemory<dfloat> o_work(Nfields * nrs->fieldOffset);
+  const auto fieldOffsetBytes = nrs->fieldOffset * sizeof(dfloat);
+
+  o_work.copyFrom(tavg::o_avg(), tavg::o_avg().size());
+
+  planarAvg(mesh, "xz", NUMBER_ELEMENTS_X, NUMBER_ELEMENTS_Y, NUMBER_ELEMENTS_Z, Nfields, nrs->fieldOffset, o_work);
+
+  interpolator->eval(Nfields, 
+                     nrs->fieldOffset, 
+                     o_work, 
+                     offset, 
+                     o_fields1D);
+
+  if (platform->comm.mpiRank == 0) {
+    std::vector<dfloat> fields1D(o_fields1D.size());
+    o_fields1D.copyTo(fields1D);
+
+     const auto sep = ", ";
+     std::ofstream f(fname, std::ios::app);
+
+     f << R"(#time=)" << time << std::endl;
+     for (int i = 0; i < np; i++) {
+       f << std::scientific
+         << xp[i] << sep
+         << yp[i] << sep
+         << zp[i];
+         // << zp[i] << sep;
+
+       // <u> <v> <w> <p> <uu> <vv> <ww> <uv> <uw> <vw> <pp>
+       for(int ifld = 0; ifld < Nfields; ifld++) {
+         f << sep << fields1D[i + ifld * offset];
+         // f << fields1D[i + ifld * offset] << sep;
+       }
+       f << std::endl;
+     }
+     f.close();
+  }
+}
+
+// Newton function to compute utau using Reichardt's log law
+double solve_reichardt_log_law(double umag, double ymag, double kll, double bll, double vis, int max_iter = 100, double tol = 1e-10) {
+    double utau = std::sqrt(vis * umag / ymag);  // Initial guess
+    double f, fp, ypl, res;
+
+    for (int i = 0; i < max_iter; ++i) {
+        ypl = ymag * utau / vis;
+        if(ypl < 5.0) {
+
+          utau = umag*vis/ymag;
+
+        } else {
+
+          f = umag / utau - (std::log(1.0 + kll * ypl) / kll
+               + 7.8 * (1.0 - std::exp(-ypl / 11.0) - (ypl / 11.0) * std::exp(-ypl / 3.0)));
+
+          res = std::abs(f);
+          if (res < tol) break;  // Convergence check
+
+          // Compute derivative
+          fp = (-umag - utau * (ypl / (1.0 + kll * ypl)
+               + 7.8 * (ypl * std::exp(-ypl / 11.0) / 11.0
+               - (ypl / 11.0) * std::exp(-ypl / 3.0) * (1.0 - ypl / 3.0)))) / (utau * utau);
+
+          utau -= f / fp;  // Newton-Raphson update
+        }
+    }
+
+    return utau;
+}
+
+// Fill wall-model values in work-array
+void calc_wallModel(std::vector<dfloat> &usrwrk, dlong fieldOffset, int tstep, int Npart, std::vector<dlong> BdryToV, std::vector<dfloat> Upart)
+{
+  const dfloat kll=0.41;
+  const dfloat bll=5.1;
+  dfloat umag, ymag, mue, utau;
+  platform->options.getArgs("VISCOSITY", mue);
+
+  // utau based on wall-law
+  for (auto &entry : velInflowList) {
+    //const dlong bidInlet = std::get<0>(entry);
+    const dfloat dx = std::get<1>(entry);
+    const dfloat dy = std::get<2>(entry);
+    const dfloat dz = std::get<3>(entry);
+    ymag = sqrt(dx*dx + dy*dy +dz*dz);
+    for (int n = 0; n < Npart; ++n) {
+      const int v = BdryToV[n];
+      umag = Upart[0*Npart + n];
+      utau = solve_reichardt_log_law(umag, ymag, kll, bll, mue);
+      usrwrk[v+0*fieldOffset] = utau;
+    }
+  } 
+}
+
+void setupRecycledInflow(nrs_t *nrs)
+{
+  mesh_t *mesh = nrs->mesh;
+
+  // count total number faces
+  dlong nface = 0;
+  for (auto &entry : velInflowList) {
+    const dlong bidInlet = std::get<0>(entry);
+    const dfloat dx = std::get<1>(entry);
+    const dfloat dy = std::get<2>(entry);
+    const dfloat dz = std::get<3>(entry);
+    const dfloat targetUbar = std::get<4>(entry);
+    dlong nfacei = 0;
+    for (dlong e = 0; e<mesh->Nelements; e++) {
+      for (int f = 0; f < mesh->Nfaces; f++) {
+        if (mesh->EToB[f + mesh->Nfaces * e] == bidInlet) {
+          nfacei++;
+          nface++;
+        }
+      }
+    }
+
+    MPI_Allreduce(MPI_IN_PLACE, &nfacei, 1, MPI_DLONG, MPI_SUM, platform->comm.mpiComm);
+    if (platform->comm.mpiRank==0)
+      printf("setupRecycledInflow, bid = %d, nface = %d, dx = %g %g %g, ubar = %g\n",
+             bidInlet, nfacei, dx, dy, dz, targetUbar);
+  }
+
+  const dlong npts = nface * mesh->Nfp;
+
+  // allocate
+  poolDeviceMemory<dfloat> o_xpart(npts);
+  poolDeviceMemory<dfloat> o_ypart(npts);
+  poolDeviceMemory<dfloat> o_zpart(npts);
+  poolDeviceMemory<dlong> o_BdryID(npts);
+  o_BdryToV.resize(npts);
+
+  const dlong NfpTotal = mesh->Nelements * mesh->Nfaces * mesh->Nfp;
+  int sign;
+
+  Nblock = (NfpTotal + BLOCKSIZE - 1) / BLOCKSIZE;
+
+  {
+    // set id mapping: from bdry to volume index
+    std::vector<dlong> BdryID(npts, -1);
+    std::vector<dlong> lBdryToV(npts, -1);
+
+    dlong ia = 0;
+    for (auto &entry : velInflowList) {
+      const dlong bidInlet = std::get<0>(entry);
+      for (dlong e = 0; e < mesh->Nelements; e++) {
+        for (int f = 0; f < mesh->Nfaces; f++) {
+          if (mesh->EToB[f + mesh->Nfaces * e] == bidInlet) {
+            const dlong offset = e * mesh->Nfaces * mesh->Nfp + f * mesh->Nfp;
+            for (int v = 0; v < mesh->Nfp; v++) {
+              BdryID[ia] = bidInlet;
+              lBdryToV[ia] = mesh->vmapM[offset + v];
+              ia++;
+            }
+          }
+        }
+      }
+    }
+
+    // Ensure device memory has enough space before copying
+    if (o_BdryToV.size() < npts) {
+      fprintf(stderr, "Error: o_BdryToV size mismatch\n");
+      exit(EXIT_FAILURE);
+    }
+    o_BdryID.copyFrom(BdryID, BdryID.size());
+    o_BdryToV.copyFrom(lBdryToV, lBdryToV.size());
+
+    // set location: from inlet to target location
+    std::vector<dfloat> xpart(npts, 0.0);
+    std::vector<dfloat> ypart(npts, 0.0);
+    std::vector<dfloat> zpart(npts, 0.0);
+    auto [xvec, yvec, zvec] = mesh->xyzHost();
+
+    for (auto &entry : velInflowList) {
+      const dlong bidInlet = std::get<0>(entry);
+      const dfloat dx = std::get<1>(entry);
+      const dfloat dy = std::get<2>(entry);
+      const dfloat dz = std::get<3>(entry);
+      for (dlong i = 0; i < npts; i++) {
+        const dlong bid = BdryID[i];
+        const dlong v = lBdryToV[i];
+        if (bid == bidInlet) {
+          xpart[i] = xvec[v] + dx;
+          sign = (yvec[v] >= 0) ? -1 : 1;
+          ypart[i] = yvec[v] + sign * dy;
+          zpart[i] = zvec[v] + dz;
+        }
+      }
+    }
+    o_xpart.copyFrom(xpart, xpart.size());
+    o_ypart.copyFrom(ypart, ypart.size());
+    o_zpart.copyFrom(zpart, zpart.size());
+  }
+
+  interpolator = new pointInterpolation_t(mesh, platform->comm.mpiComm);
+  interpolator->setPoints(o_xpart, o_ypart, o_zpart);
+  interpolator->find(pointInterpolation_t::VerbosityLevel::Detailed);
+}
+
+void updateRecycledVelocity(nrs_t *nrs, deviceMemory<dfloat> o_avg, int verbose)
+{
+  mesh_t *mesh = nrs->mesh;
+  const dlong NfpTotal = mesh->Nelements * mesh->Nfaces * mesh->Nfp;
+  dlong npts = interpolator->numPoints();
+  interpolator->eval(nrs->NVfields, nrs->fieldOffset, o_avg, npts, o_Upart);
+}
+
+void userf(double time)
+{
+  mesh_t *mesh = nrs->mesh;
+  dfloat mue, rho;
+  platform->options.getArgs("VISCOSITY", mue);
+  platform->options.getArgs("DENSITY", rho);
+  const dfloat RE_B = rho / mue;
+  const dfloat DPDX = (ReTau / RE_B) * (ReTau / RE_B);
+
+  auto o_FUx = nrs->o_NLT + 0 * nrs->fieldOffset;
+  platform->linAlg->fill(mesh->Nlocal, DPDX, o_FUx);
+}
+
+void useric(nrs_t *nrs)
+{
+  auto mesh = nrs->mesh;
+
+  if (platform->options.getArgs("RESTART FILE NAME").empty()) {
+    if (platform->comm.mpiRank == 0) std::cout << "Setting the IC from the .udf file" << std::endl;
+    const auto C = 5.17;
+    const auto k = 0.41;
+    const auto eps = 1e-2;
+    const auto kx = 23.0;
+    const auto kz = 13.0;
+    const auto alpha = kx * 2 * M_PI / xLength;
+    const auto beta = kz * 2 * M_PI / zLength;
+    dfloat mue;
+    platform->options.getArgs("VISCOSITY", mue);
+
+    auto [x, y, z] = mesh->xyzHost();
+
+    std::vector<dfloat> U(mesh->dim * nrs->fieldOffset, 0.0);
+    for (int i = 0; i < mesh->Nlocal; i++) {
+      const auto yp = (y[i] < 0) ? (1 + y[i]) * ReTau : (1 - y[i]) * ReTau;
+
+      dfloat ux =
+          1 / k * log(1 + k * yp) + (C - (1 / k) * log(k)) * (1 - exp(-yp / 11) - yp / 11 * exp(-yp / 3));
+      ux *= ReTau * mue;
+
+      U[i + 0 * nrs->fieldOffset] = ux + eps * beta * sin(alpha * x[i]) * cos(beta * z[i]);
+      U[i + 1 * nrs->fieldOffset] = eps * sin(alpha * x[i]) * sin(beta * z[i]);
+      U[i + 2 * nrs->fieldOffset] = -eps * alpha * cos(alpha * x[i]) * sin(beta * z[i]);
+    }
+    nrs->o_U.copyFrom(U.data(), U.size());
+  }
+}
+
+/* UDF Functions */
+
+void UDF_Setup0(MPI_Comm comm, setupAide &options)
+{
+  options.getArgs("VISCOSITY", visc);
+  platform->par->extract("casedata", "ReTau", ReTau);
+  platform->par->extract("casedata", "zLength", zLength);
+  platform->par->extract("casedata", "xLength", xLength);
+  platform->par->extract("casedata", "betaY", betaY);
+  platform->par->extract("casedata", "number_elements_x", NUMBER_ELEMENTS_X);
+  platform->par->extract("casedata", "number_elements_y", NUMBER_ELEMENTS_Y);
+  platform->par->extract("casedata", "number_elements_z", NUMBER_ELEMENTS_Z);
+  platform->par->extract("casedata", "tAvgWriteInterval", tAvgWriteInterval);
+  platform->par->extract("casedata","caseType",caseType);
+  upperCase(caseType);
+}
+
+void UDF_Setup()
+{
+
+  if (platform->options.compareArgs("CONSTANT FLOW RATE", "FALSE")) {
+    // assign function pointer to drive flow by constant mean pressure gradient
+    nrs->userVelocitySource = &userf;
+  }
+
+  useric(nrs);
+
+  {
+   std::vector<std::vector<deviceMemory<dfloat>>> tavgFields;
+   const auto fieldOffsetBytes = nrs->fieldOffset * sizeof(dfloat);
+
+   deviceMemory<dfloat> o_u(nrs->o_U.slice(0 * nrs->fieldOffset , nrs->fieldOffset));
+   deviceMemory<dfloat> o_v(nrs->o_U.slice(1 * nrs->fieldOffset , nrs->fieldOffset));
+   deviceMemory<dfloat> o_w(nrs->o_U.slice(2 * nrs->fieldOffset , nrs->fieldOffset));
+   deviceMemory<dfloat> o_p(nrs->o_P.slice(0 * nrs->fieldOffset , nrs->fieldOffset));
+
+   tavgFields.push_back({o_u});
+   tavgFields.push_back({o_v});
+   tavgFields.push_back({o_w});
+   tavgFields.push_back({o_p});
+   tavgFields.push_back({o_u, o_u});
+   tavgFields.push_back({o_v, o_v});
+   tavgFields.push_back({o_w, o_w});
+   tavgFields.push_back({o_u, o_v});
+   tavgFields.push_back({o_u, o_w});
+   tavgFields.push_back({o_v, o_w});
+   tavgFields.push_back({o_p, o_p});
+
+   tavg::setup(nrs->fieldOffset, tavgFields);
+  }
+
+  if(caseType == "WMLES"){
+    usrwrk.resize(nrs->fieldOffset, 0.0); // initializes to zero
+    nrs->o_usrwrk.resize(nrs->fieldOffset);
+
+    // Each entity is a set of {bID, dx, dy, dz, targetUbar}
+    velInflowList.push_back(std::tuple{1, 0.0, 0.1, 0.0, 1.0});
+    setupRecycledInflow(nrs);
+
+    dlong npts = interpolator->numPoints();
+    BdryToV.resize(npts);
+
+    o_Upart.resize(nrs->NVfields * npts);
+    Upart.resize(nrs->NVfields * npts);
+
+    o_BdryToV.copyTo(BdryToV, BdryToV.size());
+  }
+
+}
+
+void UDF_ExecuteStep(dfloat time, int tstep)
+{
+
+  mesh_t *mesh = nrs->mesh;
+  const dlong fieldOffsetBytes = nrs->fieldOffset*sizeof(dfloat);
+
+  deviceMemory<dfloat> o_Vx(nrs->o_U.slice(0 * nrs->fieldOffset , nrs->fieldOffset));
+  deviceMemory<dfloat> o_Vy(nrs->o_U.slice(1 * nrs->fieldOffset , nrs->fieldOffset));
+  deviceMemory<dfloat> o_Vz(nrs->o_U.slice(2 * nrs->fieldOffset , nrs->fieldOffset));
+  deviceMemory<dfloat> o_Pr(nrs->o_P.slice(0 * nrs->fieldOffset , nrs->fieldOffset));
+
+  // chk min/max
+  const dfloat vxmin = platform->linAlg->min(mesh->Nlocal, o_Vx, platform->comm.mpiComm);
+  const dfloat vxmax = platform->linAlg->max(mesh->Nlocal, o_Vx, platform->comm.mpiComm);
+  const dfloat vymin = platform->linAlg->min(mesh->Nlocal, o_Vy, platform->comm.mpiComm);
+  const dfloat vymax = platform->linAlg->max(mesh->Nlocal, o_Vy, platform->comm.mpiComm);
+  const dfloat vzmin = platform->linAlg->min(mesh->Nlocal, o_Vz, platform->comm.mpiComm);
+  const dfloat vzmax = platform->linAlg->max(mesh->Nlocal, o_Vz, platform->comm.mpiComm);
+  const dfloat prmin = platform->linAlg->min(mesh->Nlocal, o_Pr, platform->comm.mpiComm);
+  const dfloat prmax = platform->linAlg->max(mesh->Nlocal, o_Pr, platform->comm.mpiComm);
+  if (platform->comm.mpiRank == 0) {
+    printf(" t-min-max:  %.6e", time);
+    printf("  %.6e %.6e", vxmin, vxmax);
+    printf("  %.6e %.6e", vymin, vymax);
+    printf("  %.6e %.6e", vzmin, vzmax);
+    printf("  %.6e %.6e", prmin, prmax);
+    printf(" \n");
+  }  
+
+  int verbose = (tstep % 10 == 0) ? 1 : 0;
+  tavg::run(time);
+
+  if(caseType == "WMLES"){
+    if (tstep>0) {
+      //-----using time-averaged velocity---------//
+      auto o_avg = tavg::o_avg();
+      updateRecycledVelocity(nrs, o_avg, verbose); //interpolates velocity on off-wall nodes
+
+      o_Upart.copyTo(Upart, Upart.size()); //copy from occa mem to CPU mem
+
+      dlong npts = interpolator->numPoints();
+      calc_wallModel(usrwrk, nrs->fieldOffset, tstep, npts, BdryToV, Upart); // model for the wall shear stress
+
+      //fill the infered utau values in work array
+      nrs->o_usrwrk.copyFrom(usrwrk, usrwrk.size());
+    }
+  }
+
+  if (tstep > 1 && (tstep % tAvgWriteInterval)==0) {
+     writeStatistics(nrs, time, tstep, "NekAvgData_1D.csv");
+  }
+}
