@@ -6,7 +6,7 @@
 : ${PROJECT:="Performance"}
 : ${FS:="home"}
 : ${REUSE:="1"}
-: ${TAG:="all_tests"}
+: ${TAG:="all"}
 
 # Parse command line args
 # =======================
@@ -29,7 +29,7 @@ print_help() {
   echo "  To run all the tests:"
   echo "    ./$(basename "$0") -b"
   echo "  or"
-  echo "    ./$(basename "$0") -b -t all_tests"
+  echo "    ./$(basename "$0") -b -t all"
   echo "  To run the tests with tag \"online\":"
   echo "    ./$(basename "$0") -t online -b"
   echo "  Please note that the \"-b (--build)\" parameter is only required in the first run of each tag."
