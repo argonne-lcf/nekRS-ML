@@ -17,7 +17,6 @@ site_configuration = {
             "name": "aurora",
             "descr": "Aurora at ALCF",
             "modules_system": "lmod",
-            "modules": ["frameworks"],
             "hostnames": [
                 "^aurora-uan*",
                 "^aurora-gateway-[0-9]{4}.*",
@@ -47,12 +46,14 @@ site_configuration = {
                     ],
                     "extras": {
                         "max_local_jobs": 12,
-                        "cpu_bind_list": "list:0-7:8-15:16-23:24-31:32-39:40-47:52-59:60-67:68-75:76-83:84-91:92-99",
+                        "cpu_bind_list": "list:1:8:16:24:32:40:53:60:68:76:84:92",
                         "backend": "DPCPP",
-                        "OCCA_CXX": "icpx",
-                        "OCCA_CXXFLAGS": "-O3 -g -fdebug-info-for-profiling -gline-tables-only",
-                        "OCCA_DPCPP_COMPILER_FLAGS": "-O3 -fsycl -fsycl-targets=intel_gpu_pvc -ftarget-register-alloc-mode=pvc:auto -fma",
                     },
+                    "env_vars": [
+                        ["FI_CXI_RX_MATCH_MODE", "hybrid"],
+                        ["UR_L0_USE_COPY_ENGINE", 0],
+                        ["CCL_ALLTOALLV_MONOLITHIC_KERNEL", 0],
+                    ],
                 },
             ],
         },
@@ -95,8 +96,22 @@ site_configuration = {
     "environments": [
         {
             "name": "PrgEnv-Aurora",
-            "modules": ["frameworks"],
-            "prepare_cmds": ["module restore", "module list"],
+            "prepare_cmds": [
+                "module restore",
+                "module load frameworks",
+                "module list",
+            ],
+            "env_vars": [
+                ["OCCA_CXX", "icpx"],
+                [
+                    "OCCA_CXXFLAGS",
+                    '"-O3 -g -fdebug-info-for-profiling -gline-tables-only"',
+                ],
+                [
+                    "OCCA_DPCPP_COMPILER_FLAGS",
+                    '"-O3 -fsycl -fsycl-targets=intel_gpu_pvc -ftarget-register-alloc-mode=pvc:auto -fma"',
+                ],
+            ],
             "target_systems": ["aurora"],
         },
         {
