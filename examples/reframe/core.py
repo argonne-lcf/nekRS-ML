@@ -1,7 +1,26 @@
 import os
+import re
 
 import reframe as rfm
 import reframe.utility.sanity as sn
+import reframe.utility.osext as osext
+from reframe.core.schedulers.pbs import PbsJobScheduler
+
+
+def _query_exit_code_fixed(self, job):
+    """Try to retrieve the exit code of a past job."""
+
+    # With PBS Pro we can obtain the exit status of a past job
+    extended_info = osext.run_command(f"qstat -xf {job.jobid}")
+    exit_status_match = re.search(
+        r"^ *Exit_status *= *(?P<exit_status>-?\d+)",
+        extended_info.stdout,
+        flags=re.MULTILINE,
+    )
+    if exit_status_match:
+        return int(exit_status_match.group("exit_status"))
+
+    return None
 
 
 class CompileOnlyTest(rfm.CompileOnlyRegressionTest):
@@ -16,7 +35,12 @@ class CompileOnlyTest(rfm.CompileOnlyRegressionTest):
         self.valid_systems = ["*"]
         self.valid_prog_environs = ["*"]
         self.sourcesdir = None
-        self.build_system = "Autotools"
+        self.build_locally = False
+        self.build_system = None
+
+        # FIXME This is a ReFrame bug. Remove once it is fixed upstream.
+        # https://github.com/reframe-hpc/reframe/pull/3571
+        PbsJobScheduler._query_exit_code = _query_exit_code_fixed
 
 
 class RunOnlyTest(rfm.RunOnlyRegressionTest):
