@@ -75,26 +75,13 @@ class NekRSTest(RunOnlyTest):
     def set_paths_exec(self):
         self.nekrs_home = os.path.realpath(self.nekrs_build.install_path)
         self.nekrs_binary = os.path.join(self.nekrs_build.binary_path, "nekrs")
-        self.executable = f"gpu_tile_compact.sh {self.nekrs_binary}"
+        self.executable = f"{self.nekrs_binary}"
 
     def set_environment(self):
         self.env_vars |= {
             "LD_LIBRARY_PATH": f"$LD_LIBRARY_PATH:{self.nekrs_build.install_path}/lib",
             "NEKRS_HOME": self.nekrs_home,
         }
-
-        if "OCCA_DPCPP_COMPILER_FLAGS" in self.current_partition.extras:
-            self.env_vars |= {
-                "OCCA_DPCPP_COMPILER_FLAGS": f'"{self.current_partition.extras["OCCA_DPCPP_COMPILER_FLAGS"]}"'
-            }
-        if "OCCA_CXX" in self.current_partition.extras:
-            self.env_vars |= {
-                "OCCA_CXX": f'"{self.current_partition.extras["OCCA_CXX"]}"'
-            }
-        if "OCCA_CXXFLAGS" in self.current_partition.extras:
-            self.env_vars |= {
-                "OCCA_CXXFLAGS": f'"{self.current_partition.extras["OCCA_CXXFLAGS"]}"'
-            }
 
     def set_launcher_options(self):
         self.cpu_bind = self.current_partition.extras["cpu_bind_list"]
