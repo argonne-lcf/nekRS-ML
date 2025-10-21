@@ -7,7 +7,7 @@ import os
 @rfm.simple_test
 class NekRSKershawTest(NekRSTest):
     def __init__(self):
-        super().__init__(nekrs_case=NekRSCase("kershaw"))
+        super().__init__(NekRSCase("kershaw"))
 
     # Match "flops/rank" at start of line to avoid matching output during setup.
     @performance_function("flops/s/rank", perf_key="BPS5")

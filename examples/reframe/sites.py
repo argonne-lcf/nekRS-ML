@@ -119,7 +119,6 @@ site_configuration = {
             "handlers": [
                 {
                     "type": "file",
-                    "name": "reframe.log",
                     "level": "debug2",
                     "append": False,
                 },
@@ -131,7 +130,6 @@ site_configuration = {
                 },
                 {
                     "type": "file",
-                    "name": "reframe.out",
                     "level": "info",
                     "format": "%(message)s",
                     "append": False,

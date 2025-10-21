@@ -35,7 +35,7 @@ class CompileOnlyTest(rfm.CompileOnlyRegressionTest):
         self.valid_systems = ["*"]
         self.valid_prog_environs = ["*"]
         self.sourcesdir = None
-        self.build_locally = False
+        self.build_locally = True
         self.build_system = None
 
         # FIXME This is a ReFrame bug. Remove once it is fixed upstream.

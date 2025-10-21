@@ -12,7 +12,7 @@ class NekRSBuild(CompileOnlyTest):
 
     def __init__(self):
         super().__init__()
-        self.descr = "nekRS build"
+        self.descr = "nekRS-ML build"
         self.maintainers = ["kris.rowe@anl.gov", "tratnayaka@anl.gov"]
         self.tags = {"build"}
 
@@ -40,7 +40,7 @@ class NekRSBuild(CompileOnlyTest):
         nekrs_binary = os.path.join(self.binary_path, "nekrs")
         return sn.assert_true(
             os.path.isfile(nekrs_binary),
-            f"nekRS binary could not be found in path {nekrs_binary}",
+            f"nekrs binary could not be found in path {nekrs_binary}",
         )
 
 
@@ -64,9 +64,9 @@ class NekRSTest(RunOnlyTest):
 
     def __init__(self, nekrs_case):
         super().__init__(num_nodes=1)
-        self.descr = "nekRS test"
+        self.descr = "nekRS-ML test"
         self.maintainers = ["kris.rowe@anl.gov"]
-        self.tags = {"nekrs"}
+        self.tags = {"all"}
         self.case_name = nekrs_case.name
         self.sourcesdir = nekrs_case.directory
         self.readonly_files = [f"{nekrs_case.name}.re2"]
