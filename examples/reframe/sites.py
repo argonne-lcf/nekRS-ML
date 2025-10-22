@@ -32,7 +32,7 @@ site_configuration = {
                         "PrgEnv-Aurora",
                     ],
                     "extras": {
-                        "max_local_jobs": 12,
+                        "ranks_per_node": 12,
                     },
                 },
                 {
@@ -45,7 +45,7 @@ site_configuration = {
                         "PrgEnv-Aurora",
                     ],
                     "extras": {
-                        "max_local_jobs": 12,
+                        "ranks_per_node": 12,
                         "cpu_bind_list": "list:1:8:16:24:32:40:53:60:68:76:84:92",
                         "backend": "DPCPP",
                     },
@@ -73,7 +73,7 @@ site_configuration = {
                         "PrgEnv-gnu",
                     ],
                     "extras": {
-                        "max_local_jobs": 8,
+                        "ranks_per_node": 8,
                     },
                 },
                 {
@@ -86,7 +86,7 @@ site_configuration = {
                         "PrgEnv-gnu",
                     ],
                     "extras": {
-                        "max_local_jobs": 12,
+                        "ranks_per_node": 12,
                         "cpu_bind_list": "24:16:8:1",
                     },
                 },
