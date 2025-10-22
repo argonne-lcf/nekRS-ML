@@ -1,6 +1,6 @@
 import reframe as rfm
 import reframe.utility.sanity as sn
-from nekrs import NekRSCase, NekRSTest
+from nekrs import NekRSCase, NekRSTest, NekRSMLOfflineTest
 import os
 
 
@@ -25,3 +25,23 @@ class NekRSKershawTest(NekRSTest):
     @performance_function("flops/s/rank", perf_key="BP6PCG")
     def bp6pcg_performance(self):
         return sn.extractsingle(r"^flops/rank: (\S+)", self.stdout, 1, float, 3)
+
+
+@rfm.simple_test
+class NekRSTGVOffline(NekRSMLOfflineTest):
+    def __init__(self):
+        super().__init__(NekRSCase("tgv", directory="tgv_gnn_offline"))
+
+
+@rfm.simple_test
+class NekRSTGVOfflineCoarseMesh(NekRSMLOfflineTest):
+    def __init__(self):
+        super().__init__(
+            NekRSCase("tgv", directory="tgv_gnn_offline_coarse_mesh")
+        )
+
+
+@rfm.simple_test
+class NekRSTGVOfflineTraj(NekRSMLOfflineTest):
+    def __init__(self):
+        super().__init__(NekRSCase("tgv", directory="tgv_gnn_traj_offline"))

@@ -46,9 +46,11 @@ class NekRSBuild(CompileOnlyTest):
 
 # Encapsulate case-specific info
 class NekRSCase:
-    def __init__(self, name):
+    def __init__(self, name, directory=None):
         self._name = name
-        self._directory = os.path.join(Path(os.getcwd()).parent, name)
+        if directory is None:
+            directory = name
+        self._directory = os.path.join(Path(os.getcwd()).parent, directory)
 
     @property
     def name(self):
@@ -115,3 +117,99 @@ class NekRSTest(RunOnlyTest):
             self.stdout,
             msg="finished with non-zero exit code.",
         )
+
+
+class NekRSMLOfflineTest(NekRSTest):
+    def __init__(self, nekrs_case):
+        super().__init__(nekrs_case)
+        self.tags |= {"offline"}
+
+    def set_prerun_cmds(self):
+        # mpiexec cmd
+        mpiexec = (
+            self.job.launcher.command(self.job) + self.job.launcher.options
+        )
+
+        # run nekrs
+        super().set_executable_options()
+        nekrs = self.executable
+        nekrs_opts = self.executable_opts.copy()
+        run_nekrs = " ".join(mpiexec + [nekrs] + nekrs_opts)
+
+        # setup the gnn case
+        setup_case = os.path.join(
+            Path(self.nekrs_home), "examples", "setup_case.sh"
+        )
+        run_setup_case = " ".join([
+            setup_case,
+            self.current_system.name,
+            self.nekrs_home,
+        ])
+
+        venv = os.path.join(
+            Path(self.sourcesdir).parent, "_env", "bin", "activate"
+        )
+        source_venv = " ".join(["source", venv])
+
+        # run halo_info
+        self.gnn_output_dir = os.path.join(self.stagedir, "gnn_outputs_poly_3")
+        halo_info = [
+            "python",
+            os.path.join(
+                self.nekrs_home,
+                "3rd_party",
+                "dist-gnn",
+                "create_halo_info_par.py",
+            ),
+            "--POLY",
+            "3",
+            "--PATH",
+            self.gnn_output_dir,
+        ]
+        run_halo_info = " ".join(mpiexec + halo_info)
+
+        # check GNN input files
+        run_check_input = " ".join([
+            "python",
+            os.path.join(
+                self.nekrs_home, "3rd_party", "dist-gnn", "check_input_files.py"
+            ),
+            "--REF",
+            os.path.join(self.sourcesdir, "ref"),
+            "--PATH",
+            self.gnn_output_dir,
+        ])
+
+        # run all the pre-training steps
+        self.prerun_cmds = [
+            run_nekrs,
+            run_setup_case,
+            source_venv,
+            run_halo_info,
+            run_check_input,
+        ]
+
+    def set_executable_options(self):
+        main = [
+            "python",
+            os.path.join(self.nekrs_home, "3rd_party", "dist-gnn", "main.py"),
+        ]
+        self.executable = " ".join(main)
+        # master_addr=$head_node
+        self.executable_opts = [
+            # backend should ideally be calculated.
+            "backend=ccl",
+            "halo_swap_mode=all_to_all_opt",
+            "layer_norm=True",
+            "gnn_outputs_path={self.gnn_output_dir}",
+            "target_loss=1.6206e-04",
+        ]
+
+    @run_before("run")
+    def setup_run(self):
+        super().set_environment()
+        # sets launcher and options which are used in the subsequent steps.
+        super().set_launcher_options()
+        # sets self.gnn_output_dir
+        self.set_prerun_cmds()
+        self.set_executable_options()
