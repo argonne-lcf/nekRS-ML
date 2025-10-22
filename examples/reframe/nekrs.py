@@ -7,6 +7,10 @@ from core import CompileOnlyTest, RunOnlyTest
 import os.path
 
 
+def list_to_cmd(l):
+    return " ".join(l)
+
+
 class NekRSBuild(CompileOnlyTest):
     version = variable(str, value="2024-11-22")
 
@@ -77,7 +81,6 @@ class NekRSTest(RunOnlyTest):
     def set_paths_exec(self):
         self.nekrs_home = os.path.realpath(self.nekrs_build.install_path)
         self.nekrs_binary = os.path.join(self.nekrs_build.binary_path, "nekrs")
-        self.executable = f"{self.nekrs_binary}"
 
     def set_environment(self):
         self.env_vars |= {
@@ -86,41 +89,42 @@ class NekRSTest(RunOnlyTest):
         }
 
     def set_launcher_options(self):
-        self.cpu_bind = self.current_partition.extras["cpu_bind_list"]
-        self.ranks_per_node = self.current_partition.extras["ranks_per_node"]
-        self.total_ranks = self.num_nodes * self.ranks_per_node
-        self.job.launcher.options += [
-            f"-np {self.total_ranks}",
-            f"-ppn {self.ranks_per_node}",
-            f"--cpu-bind={self.cpu_bind}",
+        cpu_bind_list = self.current_partition.extras["cpu_bind_list"]
+        ranks_per_node = self.current_partition.extras["ranks_per_node"]
+        total_ranks = self.num_nodes * ranks_per_node
+        self.job.launcher.options = [
+            f"-np {total_ranks}",
+            f"-ppn {ranks_per_node}",
+            f"--cpu-bind={cpu_bind_list}",
         ]
 
     def set_executable_options(self):
-        self.backend = self.current_partition.extras["backend"]
-        self.executable_opts += [
+        self.executable = f"{self.nekrs_binary}"
+        backend = self.current_partition.extras["backend"]
+        self.executable_opts = [
             f"--setup {self.case_name}",
-            f"--backend {self.backend}",
+            f"--backend {backend}",
         ]
 
     @run_before("run")
     def setup_run(self):
         self.set_environment()
-        self.set_launcher_options()
         self.set_executable_options()
+        self.set_launcher_options()
 
     @sanity_function
     def check_exit_code(self):
         return sn.assert_found(
             r"finished with exit code 0",
             self.stdout,
-            msg="finished with non-zero exit code.",
+            msg="NekRS finished with non-zero exit code.",
         )
 
 
-class NekRSMLOfflineTest(NekRSTest):
+class NekRSMLTest(NekRSTest):
     def __init__(self, nekrs_case):
         super().__init__(nekrs_case)
-        self.tags |= {"offline"}
+        self.tags |= {"ml"}
 
     def set_prerun_cmds(self):
         # mpiexec cmd
@@ -128,28 +132,27 @@ class NekRSMLOfflineTest(NekRSTest):
             self.job.launcher.command(self.job) + self.job.launcher.options
         )
 
-        # run nekrs
+        # nekrs
         super().set_executable_options()
-        nekrs = self.executable
-        nekrs_opts = self.executable_opts.copy()
-        run_nekrs = " ".join(mpiexec + [nekrs] + nekrs_opts)
+        nekrs = [self.executable] + self.executable_opts
+        run_nekrs = list_to_cmd(mpiexec + nekrs)
 
         # setup the gnn case
-        setup_case = os.path.join(
-            Path(self.nekrs_home), "examples", "setup_case.sh"
-        )
-        run_setup_case = " ".join([
-            setup_case,
+        venv_path = os.path.join(self.stagedir, "_env")
+        run_setup_case = list_to_cmd([
+            os.path.join(Path(self.nekrs_home), "examples", "setup_case.sh"),
             self.current_system.name,
             self.nekrs_home,
+            "--venv_path",
+            venv_path,
         ])
 
-        venv = os.path.join(
-            Path(self.stagedir).parent, "_env", "bin", "activate"
-        )
-        source_venv = " ".join(["source", venv])
+        run_source_venv = list_to_cmd([
+            "source",
+            os.path.join(venv_path, "bin", "activate"),
+        ])
 
-        # run halo_info
+        # halo_info
         self.gnn_output_dir = os.path.join(self.stagedir, "gnn_outputs_poly_3")
         halo_info = [
             "python",
@@ -164,10 +167,10 @@ class NekRSMLOfflineTest(NekRSTest):
             "--PATH",
             self.gnn_output_dir,
         ]
-        run_halo_info = " ".join(mpiexec + halo_info)
+        run_halo_info = list_to_cmd(mpiexec + halo_info)
 
         # check GNN input files
-        run_check_input = " ".join([
+        run_check_input = list_to_cmd([
             "python",
             os.path.join(
                 self.nekrs_home, "3rd_party", "dist-gnn", "check_input_files.py"
@@ -182,7 +185,7 @@ class NekRSMLOfflineTest(NekRSTest):
         self.prerun_cmds = [
             run_nekrs,
             run_setup_case,
-            source_venv,
+            run_source_venv,
             run_halo_info,
             run_check_input,
         ]
@@ -192,7 +195,7 @@ class NekRSMLOfflineTest(NekRSTest):
             "python",
             os.path.join(self.nekrs_home, "3rd_party", "dist-gnn", "main.py"),
         ]
-        self.executable = " ".join(main)
+        self.executable = list_to_cmd(main)
         # FIXME: master_addr=$head_node
         self.executable_opts = [
             # FIXME: backend should be calculated.
@@ -211,3 +214,14 @@ class NekRSMLOfflineTest(NekRSTest):
         # sets self.gnn_output_dir
         self.set_prerun_cmds()
         self.set_executable_options()
+
+    @sanity_function
+    def check_exit_code(self):
+        nekrs_ok = super().check_exit_code()
+        gnn_ok = sn.assert_found(
+            r"SUCCESS! GNN training validated!",
+            self.stdout,
+            msg="GNN validation failed.",
+        )
+
+        return nekrs_ok and gnn_ok

@@ -1,6 +1,6 @@
 import reframe as rfm
 import reframe.utility.sanity as sn
-from nekrs import NekRSCase, NekRSTest, NekRSMLOfflineTest
+from nekrs import NekRSCase, NekRSTest, NekRSMLTest
 import os
 
 
@@ -28,20 +28,16 @@ class NekRSKershawTest(NekRSTest):
 
 
 @rfm.simple_test
-class NekRSTGVOffline(NekRSMLOfflineTest):
+class NekRSTGVOffline(NekRSMLTest):
     def __init__(self):
         super().__init__(NekRSCase("tgv", directory="tgv_gnn_offline"))
+        self.tags |= {"offline", "tgv", "tgv_offline"}
 
 
 @rfm.simple_test
-class NekRSTGVOfflineCoarseMesh(NekRSMLOfflineTest):
+class NekRSTGVOfflineCoarseMesh(NekRSMLTest):
     def __init__(self):
         super().__init__(
             NekRSCase("tgv", directory="tgv_gnn_offline_coarse_mesh")
         )
-
-
-@rfm.simple_test
-class NekRSTGVOfflineTraj(NekRSMLOfflineTest):
-    def __init__(self):
-        super().__init__(NekRSCase("tgv", directory="tgv_gnn_traj_offline"))
+        self.tags |= {"offline", "tgv", "tgv_offline_coarse_mesh"}
