@@ -62,7 +62,7 @@ class RunOnlyTest(rfm.RunOnlyRegressionTest):
     @run_before("run")
     def set_scheduler_options(self):
         self.num_tasks_per_node = self.current_partition.extras[
-            "max_local_jobs"
+            "ranks_per_node"
         ]
         self.num_tasks = self.num_nodes * self.num_tasks_per_node
         self.num_cpus_per_task = 1

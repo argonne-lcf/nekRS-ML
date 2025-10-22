@@ -87,7 +87,7 @@ class NekRSTest(RunOnlyTest):
 
     def set_launcher_options(self):
         self.cpu_bind = self.current_partition.extras["cpu_bind_list"]
-        self.ranks_per_node = self.current_partition.extras["max_local_jobs"]
+        self.ranks_per_node = self.current_partition.extras["ranks_per_node"]
         self.total_ranks = self.num_nodes * self.ranks_per_node
         self.job.launcher.options += [
             f"-np {self.total_ranks}",
@@ -96,12 +96,10 @@ class NekRSTest(RunOnlyTest):
         ]
 
     def set_executable_options(self):
-        self.device_id = 0
         self.backend = self.current_partition.extras["backend"]
         self.executable_opts += [
             f"--setup {self.case_name}",
             f"--backend {self.backend}",
-            f"--device-id {self.device_id}",
         ]
 
     @run_before("run")
@@ -147,7 +145,7 @@ class NekRSMLOfflineTest(NekRSTest):
         ])
 
         venv = os.path.join(
-            Path(self.sourcesdir).parent, "_env", "bin", "activate"
+            Path(self.stagedir).parent, "_env", "bin", "activate"
         )
         source_venv = " ".join(["source", venv])
 
@@ -195,13 +193,13 @@ class NekRSMLOfflineTest(NekRSTest):
             os.path.join(self.nekrs_home, "3rd_party", "dist-gnn", "main.py"),
         ]
         self.executable = " ".join(main)
-        # master_addr=$head_node
+        # FIXME: master_addr=$head_node
         self.executable_opts = [
-            # backend should ideally be calculated.
-            "backend=ccl",
+            # FIXME: backend should be calculated.
+            "backend=xccl",
             "halo_swap_mode=all_to_all_opt",
             "layer_norm=True",
-            "gnn_outputs_path={self.gnn_output_dir}",
+            f"gnn_outputs_path={self.gnn_output_dir}",
             "target_loss=1.6206e-04",
         ]
 
