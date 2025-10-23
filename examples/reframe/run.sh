@@ -109,5 +109,5 @@ CMD="${CMD} --keep-stage-files"
 CMD="${CMD} -S queue=${QUEUE} -S project=${PROJECT} -S filesystems=${FS}"
 CMD="${CMD} --timestamp --prefix=${PREFIX}"
 CMD="${CMD} --report-file ${PREFIX}/reports/report_{sessionid}.json"
-CMD="${CMD} --checkpath examples.py --tag ${TAG} --run"
+CMD="${CMD} --checkpath tests.py --tag ${TAG} --run"
 ${CMD}
