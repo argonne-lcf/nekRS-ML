@@ -31,7 +31,7 @@ Options:
   --prefix,      -p   <PREFIX>         Set the installation prefix (Default: ${PWD}/test_data)
   --queue,       -q   <QUEUE>          Set the job queue (Default: prod)
   --project,     -prj <PROJECT>        Set the project name (Default: Performance)
-  --filesystem,  -f   <FS>             Set the filesystem (Default: home)
+  --filesystems, -f   <FS>             Set the filesystem (Default: home)
   --tag,         -t   <TAG>            Run the tests with tag TAG (Default: ml)
   --list-tags    -l                    List the available test tags
   --build,       -b                    Build the dependencies from scratch (do not reuse)

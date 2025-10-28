@@ -20,7 +20,7 @@ print_help() {
   echo "  --prefix,      -p   <PREFIX>         Set the installation prefix (Default: $PREFIX)"
   echo "  --queue,       -q   <QUEUE>          Set the job queue (Default: $QUEUE)"
   echo "  --project,     -prj <PROJECT>        Set the project name (Default: $PROJECT)"
-  echo "  --filesystem,  -f   <FS>             Set the filesystem (Default: $FS)"
+  echo "  --filesystems, -f   <FS>             Set the filesystems (Default: $FS)"
   echo "  --tag,         -t   <TAG>            Run the tests with tag TAG (Default: $TAG)"
   echo "  --list-tags    -l                    List the available test tags"
   echo "  --build,       -b                    Build the dependencies from scratch (do not reuse)"
@@ -67,7 +67,7 @@ while [ $# -gt 0 ]; do
       PROJECT="$2"
       shift; shift
       ;;
-    --filesystem| -f)
+    --filesystems| -f)
       FS="$2"
       shift; shift
       ;;
@@ -114,18 +114,15 @@ export PATH=$HOME/.local/bin/:$PATH
 # --checkpath: https://reframe-hpc.readthedocs.io/en/stable/manpage.html#cmdoption-c
 # --tag: https://reframe-hpc.readthedocs.io/en/stable/manpage.html#cmdoption-t
 # --run: https://reframe-hpc.readthedocs.io/en/stable/manpage.html#cmdoption-r
-CMD="uv run reframe --save-log-files --config-file sites.py --system ${SYSTEM} --exec-policy=async"
-if [ "${REUSE}" -eq 1 ]; then
-  CMD="${CMD} --restore-session"
-fi
-CMD="${CMD} --keep-stage-files"
+CMD="uv run reframe --save-log-files --config-file sites.py --system ${SYSTEM}"
 CMD="${CMD} -S queue=${QUEUE} -S project=${PROJECT} -S filesystems=${FS}"
-CMD="${CMD} --timestamp --prefix=${PREFIX}"
-CMD="${CMD} --report-file ${PREFIX}/reports/report_{sessionid}.json"
-CMD="${CMD} --checkpath tests.py "
+CMD="${CMD} --keep-stage-files --timestamp --prefix=${PREFIX} --checkpath tests.py"
 if [ "${LIST_TAGS}" -eq 1 ]; then
   CMD="${CMD} --list-tags"
 else
-  CMD="${CMD} --tag ${TAG} --run"
+  if [ "${REUSE}" -eq 1 ]; then
+    CMD="${CMD} --restore-session"
+  fi
+  CMD="${CMD} --report-file ${PREFIX}/reports/report_{sessionid}.json --tag ${TAG} --run"
 fi
 ${CMD}
