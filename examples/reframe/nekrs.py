@@ -11,14 +11,36 @@ def list_to_cmd(l):
     return " ".join(l)
 
 
+class SmartRedisBuild(CompileOnlyTest):
+    def __init__(self):
+        super().__init__()
+        self.descr = "SmartRedis build"
+        self.maintainers = ["tratnayaka@anl.gov"]
+
+    @run_before("compile")
+    def configure_buld(self):
+        self.sourcesdir = "https://github.com/rickybalin/SmartRedis.git"
+        self.build_system = "Make"
+        self.build_system.cc = "mpicc"
+        self.build_system.cxx = "mpicxx"
+        self.build_system.ftn = "mpif77"
+        self.build_system.flags_from_environ = False
+        self.build_system.max_concurrency = 16
+        self.build_system.options = ["lib"]
+        self.install_path = os.path.join(f"{self.stagedir}", "install")
+
+    def get_install_path(self):
+        return self.install_path
+
+
 class NekRSBuild(CompileOnlyTest):
     version = variable(str, value="2024-11-22")
+    smartredis_build = fixture(SmartRedisBuild, scope="environment")
 
     def __init__(self):
         super().__init__()
         self.descr = "nekRS-ML build"
         self.maintainers = ["kris.rowe@anl.gov", "tratnayaka@anl.gov"]
-        self.tags = {"build"}
 
     @run_before("compile")
     def configure_build(self):
@@ -36,7 +58,8 @@ class NekRSBuild(CompileOnlyTest):
         self.build_system.config_opts = [
             f"-DCMAKE_INSTALL_PREFIX={self.install_path}",
             "-DENABLE_ADIOS=OFF",
-            "-DENABLE_SMARTREDIS=OFF",
+            "-DENABLE_SMARTREDIS=ON",
+            f"-DSMARTREDIS_INSTALL_DIR={self.smartredis_build.get_install_path()}",
         ]
 
     @sanity_function
