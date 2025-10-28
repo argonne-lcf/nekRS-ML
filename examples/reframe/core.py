@@ -228,7 +228,7 @@ class RunOnlyTest(rfm.RunOnlyRegressionTest):
     walltime = variable(str, value="00:30:00")
     filesystems = variable(str, value="home")
 
-    def __init__(self, num_nodes, walltime=None):
+    def __init__(self, num_nodes, ranks_per_node):
         super().__init__()
         self.maintainers = ["tratnayaka@anl.gov"]
         self.valid_systems = ["*"]
@@ -237,6 +237,7 @@ class RunOnlyTest(rfm.RunOnlyRegressionTest):
         self.num_nodes = num_nodes
         if walltime is not None:
             self.walltime = walltime
+        self.num_tasks_per_node = ranks_per_node
 
         # FIXME This is a ReFrame bug. Remove once it is fixed upstream.
         # https://github.com/reframe-hpc/reframe/pull/3571
@@ -248,9 +249,18 @@ class RunOnlyTest(rfm.RunOnlyRegressionTest):
 
     @run_before("run")
     def set_scheduler_options(self):
-        self.num_tasks_per_node = self.current_partition.extras[
-            "ranks_per_node"
-        ]
+        max_rpn = self.current_partition.extras["ranks_per_node"]
+        if self.num_tasks_per_node > max_rpn:
+            import warnings
+
+            warnings.warn(
+                (
+                    f"Requested ranks per node ({self.num_tasks_per_node}) is larger "
+                    f"than the maximum value of the system({max_rpn})"
+                ),
+                RuntimeWarning,
+            )
+
         self.num_tasks = self.num_nodes * self.num_tasks_per_node
         self.num_cpus_per_task = 1
 

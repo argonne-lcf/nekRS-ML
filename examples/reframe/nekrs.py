@@ -105,8 +105,8 @@ class NekRSCase:
 class NekRSTest(RunOnlyTest):
     nekrs_build = fixture(NekRSBuild, scope="environment")
 
-    def __init__(self, nekrs_case):
-        super().__init__(num_nodes=1)
+    def __init__(self, nekrs_case, nn, rpn):
+        super().__init__(num_nodes=nn, ranks_per_node=rpn)
         self.descr = "nekRS-ML test"
         self.maintainers = ["kris.rowe@anl.gov"]
         self.tags = {"all"}
@@ -159,8 +159,8 @@ class NekRSTest(RunOnlyTest):
 
 
 class NekRSMLTest(NekRSTest):
-    def __init__(self, nekrs_case):
-        super().__init__(nekrs_case)
+    def __init__(self, nekrs_case, nn=None, rpn=None):
+        super().__init__(nekrs_case, nn, rpn)
         self.tags |= {"ml"}
 
     def set_prerun_cmds(self):
