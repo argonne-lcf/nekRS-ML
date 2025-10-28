@@ -5,7 +5,8 @@
 The ReFrame configuration is in `sites.py`. Currently, the `sites.py` only contains
 configuration for ALCF Aurora. We define two partitions for Aurora: `aurora:compute`
 and `aurora:login`. You can pass this configuration file into reframe using the `-C`
-flag and use the `--system` flag to select the partition you like.
+flag and use the `--system` flag to select the partition you like. You can edit the
+`sites.py` if you would like to make changes to the existing Aurora parameters.
 
 The `core.py` contains thin wrappers over `reframe.CompileOnlyRegressionTest` and
 `reframe.RunOnlyRegressionTest` which are named `CompileOnlyTest` and `RunOnlyTest`
