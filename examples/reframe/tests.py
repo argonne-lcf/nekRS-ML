@@ -6,8 +6,13 @@ import os
 
 @rfm.simple_test
 class NekRSKershawTest(NekRSTest):
+    num_nodes = parameter([1])
+    ranks_per_node = parameter([2])
+
     def __init__(self):
-        super().__init__(NekRSCase("kershaw"))
+        super().__init__(
+            NekRSCase("kershaw"), nn=self.num_nodes, rpn=self.ranks_per_node
+        )
 
     # Match "flops/rank" at start of line to avoid matching output during setup.
     @performance_function("flops/s/rank", perf_key="BPS5")
@@ -29,22 +34,41 @@ class NekRSKershawTest(NekRSTest):
 
 @rfm.simple_test
 class NekRSTGVOffline(NekRSMLTest):
+    num_nodes = parameter([1])
+    ranks_per_node = parameter([2])
+
     def __init__(self):
-        super().__init__(NekRSCase("tgv", directory="tgv_gnn_offline"))
+        super().__init__(
+            NekRSCase("tgv", directory="tgv_gnn_offline"),
+            nn=self.num_nodes,
+            rpn=self.ranks_per_node,
+        )
         self.tags |= {"offline", "tgv_offline"}
 
 
 @rfm.simple_test
 class NekRSTGVOfflineCoarseMesh(NekRSMLTest):
+    num_nodes = parameter([1])
+    ranks_per_node = parameter([2])
+
     def __init__(self):
         super().__init__(
-            NekRSCase("tgv", directory="tgv_gnn_offline_coarse_mesh")
+            NekRSCase("tgv", directory="tgv_gnn_offline_coarse_mesh"),
+            nn=self.num_nodes,
+            rpn=self.ranks_per_node,
         )
         self.tags |= {"offline", "tgv_offline_coarse_mesh"}
 
 
 @rfm.simple_test
 class NekRSTGVOfflineTraj(NekRSMLTest):
+    num_nodes = parameter([1])
+    ranks_per_node = parameter([2])
+
     def __init__(self):
-        super().__init__(NekRSCase("tgv", directory="tgv_gnn_traj_offline"))
+        super().__init__(
+            NekRSCase("tgv", directory="tgv_gnn_traj_offline"),
+            nn=self.num_nodes,
+            rpn=self.ranks_per_node,
+        )
         self.tags |= {"offline", "tgv_offline_traj"}
