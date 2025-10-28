@@ -201,10 +201,10 @@ def wait_fixed(self, job):
 class CompileOnlyTest(rfm.CompileOnlyRegressionTest):
     project = variable(str, value="")
     queue = variable(str, value="")
-    walltime = variable(str, value="00:30:00")
-    filesystems = variable(str, value="home")
+    filesystems = variable(str, value="")
+    walltime = variable(str, value="01:00:00")
 
-    def __init__(self, walltime="1:00:00"):
+    def __init__(self):
         super().__init__()
         self.maintainers = ["tratnayaka@anl.gov"]
         self.valid_systems = ["*"]
@@ -225,8 +225,8 @@ class CompileOnlyTest(rfm.CompileOnlyRegressionTest):
 class RunOnlyTest(rfm.RunOnlyRegressionTest):
     project = variable(str, value="")
     queue = variable(str, value="")
-    walltime = variable(str, value="00:30:00")
-    filesystems = variable(str, value="home")
+    filesystems = variable(str, value="")
+    walltime = variable(str, value="01:00:00")
 
     def __init__(self, num_nodes, ranks_per_node):
         super().__init__()
@@ -235,8 +235,6 @@ class RunOnlyTest(rfm.RunOnlyRegressionTest):
         self.valid_prog_environs = ["*"]
 
         self.num_nodes = num_nodes
-        if walltime is not None:
-            self.walltime = walltime
         self.num_tasks_per_node = ranks_per_node
 
         # FIXME This is a ReFrame bug. Remove once it is fixed upstream.
