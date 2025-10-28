@@ -1,3 +1,4 @@
+import subprocess
 import reframe as rfm
 import reframe.utility.sanity as sn
 import reframe.utility.typecheck as typ
@@ -9,6 +10,19 @@ import os.path
 
 def list_to_cmd(l):
     return " ".join(l)
+
+
+def grep(pattern, file):
+    return subprocess.run(
+        [
+            "grep",
+            pattern,
+            file,
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
 
 
 class SmartRedisBuild(CompileOnlyTest):
@@ -113,7 +127,7 @@ class NekRSTest(RunOnlyTest):
 
     def set_launcher_options(self):
         cpu_bind_list = self.current_partition.extras["cpu_bind_list"]
-        ranks_per_node = self.current_partition.extras["ranks_per_node"]
+        ranks_per_node = self.num_tasks_per_node
         total_ranks = self.num_nodes * ranks_per_node
         self.job.launcher.options = [
             f"-np {total_ranks}",
@@ -160,6 +174,13 @@ class NekRSMLTest(NekRSTest):
         nekrs = [self.executable] + self.executable_opts
         run_nekrs = list_to_cmd(mpiexec + nekrs)
 
+        # Find order of the case:
+        par_file = os.path.join(self.sourcesdir, f"{self.case_name}.par")
+        result = grep("gnnPolynomialOrder", par_file)
+        if result.stdout is None:
+            result = grep("polynomialOrder", par_file)
+        order = int(result.stdout.split()[2])
+
         # Setup the gnn case:
         venv_path = os.path.join(self.stagedir, "_env")
         run_setup_case = list_to_cmd([
@@ -176,7 +197,9 @@ class NekRSMLTest(NekRSTest):
         ])
 
         # halo_info
-        self.gnn_output_dir = os.path.join(self.stagedir, "gnn_outputs_poly_3")
+        self.gnn_output_dir = os.path.join(
+            self.stagedir, f"gnn_outputs_poly_{order}"
+        )
         halo_info = [
             "python",
             os.path.join(
@@ -186,7 +209,7 @@ class NekRSMLTest(NekRSTest):
                 "create_halo_info_par.py",
             ),
             "--POLY",
-            "3",
+            str(order),
             "--PATH",
             self.gnn_output_dir,
         ]
