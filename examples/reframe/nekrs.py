@@ -150,17 +150,17 @@ class NekRSMLTest(NekRSTest):
         self.tags |= {"ml"}
 
     def set_prerun_cmds(self):
-        # mpiexec cmd
+        # Get mpiexec command and options:
         mpiexec = (
             self.job.launcher.command(self.job) + self.job.launcher.options
         )
 
-        # nekrs
+        # Run nekrs:
         super().set_executable_options()
         nekrs = [self.executable] + self.executable_opts
         run_nekrs = list_to_cmd(mpiexec + nekrs)
 
-        # setup the gnn case
+        # Setup the gnn case:
         venv_path = os.path.join(self.stagedir, "_env")
         run_setup_case = list_to_cmd([
             os.path.join(Path(self.nekrs_home), "examples", "setup_case.sh"),

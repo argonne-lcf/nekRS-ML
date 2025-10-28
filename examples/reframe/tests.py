@@ -46,7 +46,5 @@ class NekRSTGVOfflineCoarseMesh(NekRSMLTest):
 @rfm.simple_test
 class NekRSTGVOfflineTraj(NekRSMLTest):
     def __init__(self):
-        super().__init__(
-            NekRSCase("tgv", directory="tgv_gnn_traj_offline")
-        )
+        super().__init__(NekRSCase("tgv", directory="tgv_gnn_traj_offline"))
         self.tags |= {"offline", "tgv_offline_traj"}
