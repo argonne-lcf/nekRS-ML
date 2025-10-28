@@ -31,7 +31,7 @@ class NekRSKershawTest(NekRSTest):
 class NekRSTGVOffline(NekRSMLTest):
     def __init__(self):
         super().__init__(NekRSCase("tgv", directory="tgv_gnn_offline"))
-        self.tags |= {"offline", "tgv", "tgv_offline"}
+        self.tags |= {"offline", "tgv_offline"}
 
 
 @rfm.simple_test
@@ -40,4 +40,13 @@ class NekRSTGVOfflineCoarseMesh(NekRSMLTest):
         super().__init__(
             NekRSCase("tgv", directory="tgv_gnn_offline_coarse_mesh")
         )
-        self.tags |= {"offline", "tgv", "tgv_offline_coarse_mesh"}
+        self.tags |= {"offline", "tgv_offline_coarse_mesh"}
+
+
+@rfm.simple_test
+class NekRSTGVOfflineTraj(NekRSMLTest):
+    def __init__(self):
+        super().__init__(
+            NekRSCase("tgv", directory="tgv_gnn_traj_offline")
+        )
+        self.tags |= {"offline", "tgv_offline_traj"}
