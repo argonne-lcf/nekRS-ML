@@ -236,17 +236,6 @@ class ShootingWorkflow():
                     nekrs_time = float(l.split('solve')[-1].split('s')[0].strip())
                 if ' udfExecuteStep ' in l:
                     udf_time = float(l.split('udfExecuteStep')[-1].split('s')[0].strip())
-        #with open(f'{self.run_dir}/turbChannel.box','r') as fh:
-        #    for l in fh:
-        #        if 'nelx' in l:
-        #            elms = l.split()
-        #elms = elms[:3]
-        #elms = [int(item)*-1 for item in elms]
-        #with open(f'{self.run_dir}/turbChannel.par','r') as fh:
-        #    for l in fh:
-        #        if 'polynomialOrder' in l:
-        #            p = int(l.split()[-1].strip())
-        #num_nodes = elms[0] * elms[1] * elms[2] * (p+1)**3
         return (num_nodes / 1.0e6) * nekrs_steps / (nekrs_time - udf_time)
     
     def compute_fom_train(self) -> Tuple[float,float]:
