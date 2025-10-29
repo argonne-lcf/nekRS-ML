@@ -71,7 +71,7 @@ class NekRSTGVOfflineTraj(NekRSMLTest):
 
     def __init__(self):
         super().__init__(
-            NekRSCase("tgv", directory="tgv_gnn_traj_offline"),
+            NekRSCase("tgv", directory="tgv_gnn_offline_traj"),
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
             time_dependency="time_dependent",
