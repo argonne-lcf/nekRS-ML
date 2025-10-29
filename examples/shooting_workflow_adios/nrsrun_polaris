@@ -114,7 +114,7 @@ echo "train:" >> $CFILE
 echo "    executable: \"${NEKRS_HOME}/3rd_party/dist-gnn/main.py\"" >> $CFILE
 #echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
 echo "    affinity: \"\"" >> $CFILE
-echo "    arguments: \"device_skip=${DEVICE_SKIP} precision=bf16 phase1_steps=200 hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=nccl halo_swap_mode=all_to_all_opt online=True client.backend=adios client.adios_transport=RDMA online_update_freq=50 time_dependency=time_dependent verbose=True\"" >> $CFILE
+echo "    arguments: \"device_skip=${DEVICE_SKIP} precision=bf16 phase1_steps=200 hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=nccl halo_swap_mode=all_to_all_opt online=True client.backend=adios client.adios_transport=RDMA online_update_freq=20 time_dependency=time_dependent verbose=True\"" >> $CFILE
 echo "" >> $CFILE
 echo "# Inference config" >> $CFILE
 echo "inference:" >> $CFILE
@@ -191,7 +191,7 @@ echo "if [ ! -d .cache ]; then" >> $RFILE
 echo "  echo Cleaning up the cache" >> $RFILE
 echo "  rm -rf .cache" >> $RFILE
 echo "fi" >> $RFILE
-CMD_build="mpiexec -n ${RANKS_FOR_BUILD} -ppn ${RANKS_FOR_BUILD} --cpu-bind list:24:16:8:1 -- ./${SAFF_FILE} ${RANKS_FOR_BUILD} $bin --setup ${case} --backend ${NEKRS_BACKEND} --device-id 0 $extra_args --build-only ${RANKS_FOR_BUILD}"
+CMD_build="mpiexec -n ${RANKS_FOR_BUILD} -ppn ${RANKS_FOR_BUILD} --cpu-bind list:${SIM_CPU_BIND_LIST} -- ./${SAFF_FILE} ${RANKS_FOR_BUILD} $bin --setup ${case} --backend ${NEKRS_BACKEND} --device-id 0 $extra_args --build-only ${RANKS_FOR_BUILD}"
 add_build_CMD "$RFILE" "$CMD_build" "$TOTAL_RANKS"
 
 echo -e "\n# actual run" >>$RFILE
