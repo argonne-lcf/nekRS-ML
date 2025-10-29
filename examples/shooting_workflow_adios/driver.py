@@ -34,6 +34,7 @@ class ShootingWorkflow():
         self.infer_proc = {'name': 'GNN inference', 
                            'process': None,
                            'status': 'not running'}
+        self.host = socket.gethostname()
         self.run_dir = os.getcwd()
         jobid = os.getenv("PBS_JOBID").split('.')[0]
         self.log_dir = os.path.join(self.run_dir,f'logs_{jobid}')
@@ -116,7 +117,7 @@ class ShootingWorkflow():
         if self.cfg.train.affinity:
             cmd += f"{self.cfg.train.affinity} {self.cfg.run_args.simprocs_pn} {skip} "
         cmd += f"python {self.cfg.train.executable} {self.cfg.train.arguments}"
-        cmd += f" master_addr={socket.gethostname()}"
+        cmd += f" master_addr={self.train_nodes.split(',')[0]}"
         print("Launching GNN training ...")
         self.train_proc['process'] = subprocess.Popen(cmd,
                                 executable="/bin/bash",
@@ -138,12 +139,12 @@ class ShootingWorkflow():
               f"-n {self.cfg.run_args.mlprocs} " + \
               f"--ppn {self.cfg.run_args.mlprocs_pn} " + \
               f"--cpu-bind {self.cfg.run_args.ml_cpu_bind} " + \
-              f"--hosts {self.train_nodes} "
+              f"--hosts {self.inference_nodes} "
         if self.cfg.train.affinity:
             cmd += f"{self.cfg.train.affinity} {self.cfg.run_args.simprocs_pn} {skip} "
         cmd += f"python {self.cfg.inference.executable} " + \
                f"{self.cfg.inference.arguments} model_dir={self.run_dir}/saved_models/" + \
-               f" master_addr={socket.gethostname()}"
+               f" master_addr={self.inference_nodes.split(',')[0]}"
         print("\nLaunching GNN inference ...")
         self.infer_proc['process'] = subprocess.Popen(cmd,
                                 executable="/bin/bash",
