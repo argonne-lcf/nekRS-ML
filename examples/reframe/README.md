@@ -94,7 +94,16 @@ test_data/
 
 You will see two log files (`rfm-*.log`) under `${PREFIX}/output/<timestamp>/`.
 One corresponds to a log level of `info` and the other is with the log level of
-`debug2` (these levels are defined by reframe). Output artifacts produced by the
+`debug2` (these levels are defined by ReFrame). Output artifacts produced by the
 tests themselves will be under `${PREFIX}/output/<timestamp>/<system>/<PrgEnv>/<test>`.
 The test reports are in`${PREFIX}/reports/report_<session_id>.json`. The staging
 files of the tests can be found under `${PREFIX}/stage/<timestamp>`.
+
+## Common issues
+
+* If you see an error similar to the following, it means that the ReFrame
+  couldn't find a report to restore the session you asked for. In that case,
+  pass the `-b` flag to the `run.sh` to generate everything from scratch.
+  ```
+  FileNotFoundError: [Errno 2] No such file or directory: '/home/thilina/gnn/nekrs_ml.git/examples/reframe/test_data/reports'
+  ```
