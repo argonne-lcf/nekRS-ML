@@ -64,7 +64,8 @@ or
 ```sh
 ./gen_run_script <system_name> </path/to/nekRS> --venv_path </path/to/venv/bin/activate>
 ```
-if you have the necessary packages already installed in a Python virtual environment. For more information how to use `gen_run_script`, use `--help`.
+if you have the necessary packages already installed in a Python virtual environment. For more information
+on how to use `gen_run_script`, use `--help`
 
 The script will produce a `run.sh` script specifically tailored to the desired system and using the desired nekRS install directory. 
 
