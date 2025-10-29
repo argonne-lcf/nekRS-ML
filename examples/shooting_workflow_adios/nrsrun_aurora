@@ -144,7 +144,7 @@ echo "    affinity: \"\"" >> $CFILE
 if [ ${DEPLOYMENT} == "colocated"  ]; then
   echo "    arguments: \"device_skip=${SIM_RANKS_PER_NODE} precision=bf16 phase1_steps=200 hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=xccl halo_swap_mode=all_to_all_opt online=True client.backend=adios client.adios_transport=RDMA online_update_freq=50 time_dependency=time_dependent verbose=True\"" >> $CFILE
 elif [ ${DEPLOYMENT} == "clustered"  ]; then
-  echo "    arguments: \"precision=bf16 phase1_steps=500 hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=xccl halo_swap_mode=all_to_all_opt online=True client.backend=adios online_update_freq=50 time_dependency=time_dependent verbose=True\"" >> $CFILE
+  echo "    arguments: \"precision=bf16 phase1_steps=200 hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=xccl halo_swap_mode=all_to_all_opt online=True client.backend=adios online_update_freq=50 time_dependency=time_dependent verbose=True\"" >> $CFILE
 fi
 echo "" >> $CFILE
 echo "# Inference config" >> $CFILE

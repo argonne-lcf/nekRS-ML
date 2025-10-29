@@ -125,15 +125,24 @@ function check_args() {
     fi
   fi
   if [ ${DEPLOYMENT} == "clustered" ]; then
-    if [ "$DB_NODES" -eq "2" ]; then
-      echo "Invalid number of database nodes."
-      echo "SmartSim does not allow clustered databases of 2 nodes, DB_NODES can be 1 or >=3."
-      exit 1
+    if [ ${CLIENT} == "smartredis" ]; then
+      if [ "$DB_NODES" -eq "2" ]; then
+        echo "Invalid number of database nodes."
+        echo "SmartSim does not allow clustered databases of 2 nodes, DB_NODES can be 1 or >=3."
+        exit 1
+      fi
+      if [ $((DB_NODES + SIM_NODES + TRAIN_NODES)) -ne "$NODES" ]; then
+        echo "Invalid number of database, simulation and training nodes."
+        echo "The sum of nodes assigned to each component must equal the total number of nodes of the job."
+        exit 1
+      fi
     fi
-    if [ $((DB_NODES + SIM_NODES + TRAIN_NODES)) -ne "$NODES" ]; then
-      echo "Invalid number of database, simulation and training nodes."
-      echo "The sum of nodes assigned to each component must equal the total number of nodes of the job."
-      exit 1
+    if [ ${CLIENT} == "adios" ]; then
+      if [ $((SIM_NODES + TRAIN_NODES)) -ne "$NODES" ]; then
+        echo "Invalid number of simulation and training nodes."
+        echo "The sum of nodes assigned to each component must equal the total number of nodes of the job."
+        exit 1
+      fi
     fi
   fi
 }
