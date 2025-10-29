@@ -45,7 +45,7 @@ class NekRSTGVOffline(NekRSMLTest):
             time_dependency="time_independent",
             target_loss=1.6206e-04,
         )
-        self.tags |= {"offline", "tgv_offline"}
+        self.tags |= {"tgv_offline"}
 
 
 @rfm.simple_test
@@ -61,7 +61,7 @@ class NekRSTGVOfflineCoarseMesh(NekRSMLTest):
             time_dependency="time_independent",
             target_loss=1.6206e-04,
         )
-        self.tags |= {"offline", "tgv_offline_coarse_mesh"}
+        self.tags |= {"tgv_offline_coarse_mesh"}
 
 
 @rfm.simple_test
@@ -77,4 +77,4 @@ class NekRSTGVOfflineTraj(NekRSMLTest):
             time_dependency="time_dependent",
             target_loss=6.9076e-01,
         )
-        self.tags |= {"offline", "tgv_offline_traj"}
+        self.tags |= {"tgv_offline_traj"}
