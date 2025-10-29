@@ -8,6 +8,7 @@ import reframe as rfm
 import reframe.utility.sanity as sn
 import reframe.utility.osext as osext
 from reframe.core.schedulers.pbs import PbsJobScheduler
+from reframe.core.exceptions import JobSchedulerError
 
 # ReFrame Docs
 # ============
