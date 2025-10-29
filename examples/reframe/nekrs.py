@@ -201,7 +201,7 @@ class NekRSMLTest(NekRSTest):
             os.path.join(venv_path, "bin", "activate"),
         ])
 
-        # halo_info
+        # Generate halo_info
         self.gnn_output_dir = os.path.join(
             self.stagedir, f"gnn_outputs_poly_{order}"
         )
@@ -220,26 +220,45 @@ class NekRSMLTest(NekRSTest):
         ]
         run_halo_info = list_to_cmd(mpiexec + halo_info)
 
-        # check GNN input files
+        # Check GNN input files
+        check_input_file = os.path.join(
+            self.nekrs_home, "3rd_party", "dist-gnn", "check_input_files.py"
+        )
         run_check_input = list_to_cmd([
             "python",
-            os.path.join(
-                self.nekrs_home, "3rd_party", "dist-gnn", "check_input_files.py"
-            ),
+            check_input_file,
             "--REF",
             os.path.join(self.sourcesdir, "ref"),
             "--PATH",
             self.gnn_output_dir,
         ])
 
-        # run all the pre-training steps
+        # Check the GNN trajectory if the case is of `traj` type.
+        run_check_traj = []
+        root = os.path.join(f"traj_poly_{order}", "tinit_0.000000_dtfactor_10")
+        self.traj_dir = os.path.join(self.stagedir, root)
+        if self.gnn_kwargs["time_dependency"] == "time_dependent":
+            ranks = self.gnn_kwargs["nn"] * self.gnn_kwargs["rpn"]
+            for rank in range(ranks):
+                suffix = f"data_rank_{rank}_size_{ranks}"
+                cmd = list_to_cmd([
+                    "python",
+                    check_input_file,
+                    "--REF",
+                    os.path.join(self.sourcesdir, "ref", root, suffix),
+                    "--PATH",
+                    os.path.join(self.traj_dir, suffix),
+                ])
+                run_check_traj.append(cmd)
+
+        # Run all the pre-training steps
         self.prerun_cmds = [
             run_nekrs,
             run_setup_case,
             run_source_venv,
             run_halo_info,
             run_check_input,
-        ]
+        ] + run_check_traj
 
     def set_executable_options(self):
         main = [
@@ -256,6 +275,7 @@ class NekRSMLTest(NekRSTest):
             f"target_loss={self.gnn_kwargs['target_loss']}",
             f"time_dependency={self.gnn_kwargs['time_dependency']}",
             f"gnn_outputs_path={self.gnn_output_dir}",
+            f"traj_data_path={self.traj_dir}",
         ]
 
     @run_before("run")
