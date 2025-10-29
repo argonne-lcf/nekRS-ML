@@ -63,7 +63,7 @@ class NekRSTGVOfflineCoarseMesh(NekRSMLTest):
 @rfm.simple_test
 class NekRSTGVOfflineTraj(NekRSMLTest):
     num_nodes = parameter([1])
-    ranks_per_node = parameter([2])
+    ranks_per_node = parameter([4])
 
     def __init__(self):
         super().__init__(
