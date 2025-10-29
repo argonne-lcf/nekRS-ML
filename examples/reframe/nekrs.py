@@ -159,8 +159,13 @@ class NekRSTest(RunOnlyTest):
 
 
 class NekRSMLTest(NekRSTest):
-    def __init__(self, nekrs_case, nn=None, rpn=None):
-        super().__init__(nekrs_case, nn, rpn)
+    def __init__(self, nekrs_case, **kwargs):
+        # FIXME: check if the required arguments are in kwargs.
+        # nn, rpn, time_dependency, target_loss
+        self.gnn_kwargs = kwargs.copy()
+        super().__init__(
+            nekrs_case, self.gnn_kwargs["nn"], self.gnn_kwargs["rpn"]
+        )
         self.tags |= {"ml"}
 
     def set_prerun_cmds(self):
@@ -248,8 +253,9 @@ class NekRSMLTest(NekRSTest):
             "backend=xccl",
             "halo_swap_mode=all_to_all_opt",
             "layer_norm=True",
+            f"target_loss={self.gnn_kwargs['target_loss']}",
+            f"time_dependency={self.gnn_kwargs['time_dependency']}",
             f"gnn_outputs_path={self.gnn_output_dir}",
-            "target_loss=1.6206e-04",
         ]
 
     @run_before("run")

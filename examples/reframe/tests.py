@@ -42,6 +42,8 @@ class NekRSTGVOffline(NekRSMLTest):
             NekRSCase("tgv", directory="tgv_gnn_offline"),
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
+            time_dependency="time_independent",
+            target_loss=1.6206e-04,
         )
         self.tags |= {"offline", "tgv_offline"}
 
@@ -56,6 +58,8 @@ class NekRSTGVOfflineCoarseMesh(NekRSMLTest):
             NekRSCase("tgv", directory="tgv_gnn_offline_coarse_mesh"),
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
+            time_dependency="time_independent",
+            target_loss=1.6206e-04,
         )
         self.tags |= {"offline", "tgv_offline_coarse_mesh"}
 
@@ -70,5 +74,7 @@ class NekRSTGVOfflineTraj(NekRSMLTest):
             NekRSCase("tgv", directory="tgv_gnn_traj_offline"),
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
+            time_dependency="time_dependent",
+            target_loss=6.9076e-01,
         )
         self.tags |= {"offline", "tgv_offline_traj"}
