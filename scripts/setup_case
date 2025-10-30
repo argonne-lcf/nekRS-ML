@@ -14,14 +14,15 @@ ML_TASK=
 DB_NODES=1
 SIM_NODES=1
 TRAIN_NODES=1
+MODEL="dist-gnn"
 # case name is automatically found
 CASE_NAME=
 
 function print_help() {
   echo -e "Usage: $0 <SYSTEM> <NEKRS_HOME> [--venv_path | -v <VENV_PATH>]"\
     "[--nodes | -n <NODES>] [--time | -t <TIME>]\n\t"                     \
-    "[--proj_id | -p <PROJ_ID>] [--deployment | -d <DEPLOYMENT>]"         \
-    "[--ml_task | -m <ML_TASK>] [--client | -c <CLIENT>]\n\t"             \
+    "[--proj_id | -p <PROJ_ID>] [--model | -m <MODEL>] [--deployment | -d <DEPLOYMENT>]"         \
+    "[--ml_task | -ml <ML_TASK>] [--client | -c <CLIENT>]\n\t"             \
     "[--db_nodes | -dn <DB_NODES>] [--sim_nodes | -sn <SIM_NODES>]"       \
     "[--train_nodes | -tn <TRAIN_NODES>] [--help | -h]"
 }
@@ -56,11 +57,15 @@ function parse_args() {
         PROJ_ID=$2
         shift; shift
         ;;
+      --model| -m)
+        MODEL=${2,,}
+        shift; shift
+        ;;
       --deployment| -d)
         DEPLOYMENT=${2,,}
         shift; shift
         ;;
-      --ml_task| -m)
+      --ml_task| -ml)
         ML_TASK=${2,,}
         shift; shift
         ;;
@@ -98,6 +103,10 @@ function check_args() {
   fi
   if [ ! -d ${NEKRS_HOME} ]; then
     echo "NEKRS_HOME does not exist! Check path."
+    exit 1
+  fi
+  if [ ${MODEL} != "dist-gnn" ] && [ ${MODEL} != "sr-gnn" ]; then
+    echo "Invalid model type! Supported options are dist-gnn and sr-gnn."
     exit 1
   fi
   if [ ${DEPLOYMENT} != "clustered" ] && [ ${DEPLOYMENT} != "colocated" ] && [ ${DEPLOYMENT} != "offline" ]; then
@@ -193,6 +202,7 @@ function print_args() {
   echo "NODES      : ${NODES}"
   echo "TIME       : ${TIME}"
   echo "PROJ_ID    : ${PROJ_ID}"
+  echo "MODEL      : ${MODEL}"
   echo "DEPLOYMENT : ${DEPLOYMENT}"
   echo "CLIENT     : ${CLIENT}"
   echo "ML_TASK    : ${ML_TASK}"
@@ -270,14 +280,20 @@ function setup_venv() {
     export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
     if [ ${SYSTEM} == "aurora" ]; then
       pip install torch_geometric==2.5.3
-      git clone https://github.com/rusty1s/pytorch_cluster.git
-      cd pytorch_cluster
-      # Need to force the install to not link with OpenMP, change lines 53-54 to if False:
-      sed -i 's/fopenmp/lgomp/' setup.py
-      CXX=$(which dpcpp) python setup.py install
-      cd ..
-    elif [ ${SYSTEM} == "polaris" ]; then
-      pip install torch-cluster
+    fi  
+
+    if [ ${MODEL} == "sr-gnn" ]; then
+      if [ ${SYSTEM} == "aurora" ]; then
+        cd ../
+        git clone https://github.com/rusty1s/pytorch_cluster.git
+        cd pytorch_cluster
+        # Need to force the install to not link with OpenMP, change lines 53-54 to if False:
+        sed -i 's/fopenmp/lgomp/' setup.py
+        CXX=$(which dpcpp) python setup.py install
+        cd ../..
+      elif [ ${SYSTEM} == "polaris" ]; then
+        pip install torch-cluster
+      fi
     fi
     
     pip install pymech
