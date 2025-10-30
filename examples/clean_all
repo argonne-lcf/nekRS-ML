@@ -14,7 +14,7 @@ cd tgv_gnn_offline_coarse_mesh
 ./clean
 cd ..
 
-cd tgv_gnn_traj_offline
+cd tgv_gnn_offline_traj
 ./clean
 cd ..
 
@@ -22,11 +22,11 @@ cd tgv_gnn_online
 ./clean
 cd ..
 
-cd tgv_gnn_traj_online
+cd tgv_gnn_online_traj
 ./clean
 cd ..
 
-cd tgv_gnn_traj_online_adios 
+cd tgv_gnn_online_traj_adios
 ./clean
 cd ..
 
