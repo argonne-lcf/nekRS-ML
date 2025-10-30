@@ -3,5 +3,5 @@
 if [ $# -lt 2 ]; then
   ../setup_case.sh --help
 else
-  ../setup_case.sh $1 $2 --client adios --deployment colocated ${@:3}
+  ../setup_case.sh $1 $2 --client adios --deployment clustered ${@:3}
 fi

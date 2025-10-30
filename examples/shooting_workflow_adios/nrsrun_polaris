@@ -6,16 +6,32 @@ set -e
 : ${NEKRS_GPU_MPI:=0}
 : ${NEKRS_BACKEND:="CUDA"}
 : ${RANKS_FOR_BUILD:=4}
-: ${SIM_RANKS_PER_NODE:=2}
-: ${TRAIN_RANKS_PER_NODE:=2}
-: ${DEPLOYMENT:="colocated"}
+: ${SIM_RANKS_PER_NODE:=4}
+: ${TRAIN_RANKS_PER_NODE:=4}
+: ${DEVICE_SKIP:=0}
+: ${DEPLOYMENT:="clustered"}
 : ${SIM_NODES:=1}
 : ${TRAIN_NODES:=1}
-: ${SIM_CPU_BIND_LIST:="24:16"}
-: ${TRAIN_CPU_BIND_LIST:="8:1"}
+: ${SIM_CPU_BIND_LIST:="24:16:8:1"}
+: ${TRAIN_CPU_BIND_LIST:="24:16:8:1"}
 : ${INFERENCE_CPU_BIND_LIST:="24:16:8:1"}
 : ${VENV_PATH:=""}
 #--------------------------------------
+
+#--------------------------------------
+# Set variables based on deployment type
+if [ ${DEPLOYMENT} == "colocated"  ]; then
+  SIM_NODES=$nodes
+  TRAIN_NODES=$nodes
+  SIM_RANKS_PER_NODE=2
+  TRAIN_RANKS_PER_NODE=2
+  DEVICE_SKIP=2
+  SIM_CPU_BIND_LIST="24:16"
+  TRAIN_CPU_BIND_LIST="8:1"
+fi
+SIM_PROCS=$(( SIM_NODES * SIM_RANKS_PER_NODE ))
+TRAIN_PROCS=$(( TRAIN_NODES * TRAIN_RANKS_PER_NODE ))
+
 
 #--------------------------------------
 # Copy the .par file
@@ -23,18 +39,11 @@ cp ${1}.par.safe ${1}.par
 
 #--------------------------------------
 # Update the .box file to increase the mesh size linearly with the number of nodes
-SIM_PROCS=$(( SIM_NODES * SIM_RANKS_PER_NODE ))
-NX=$(( 10 ))
-NZ=$(( 2*SIM_PROCS ))
-if [[ "$SIM_NODES" -gt 1 ]]; then
-    LZ=$SIM_NODES
-else
-    LZ=1
-fi
-cp ${1}_safe.box ${1}.box
-sed -i "s/NX/${NX}/g" ${1}.box
+NZ=$(( 20*SIM_PROCS ))
+LZ=$(echo "3.141592653 * $SIM_PROCS" | bc -l)
+cp ${1}.box.safe ${1}.box
 sed -i "s/NZ/${NZ}/g" ${1}.box
-sed -i "s/LZ/${LZ}/g" ${1}.box
+sed -i "s/LZ/${LZ}/g" ${1}.par
 
 #--------------------------------------
 # Run genbox from Nek5000 to generate the .re2 mesh file
@@ -85,31 +94,14 @@ echo "" >> $CFILE
 echo "# Run config" >> $CFILE
 echo "run_args:" >> $CFILE
 echo "    nodes: ${qnodes}" >> $CFILE
-if [ ${DEPLOYMENT} == "colocated"  ]; then
-  SIM_NODES=$nodes
-  TRAIN_NODES=$nodes
-  SIM_PROCS=$(( SIM_NODES * SIM_RANKS_PER_NODE ))
-  TRAIN_PROCS=$(( TRAIN_NODES * TRAIN_RANKS_PER_NODE ))
-  echo "    sim_nodes: ${SIM_NODES}" >> $CFILE
-  echo "    ml_nodes: ${SIM_NODES}" >> $CFILE
-  echo "    simprocs: ${SIM_PROCS}" >> $CFILE
-  echo "    simprocs_pn: ${SIM_RANKS_PER_NODE}" >> $CFILE
-  echo "    mlprocs: ${TRAIN_PROCS}" >> $CFILE
-  echo "    mlprocs_pn: ${TRAIN_RANKS_PER_NODE}" >> $CFILE
-  echo "    sim_cpu_bind: \"list:${SIM_CPU_BIND_LIST}\"" >> $CFILE
-  echo "    ml_cpu_bind: \"list:${TRAIN_CPU_BIND_LIST}\"" >> $CFILE
-elif [ ${DEPLOYMENT} == "clustered"  ]; then
-  SIM_PROCS=$(( SIM_NODES * SIM_RANKS_PER_NODE ))
-  TRAIN_PROCS=$(( TRAIN_NODES * TRAIN_RANKS_PER_NODE ))
-  echo "    sim_nodes: ${SIM_NODES}" >> $CFILE
-  echo "    ml_nodes: ${TRAIN_NODES}" >> $CFILE
-  echo "    simprocs: ${SIM_PROCS}" >> $CFILE
-  echo "    simprocs_pn: ${SIM_RANKS_PER_NODE}" >> $CFILE
-  echo "    mlprocs: ${TRAIN_PROCS}" >> $CFILE
-  echo "    mlprocs_pn: ${TRAIN_RANKS_PER_NODE}" >> $CFILE
-  echo "    sim_cpu_bind: \"list:${SIM_CPU_BIND_LIST}\"" >> $CFILE
-  echo "    ml_cpu_bind: \"list:${SIM_CPU_BIND_LIST}\"" >> $CFILE
-fi
+echo "    sim_nodes: ${SIM_NODES}" >> $CFILE
+echo "    ml_nodes: ${SIM_NODES}" >> $CFILE
+echo "    simprocs: ${SIM_PROCS}" >> $CFILE
+echo "    simprocs_pn: ${SIM_RANKS_PER_NODE}" >> $CFILE
+echo "    mlprocs: ${TRAIN_PROCS}" >> $CFILE
+echo "    mlprocs_pn: ${TRAIN_RANKS_PER_NODE}" >> $CFILE
+echo "    sim_cpu_bind: \"list:${SIM_CPU_BIND_LIST}\"" >> $CFILE
+echo "    ml_cpu_bind: \"list:${TRAIN_CPU_BIND_LIST}\"" >> $CFILE
 echo "" >> $CFILE
 echo "# Simulation config" >> $CFILE
 echo "sim:" >> $CFILE
@@ -119,38 +111,44 @@ echo "    affinity: \"./${SAFF_FILE}\"" >> $CFILE
 echo "" >> $CFILE
 echo "# Trainer config" >> $CFILE
 echo "train:" >> $CFILE
-echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/main.py\"" >> $CFILE
+echo "    executable: \"${NEKRS_HOME}/3rd_party/dist-gnn/main.py\"" >> $CFILE
 #echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
 echo "    affinity: \"\"" >> $CFILE
-if [ ${DEPLOYMENT} == "colocated"  ]; then
-  echo "    arguments: \"device_skip=${SIM_RANKS_PER_NODE} backend=nccl halo_swap_mode=all_to_all_opt online=True client.backend=adios client.adios_transport=WAN consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
-elif [ ${DEPLOYMENT} == "clustered"  ]; then
-  echo "    arguments: \"backend=nccl halo_swap_mode=all_to_all_opt online=True client.backend=adios consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
-fi
+echo "    arguments: \"device_skip=${DEVICE_SKIP} precision=bf16 phase1_steps=200 hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=nccl halo_swap_mode=all_to_all_opt online=True client.backend=adios client.adios_transport=RDMA online_update_freq=20 time_dependency=time_dependent verbose=True\"" >> $CFILE
 echo "" >> $CFILE
 echo "# Inference config" >> $CFILE
 echo "inference:" >> $CFILE
-echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/inference.py\"" >> $CFILE
+echo "    executable: \"${NEKRS_HOME}/3rd_party/dist-gnn/inference.py\"" >> $CFILE
 #echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
 echo "    affinity: \"\"" >> $CFILE
-echo "    arguments: \"model_task=inference rollout_steps=100 backend=nccl halo_swap_mode=all_to_all_opt online=True client.backend=adios consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
+echo "    arguments: \"model_task=inference rollout_steps=200 hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=nccl halo_swap_mode=all_to_all_opt online=True client.backend=adios time_dependency=time_dependent verbose=True\"" >> $CFILE
 
 #--------------------------------------
 # Update the .par file with the ML options
 PFILE=${case}.par
 echo "" >> $PFILE
 echo "[ML]" >> $PFILE
-echo "gnnPolynomialOrder = 7" >> $PFILE
+echo "gnnPolynomialOrder = 2" >> $PFILE
 echo "adiosEngine = SST" >> $PFILE
-echo "adiosTransport = WAN" >> $PFILE
+echo "adiosTransport = RDMA" >> $PFILE
 echo "adiosStream = async" >> $PFILE
 
 #--------------------------------------
 # Generate the run script
 RFILE=run.sh
-echo "#!/bin/bash" > $RFILE
+echo "#!/bin/bash -l" > $RFILE
+echo "##PBS -S /bin/bash" >> $RFILE
+echo "##PBS -N nekrs-ml" >> $RFILE
+echo "##PBS -l walltime=${TIME}:00" >> $RFILE
+echo "##PBS -l select=$NODES" >> $RFILE
+echo "##PBS -l select=home:eagle" >> $RFILE
+echo "##PBS -k doe" >> $RFILE
+echo "##PBS -j oe" >> $RFILE
+echo "##PBS -A $PROJ_ID" >> $RFILE
+echo "##PBS -q $QUEUE" >> $RFILE
+echo "#cd \$PBS_O_WORKDIR" >> $RFILE
 
-echo "export TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
+echo -e "\nexport TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
 
 echo -e "\necho Jobid: \$PBS_JOBID" >>$RFILE
 echo "echo Running on host \`hostname\`" >>$RFILE
@@ -174,7 +172,7 @@ echo "export MPICH_OFI_NIC_POLICY=NUMA" >> $RFILE
 py_version=`python --version`
 parsed_version=$(echo ${py_version#Python } | awk -F. '{print $1"."$2}')
 echo -e "\nexport PYTHONPATH=\$PYTHONPATH:${NEKRS_HOME}/lib/python${parsed_version}/site-packages" >> $RFILE
-echo "#export SstVerbose=1" >> $RFILE
+echo "export SstVerbose=1" >> $RFILE
 echo "export OMP_PROC_BIND=spread" >> $RFILE
 echo "export OMP_PLACES=threads" >> $RFILE
 echo "if ls *.sst 1> /dev/null 2>&1" >> $RFILE
@@ -191,9 +189,9 @@ echo "fi" >> $RFILE
 echo -e "\n# precompilation" >> $RFILE
 echo "if [ ! -d .cache ]; then" >> $RFILE
 echo "  echo Cleaning up the cache" >> $RFILE
-echo "  rm -r .cache" >> $RFILE
+echo "  rm -rf .cache" >> $RFILE
 echo "fi" >> $RFILE
-CMD_build="mpiexec -n ${RANKS_FOR_BUILD} -ppn ${RANKS_FOR_BUILD} --cpu-bind list:24:16:8:1 -- ./${SAFF_FILE} ${RANKS_FOR_BUILD} $bin --setup ${case} --backend ${NEKRS_BACKEND} --device-id 0 $extra_args --build-only ${RANKS_FOR_BUILD}"
+CMD_build="mpiexec -n ${RANKS_FOR_BUILD} -ppn ${RANKS_FOR_BUILD} --cpu-bind list:${SIM_CPU_BIND_LIST} -- ./${SAFF_FILE} ${RANKS_FOR_BUILD} $bin --setup ${case} --backend ${NEKRS_BACKEND} --device-id 0 $extra_args --build-only ${RANKS_FOR_BUILD}"
 add_build_CMD "$RFILE" "$CMD_build" "$TOTAL_RANKS"
 
 echo -e "\n# actual run" >>$RFILE

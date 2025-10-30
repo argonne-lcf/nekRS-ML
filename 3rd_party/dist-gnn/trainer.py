@@ -200,7 +200,7 @@ class Trainer:
         self.iteration = 0
         if self.cfg.restart:
             if RANK == 0: log.info(f'Loading model checkpoint from {self.ckpt_path}')
-            ckpt = torch.load(self.ckpt_path)
+            ckpt = torch.load(self.ckpt_path, weights_only=False)
             self.model.load_state_dict(ckpt['model_state_dict'])
             self.iteration = ckpt['iteration'] + 1
             self.loss_hist_train = ckpt['loss_hist_train']
@@ -217,7 +217,7 @@ class Trainer:
                 self.loss_hist_val = loss_hist_val_new
         if self.cfg.model_task == 'inference':
             if RANK == 0: log.info(f'Loading model checkpoint from {self.model_path}')
-            ckpt = torch.load(self.model_path)
+            ckpt = torch.load(self.model_path, weights_only=False)
             self.model.load_state_dict(ckpt['state_dict'])
 
         # ~~~~ Set loss function
@@ -705,7 +705,7 @@ class Trainer:
                     edge_freq = create_halo_info_par.get_edge_weights(self.data_reduced, halo_info_glob)
                     edge_weight = (1.0/edge_freq).to(self.torch_dtype)
                     if RANK ==0: log.info('[RANK %d]: computed edge weights in %f sec' %(RANK,time.time()-tic))
-                    self.client.put_array(f'edge_weight_rank_{RANK}_size_{SIZE}', edge_weight.numpy())
+                    self.client.put_array(f'edge_weight_rank_{RANK}_size_{SIZE}', edge_weight.to(torch.float32).numpy())
 
             self.neighboring_procs = np.unique(halo_info[:,3])
             n_nodes_local = self.data_reduced.pos.shape[0]

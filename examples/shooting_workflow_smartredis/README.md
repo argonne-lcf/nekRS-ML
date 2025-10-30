@@ -30,7 +30,6 @@ Then, simply execute one of the build scripts contained in the repository.
 The HPC systems currently supported are:
 * [Polaris](https://docs.alcf.anl.gov/polaris/) (Argonne LCF)
 * [Aurora](https://docs.alcf.anl.gov/aurora/) (Argonne LCF) 
-* [Crux](https://docs.alcf.anl.gov/crux/) (Argonne LCF)
 
 For example, to build nekRS-ML on Aurora, execute from a compute node
 

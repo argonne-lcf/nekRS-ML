@@ -1,6 +1,31 @@
-      subroutine usrdat2   ! This routine to modify mesh coordinates
+c-----------------------------------------------------------------------
+      subroutine usrdat0
+
       include 'SIZE'
       include 'TOTAL'
+      include 'CASEDATA'
+
+      call nekrs_registerPtr('betaY', betaY)
+      call nekrs_registerPtr('xLength', xLength)
+      call nekrs_registerPtr('zLength', zLength)
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat2()   ! This routine to modify mesh coordinates
+      include 'SIZE'
+      include 'TOTAL'
+      include 'CASEDATA'
+
+      call rescale_x(xm1,0.0,xLength)
+      call rescale_x(ym1,-1.0,1.0)
+      call rescale_x(zm1,0.0,zLength)
+
+      ntot = nx1*ny1*nz1*nelt
+
+      do i=1,ntot
+         ym1(i,1,1,1) = tanh(betaY*ym1(i,1,1,1))/tanh(betaY)
+      enddo
 
       do iel=1,nelt
       do ifc=1,2*ndim

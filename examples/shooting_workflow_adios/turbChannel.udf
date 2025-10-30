@@ -46,16 +46,7 @@ void useric(nrs_t *nrs)
     dfloat mue;
     platform->options.getArgs("VISCOSITY", mue);
 
-    platform->linAlg->rescale(0.0, xLength, mesh->o_x, platform->comm.mpiComm);
-    platform->linAlg->rescale(0.0, 1.0, mesh->o_y, platform->comm.mpiComm);
-    platform->linAlg->rescale(0.0, zLength, mesh->o_z, platform->comm.mpiComm);
-
     auto [x, y, z] = mesh->xyzHost();
-
-    for (int i = 0; i < mesh->Nlocal; i++) {
-      y[i] = tanh(betaY * (2*y[i] - 1)) / tanh(betaY);
-    }
-    mesh->o_y.copyFrom(y.data());
 
     std::vector<dfloat> U(mesh->dim * nrs->fieldOffset, 0.0);
     for (int i = 0; i < mesh->Nlocal; i++) {
@@ -82,6 +73,11 @@ void UDF_Setup0(MPI_Comm comm, setupAide &options)
   platform->par->extract("casedata", "zLength", zLength);
   platform->par->extract("casedata", "xLength", xLength);
   platform->par->extract("casedata", "betaY", betaY);
+  if (platform->options.compareArgs("BUILD ONLY", "FALSE")) {
+    *nek::ptr<double>("betaY") = betaY;
+    *nek::ptr<double>("xLength") = xLength;
+    *nek::ptr<double>("zLength") = zLength;
+  }
 }
 
 void UDF_Setup()
