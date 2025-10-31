@@ -213,7 +213,7 @@ class NekRSMLTest(NekRSTest):
 
     def setupcase_cmd(self):
         return list_to_cmd([
-            os.path.join(Path(self.nekrs_home), "examples", "setup_case.sh"),
+            os.path.join(Path(self.nekrs_home), "bin", "setup_case"),
             self.current_system.name,
             self.nekrs_home,
             "--venv_path",
