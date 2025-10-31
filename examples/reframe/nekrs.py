@@ -87,38 +87,25 @@ class NekRSBuild(CompileOnlyTest):
         )
 
 
-# Encapsulate case-specific info
-class NekRSCase:
-    def __init__(self, name, directory=None):
-        self._name = name
-        if directory is None:
-            directory = name
-        self._directory = os.path.join(Path(os.getcwd()).parent, directory)
-
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def directory(self):
-        return self._directory
-
-
 class NekRSTest(RunOnlyTest):
     nekrs_build = fixture(NekRSBuild, scope="environment")
 
     def __init__(self, case, directory, nn, rpn):
+        self.case_name = case
+        self.case_dir = directory
+
         super().__init__(num_nodes=nn, ranks_per_node=rpn)
         self.descr = "nekRS-ML test"
         self.maintainers = ["kris.rowe@anl.gov"]
-        self.sourcesdir = directory
-        self.case_name = case
         self.readonly_files = [f"{self.case_name}.re2"]
 
     @run_after("setup")
     def set_paths_exec(self):
         self.nekrs_home = os.path.realpath(self.nekrs_build.install_path)
         self.nekrs_binary = os.path.join(self.nekrs_build.binary_path, "nekrs")
+        self.sourcesdir = os.path.join(
+            self.nekrs_build.install_path, "examples", self.case_dir
+        )
 
     def set_environment(self):
         self.env_vars |= {
@@ -180,7 +167,8 @@ class NekRSMLTest(NekRSTest):
 
         self.gnn_kwargs = kwargs.copy()
         super().__init__(
-            NekRSCase(self.gnn_kwargs["case"], self.gnn_kwargs["directory"]),
+            self.gnn_kwargs["case"],
+            self.gnn_kwargs["directory"],
             self.gnn_kwargs["nn"],
             self.gnn_kwargs["rpn"],
         )
