@@ -159,17 +159,30 @@ class NekRSTest(RunOnlyTest):
         )
 
 
+class NekRSMLOnlineTest(NekRSTest):
+    pass
+
+
 class NekRSMLTest(NekRSTest):
-    def __init__(self, nekrs_case, **kwargs):
+    def __init__(self, **kwargs):
         # Check if the required arguments are in kwargs:
-        required_args = ["nn", "rpn", "time_dependency", "target_loss"]
+        required_args = [
+            "case",
+            "directory",
+            "nn",
+            "rpn",
+            "time_dependency",
+            "target_loss",
+        ]
         for arg in required_args:
             if arg not in kwargs:
                 raise KeyError(f"Required kwarg {arg} was not found.")
 
         self.gnn_kwargs = kwargs.copy()
         super().__init__(
-            nekrs_case, self.gnn_kwargs["nn"], self.gnn_kwargs["rpn"]
+            NekRSCase(self.gnn_kwargs["case"], self.gnn_kwargs["directory"]),
+            self.gnn_kwargs["nn"],
+            self.gnn_kwargs["rpn"],
         )
 
     @cache
