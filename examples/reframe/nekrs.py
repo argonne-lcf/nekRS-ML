@@ -107,13 +107,13 @@ class NekRSCase:
 class NekRSTest(RunOnlyTest):
     nekrs_build = fixture(NekRSBuild, scope="environment")
 
-    def __init__(self, nekrs_case, nn, rpn):
+    def __init__(self, case, directory, nn, rpn):
         super().__init__(num_nodes=nn, ranks_per_node=rpn)
         self.descr = "nekRS-ML test"
         self.maintainers = ["kris.rowe@anl.gov"]
-        self.case_name = nekrs_case.name
-        self.sourcesdir = nekrs_case.directory
-        self.readonly_files = [f"{nekrs_case.name}.re2"]
+        self.sourcesdir = directory
+        self.case_name = case
+        self.readonly_files = [f"{self.case_name}.re2"]
 
     @run_after("setup")
     def set_paths_exec(self):

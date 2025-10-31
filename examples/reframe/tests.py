@@ -11,7 +11,7 @@ class NekRSKershawTest(NekRSTest):
 
     def __init__(self):
         super().__init__(
-            NekRSCase("kershaw"), nn=self.num_nodes, rpn=self.ranks_per_node
+            "kershaw", "kershaw", nn=self.num_nodes, rpn=self.ranks_per_node
         )
 
     # Match "flops/rank" at start of line to avoid matching output during setup.
