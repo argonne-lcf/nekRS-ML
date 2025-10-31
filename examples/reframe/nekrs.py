@@ -4,6 +4,7 @@ import reframe.utility.sanity as sn
 import reframe.utility.typecheck as typ
 from reframe.core.backends import getlauncher
 from pathlib import Path
+from functools import cache
 from core import CompileOnlyTest, RunOnlyTest
 import os.path
 
@@ -16,6 +17,7 @@ def grep(pattern, file):
     return subprocess.run(
         [
             "grep",
+            "-i",
             pattern,
             file,
         ],
@@ -166,43 +168,65 @@ class NekRSMLTest(NekRSTest):
             nekrs_case, self.gnn_kwargs["nn"], self.gnn_kwargs["rpn"]
         )
 
-    def set_prerun_cmds(self):
-        # Get mpiexec command and options:
-        mpiexec = (
-            self.job.launcher.command(self.job) + self.job.launcher.options
-        )
+    @cache
+    def get_mpiexec(self):
+        return self.job.launcher.command(self.job) + self.job.launcher.options
 
-        # Run nekrs:
-        super().set_executable_options()
-        nekrs = [self.executable] + self.executable_opts
-        run_nekrs = list_to_cmd(mpiexec + nekrs)
-
-        # Find order of the case:
+    @cache
+    def get_order(self):
         par_file = os.path.join(self.sourcesdir, f"{self.case_name}.par")
         result = grep("gnnPolynomialOrder", par_file)
         if result.stdout is None:
             result = grep("polynomialOrder", par_file)
-        order = int(result.stdout.split()[2])
+        return int(result.stdout.split()[2])
 
-        # Setup the gnn case:
-        venv_path = os.path.join(self.stagedir, "_env")
-        run_setup_case = list_to_cmd([
+    @cache
+    def get_venv_path(self):
+        return os.path.join(self.stagedir, "_env")
+
+    @cache
+    def get_gnn_output_dir(self):
+        order = self.get_order()
+        return os.path.join(self.stagedir, f"gnn_outputs_poly_{order}")
+
+    @cache
+    def get_traj_root(self):
+        order = self.get_order()
+        return os.path.join(f"traj_poly_{order}", "tinit_0.000000_dtfactor_10")
+
+    @cache
+    def get_traj_dir(self):
+        return os.path.join(self.stagedir, self.get_traj_root())
+
+    @cache
+    def get_check_input_files(self):
+        return os.path.join(
+            self.nekrs_home, "3rd_party", "dist-gnn", "check_input_files.py"
+        )
+
+    def nekrs_cmd(self):
+        # Set nekrs executable options used in NekRSTest class.
+        super().set_executable_options()
+        return list_to_cmd(
+            self.get_mpiexec() + [self.executable] + self.executable_opts
+        )
+
+    def setupcase_cmd(self):
+        return list_to_cmd([
             os.path.join(Path(self.nekrs_home), "examples", "setup_case.sh"),
             self.current_system.name,
             self.nekrs_home,
             "--venv_path",
-            venv_path,
+            self.get_venv_path(),
         ])
 
-        run_source_venv = list_to_cmd([
+    def source_cmd(self):
+        return list_to_cmd([
             "source",
-            os.path.join(venv_path, "bin", "activate"),
+            os.path.join(self.get_venv_path(), "bin", "activate"),
         ])
 
-        # Generate halo_info
-        self.gnn_output_dir = os.path.join(
-            self.stagedir, f"gnn_outputs_poly_{order}"
-        )
+    def check_halo_info_cmd(self):
         halo_info = [
             "python",
             os.path.join(
@@ -212,58 +236,61 @@ class NekRSMLTest(NekRSTest):
                 "create_halo_info_par.py",
             ),
             "--POLY",
-            str(order),
+            str(self.get_order()),
             "--PATH",
-            self.gnn_output_dir,
+            self.get_gnn_output_dir(),
         ]
-        run_halo_info = list_to_cmd(mpiexec + halo_info)
+        return list_to_cmd(self.get_mpiexec() + halo_info)
 
-        # Check GNN input files
-        check_input_file = os.path.join(
-            self.nekrs_home, "3rd_party", "dist-gnn", "check_input_files.py"
-        )
-        run_check_input = list_to_cmd([
+    def check_input_files_cmd(self):
+        return list_to_cmd([
             "python",
-            check_input_file,
+            self.get_check_input_files(),
             "--REF",
             os.path.join(self.sourcesdir, "ref"),
             "--PATH",
-            self.gnn_output_dir,
+            self.get_gnn_output_dir(),
         ])
 
-        # Check the GNN trajectory if the case is of `traj` type.
-        run_check_traj = []
-        root = os.path.join(f"traj_poly_{order}", "tinit_0.000000_dtfactor_10")
-        self.traj_dir = os.path.join(self.stagedir, root)
-        if self.gnn_kwargs["time_dependency"] == "time_dependent":
-            ranks = self.gnn_kwargs["nn"] * self.gnn_kwargs["rpn"]
-            for rank in range(ranks):
-                suffix = f"data_rank_{rank}_size_{ranks}"
-                cmd = list_to_cmd([
-                    "python",
-                    check_input_file,
-                    "--REF",
-                    os.path.join(self.sourcesdir, "ref", root, suffix),
-                    "--PATH",
-                    os.path.join(self.traj_dir, suffix),
-                ])
-                run_check_traj.append(cmd)
+    def check_traj_cmd(self):
+        # Check the GNN traj if the case is of `traj` type.
+        if self.gnn_kwargs["time_dependency"] != "time_dependent":
+            return []
 
+        cmds = []
+        ranks = self.gnn_kwargs["nn"] * self.gnn_kwargs["rpn"]
+        for rank in range(ranks):
+            suffix = f"data_rank_{rank}_size_{ranks}"
+            cmd = list_to_cmd([
+                "python",
+                self.get_check_input_files(),
+                "--REF",
+                os.path.join(
+                    self.sourcesdir, "ref", self.get_traj_root(), suffix
+                ),
+                "--PATH",
+                os.path.join(self.get_traj_dir(), suffix),
+            ])
+            cmds.append(cmd)
+        return cmds
+
+    def set_prerun_cmds(self):
         # Run all the pre-training steps
-        self.prerun_cmds = [
-            run_nekrs,
-            run_setup_case,
-            run_source_venv,
-            run_halo_info,
-            run_check_input,
-        ] + run_check_traj
+        self.prerun_cmds += [
+            self.nekrs_cmd(),
+            self.setupcase_cmd(),
+            self.source_cmd(),
+            self.check_halo_info_cmd(),
+            self.check_input_files_cmd(),
+            *self.check_traj_cmd(),
+        ]
 
     def set_executable_options(self):
-        main = [
+        self.executable = list_to_cmd([
             "python",
             os.path.join(self.nekrs_home, "3rd_party", "dist-gnn", "main.py"),
-        ]
-        self.executable = list_to_cmd(main)
+        ])
+
         # FIXME: master_addr=$head_node
         self.executable_opts = [
             # FIXME: backend should be calculated.
@@ -272,8 +299,8 @@ class NekRSMLTest(NekRSTest):
             "layer_norm=True",
             f"target_loss={self.gnn_kwargs['target_loss']}",
             f"time_dependency={self.gnn_kwargs['time_dependency']}",
-            f"gnn_outputs_path={self.gnn_output_dir}",
-            f"traj_data_path={self.traj_dir}",
+            f"gnn_outputs_path={self.get_gnn_output_dir()}",
+            f"traj_data_path={self.get_traj_dir()}",
         ]
 
     @run_before("run")
