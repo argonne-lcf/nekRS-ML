@@ -50,6 +50,7 @@ site_configuration = {
                         "backend": "DPCPP",
                     },
                     "env_vars": [
+                        ["TZ", "/usr/share/zoneinfo/US/Central"],
                         ["FI_CXI_RX_MATCH_MODE", "hybrid"],
                         ["UR_L0_USE_COPY_ENGINE", 0],
                         ["CCL_ALLTOALLV_MONOLITHIC_KERNEL", 0],
