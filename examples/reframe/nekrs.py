@@ -109,7 +109,6 @@ class NekRSTest(RunOnlyTest):
         super().__init__(num_nodes=nn, ranks_per_node=rpn)
         self.descr = "nekRS-ML test"
         self.maintainers = ["kris.rowe@anl.gov"]
-        self.tags = {"all"}
         self.case_name = nekrs_case.name
         self.sourcesdir = nekrs_case.directory
         self.readonly_files = [f"{nekrs_case.name}.re2"]
@@ -166,7 +165,6 @@ class NekRSMLTest(NekRSTest):
         super().__init__(
             nekrs_case, self.gnn_kwargs["nn"], self.gnn_kwargs["rpn"]
         )
-        self.tags |= {"ml"}
 
     def set_prerun_cmds(self):
         # Get mpiexec command and options:
