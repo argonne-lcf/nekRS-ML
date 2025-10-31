@@ -1,7 +1,10 @@
 #!/bin/bash
 
+SYSTEM=$1
+NEKRS_HOME=$2
+
 if [ $# -lt 2 ]; then
-  ../setup_case.sh --help
+  $NEKRS_HOME/bin/setup_case --help
 else
-  ../setup_case.sh $1 $2 --client smartredis --deployment colocated ${@:3}
+  $NEKRS_HOME/bin/setup_case $SYSTEM $NEKRS_HOME --client smartredis --deployment colocated ${@:3}
 fi
