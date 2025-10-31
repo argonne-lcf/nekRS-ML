@@ -161,8 +161,12 @@ class NekRSTest(RunOnlyTest):
 
 class NekRSMLTest(NekRSTest):
     def __init__(self, nekrs_case, **kwargs):
-        # FIXME: check if the required arguments are in kwargs.
-        # nn, rpn, time_dependency, target_loss
+        # Check if the required arguments are in kwargs:
+        required_args = ["nn", "rpn", "time_dependency", "target_loss"]
+        for arg in required_args:
+            if arg not in kwargs:
+                raise KeyError(f"Required kwarg {arg} was not found.")
+
         self.gnn_kwargs = kwargs.copy()
         super().__init__(
             nekrs_case, self.gnn_kwargs["nn"], self.gnn_kwargs["rpn"]
