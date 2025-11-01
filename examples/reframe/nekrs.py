@@ -89,20 +89,20 @@ class NekRSTest(RunOnlyTest):
     nekrs_build = fixture(NekRSBuild, scope="environment")
 
     def __init__(self, case, directory, nn, rpn):
-        self.case_name = case
-        self.case_dir = directory
+        self.nekrs_case_name = case
+        self.nekrs_case_dir = directory
 
         super().__init__(num_nodes=nn, ranks_per_node=rpn)
         self.descr = "nekRS-ML test"
         self.maintainers = ["kris.rowe@anl.gov"]
-        self.readonly_files = [f"{self.case_name}.re2"]
+        self.readonly_files = [f"{self.nekrs_case_name}.re2"]
 
     @run_after("setup")
     def set_paths_exec(self):
         self.nekrs_home = os.path.realpath(self.nekrs_build.install_path)
         self.nekrs_binary = os.path.join(self.nekrs_build.binary_path, "nekrs")
         self.sourcesdir = os.path.join(
-            self.nekrs_build.install_path, "examples", self.case_dir
+            self.nekrs_build.install_path, "examples", self.nekrs_case_dir
         )
 
     def set_environment(self):
@@ -125,7 +125,7 @@ class NekRSTest(RunOnlyTest):
         self.executable = f"{self.nekrs_binary}"
         backend = self.current_partition.extras["backend"]
         self.executable_opts = [
-            f"--setup {self.case_name}",
+            f"--setup {self.nekrs_case_name}",
             f"--backend {backend}",
         ]
 
@@ -144,10 +144,6 @@ class NekRSTest(RunOnlyTest):
         )
 
 
-class NekRSMLOnlineTest(NekRSTest):
-    pass
-
-
 class NekRSMLTest(NekRSTest):
     def __init__(self, **kwargs):
         # Check if the required arguments are in kwargs:
@@ -163,12 +159,12 @@ class NekRSMLTest(NekRSTest):
             if arg not in kwargs:
                 raise KeyError(f"Required kwarg {arg} was not found.")
 
-        self.gnn_kwargs = kwargs.copy()
+        self.ml_kwargs = kwargs.copy()
         super().__init__(
-            self.gnn_kwargs["case"],
-            self.gnn_kwargs["directory"],
-            self.gnn_kwargs["nn"],
-            self.gnn_kwargs["rpn"],
+            self.ml_kwargs["case"],
+            self.ml_kwargs["directory"],
+            self.ml_kwargs["nn"],
+            self.ml_kwargs["rpn"],
         )
 
     @cache
@@ -177,7 +173,7 @@ class NekRSMLTest(NekRSTest):
 
     @cache
     def get_order(self):
-        par_file = os.path.join(self.sourcesdir, f"{self.case_name}.par")
+        par_file = os.path.join(self.sourcesdir, f"{self.nekrs_case_name}.par")
         result = grep("gnnPolynomialOrder", par_file)
         if result.stdout is None:
             result = grep("polynomialOrder", par_file)
@@ -257,11 +253,11 @@ class NekRSMLTest(NekRSTest):
 
     def check_traj_cmd(self):
         # Check the GNN traj if the case is of `traj` type.
-        if self.gnn_kwargs["time_dependency"] != "time_dependent":
+        if self.ml_kwargs["time_dependency"] != "time_dependent":
             return []
 
         cmds = []
-        ranks = self.gnn_kwargs["nn"] * self.gnn_kwargs["rpn"]
+        ranks = self.ml_kwargs["nn"] * self.ml_kwargs["rpn"]
         for rank in range(ranks):
             suffix = f"data_rank_{rank}_size_{ranks}"
             cmd = list_to_cmd([
@@ -300,8 +296,8 @@ class NekRSMLTest(NekRSTest):
             "backend=xccl",
             "halo_swap_mode=all_to_all_opt",
             "layer_norm=True",
-            f"target_loss={self.gnn_kwargs['target_loss']}",
-            f"time_dependency={self.gnn_kwargs['time_dependency']}",
+            f"target_loss={self.ml_kwargs['target_loss']}",
+            f"time_dependency={self.ml_kwargs['time_dependency']}",
             f"gnn_outputs_path={self.get_gnn_output_dir()}",
             f"traj_data_path={self.get_traj_dir()}",
         ]
