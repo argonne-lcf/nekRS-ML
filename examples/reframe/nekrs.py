@@ -1,8 +1,6 @@
 import subprocess
 import reframe as rfm
 import reframe.utility.sanity as sn
-import reframe.utility.typecheck as typ
-from reframe.core.backends import getlauncher
 from pathlib import Path
 from functools import cache
 from core import CompileOnlyTest, RunOnlyTest
