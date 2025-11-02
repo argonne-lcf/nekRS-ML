@@ -93,7 +93,7 @@ class NekRSTest(RunOnlyTest):
         self.nekrs_case_dir = directory
 
         super().__init__(num_nodes=nn, ranks_per_node=rpn)
-        self.descr = "nekRS-ML test"
+        self.descr = "NekRS test"
         self.maintainers = ["kris.rowe@anl.gov"]
         self.readonly_files = [f"{self.nekrs_case_name}.re2"]
 
@@ -159,6 +159,7 @@ class NekRSMLTest(NekRSTest):
             if arg not in kwargs:
                 raise KeyError(f"Required kwarg {arg} was not found.")
 
+        self.descr = "NekRS-ML test"
         self.ml_kwargs = kwargs.copy()
         super().__init__(
             self.ml_kwargs["case"],
