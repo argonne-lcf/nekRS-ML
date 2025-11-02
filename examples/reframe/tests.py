@@ -1,6 +1,6 @@
 import reframe as rfm
 import reframe.utility.sanity as sn
-from nekrs import NekRSTest, NekRSMLTest
+from nekrs import NekRSTest, NekRSMLOfflineTest
 import os
 
 
@@ -33,7 +33,7 @@ class NekRSKershawTest(NekRSTest):
 
 
 @rfm.simple_test
-class NekRSTGVOffline(NekRSMLTest):
+class NekRSTGVOffline(NekRSMLOfflineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([2])
 
@@ -50,7 +50,7 @@ class NekRSTGVOffline(NekRSMLTest):
 
 
 @rfm.simple_test
-class NekRSTGVOfflineCoarseMesh(NekRSMLTest):
+class NekRSTGVOfflineCoarseMesh(NekRSMLOfflineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([2])
 
@@ -67,7 +67,7 @@ class NekRSTGVOfflineCoarseMesh(NekRSMLTest):
 
 
 @rfm.simple_test
-class NekRSTGVOfflineTraj(NekRSMLTest):
+class NekRSTGVOfflineTraj(NekRSMLOfflineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([4])
 

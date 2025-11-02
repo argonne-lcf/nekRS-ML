@@ -25,6 +25,12 @@ def grep(pattern, file):
     )
 
 
+def check_args(user_args, required_args):
+    for arg in required_args:
+        if arg not in user_args:
+            raise KeyError(f"Required kwarg {arg} was not found.")
+
+
 class SmartRedisBuild(CompileOnlyTest):
     def __init__(self):
         super().__init__()
@@ -147,20 +153,11 @@ class NekRSTest(RunOnlyTest):
 
 class NekRSMLTest(NekRSTest):
     def __init__(self, **kwargs):
-        # Check if the required arguments are in kwargs:
-        required_args = [
-            "case",
-            "directory",
-            "nn",
-            "rpn",
-            "time_dependency",
-            "target_loss",
-        ]
-        for arg in required_args:
-            if arg not in kwargs:
-                raise KeyError(f"Required kwarg {arg} was not found.")
+        # Check if the required arguments are in kwargs.
+        check_args(
+            kwargs, ["case", "directory", "nn", "rpn", "time_dependency"]
+        )
 
-        self.descr = "NekRS-ML test"
         self.ml_kwargs = kwargs.copy()
         super().__init__(
             self.ml_kwargs["case"],
@@ -168,6 +165,7 @@ class NekRSMLTest(NekRSTest):
             self.ml_kwargs["nn"],
             self.ml_kwargs["rpn"],
         )
+        self.descr = "NekRS-ML test"
 
     @cache
     def get_mpiexec(self):
@@ -266,8 +264,9 @@ class NekRSMLTest(NekRSTest):
         if self.ml_kwargs["time_dependency"] != "time_dependent":
             return []
 
+        ranks = self.get_ranks()
         cmds = []
-        for rank in range(self.get_ranks()):
+        for rank in range(ranks):
             suffix = f"data_rank_{rank}_size_{ranks}"
             cmd = list_to_cmd([
                 "python",
@@ -282,16 +281,20 @@ class NekRSMLTest(NekRSTest):
             cmds.append(cmd)
         return cmds
 
-    def set_prerun_cmds(self):
-        # Run all the pre-training steps
-        self.prerun_cmds += [
-            self.nekrs_cmd(),
-            self.setupcase_cmd(),
-            self.source_cmd(),
-            self.check_halo_info_cmd(),
-            self.check_input_files_cmd(),
-            *self.check_traj_cmd(),
-        ]
+    def set_environment(self):
+        super().set_environment()
+
+    def set_launcher_options(self):
+        super().set_launcher_options()
+
+
+class NekRSMLOfflineTest(NekRSMLTest):
+    def __init__(self, **kwargs):
+        # Check if the required arguments are in kwargs.
+        check_args(kwargs, ["target_loss"])
+
+        super().__init__(**kwargs)
+        self.descr = "NekRS-ML offline test"
 
     def set_executable_options(self):
         self.executable = list_to_cmd([
@@ -311,10 +314,20 @@ class NekRSMLTest(NekRSTest):
             f"traj_data_path={self.get_traj_dir()}",
         ]
 
+    def set_prerun_cmds(self):
+        # Run all the pre-training steps
+        self.prerun_cmds += [
+            self.nekrs_cmd(),
+            self.setupcase_cmd(),
+            self.source_cmd(),
+            self.check_halo_info_cmd(),
+            self.check_input_files_cmd(),
+            *self.check_traj_cmd(),
+        ]
+
     @run_before("run")
     def setup_run(self):
         super().set_environment()
-        # sets launcher and options which are used in the subsequent steps.
         super().set_launcher_options()
         # sets self.gnn_output_dir
         self.set_prerun_cmds()
