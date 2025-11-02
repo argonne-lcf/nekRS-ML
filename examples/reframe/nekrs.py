@@ -217,7 +217,7 @@ class NekRSMLTest(NekRSTest):
             + extra_args
         )
 
-    def setupcase_cmd(self, extra_args=[]):
+    def setup_case_cmd(self, extra_args=[]):
         return list_to_cmd([
             os.path.join(Path(self.nekrs_home), "bin", "setup_case"),
             self.current_system.name,
@@ -318,7 +318,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
         # Run all the pre-training steps
         self.prerun_cmds += [
             self.nekrs_cmd(),
-            self.setupcase_cmd(),
+            self.setup_case_cmd(),
             self.source_cmd(),
             self.check_halo_info_cmd(),
             self.check_input_files_cmd(),
