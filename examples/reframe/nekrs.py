@@ -205,6 +205,10 @@ class NekRSMLTest(NekRSTest):
             self.nekrs_home, "3rd_party", "dist-gnn", "check_input_files.py"
         )
 
+    @cache
+    def get_ranks(self):
+        return self.ml_kwargs["nn"] * self.ml_kwargs["rpn"]
+
     def nekrs_cmd(self, extra_args=[]):
         # Set nekrs executable options used in NekRSTest class.
         super().set_executable_options()
@@ -263,8 +267,7 @@ class NekRSMLTest(NekRSTest):
             return []
 
         cmds = []
-        ranks = self.ml_kwargs["nn"] * self.ml_kwargs["rpn"]
-        for rank in range(ranks):
+        for rank in range(self.get_ranks()):
             suffix = f"data_rank_{rank}_size_{ranks}"
             cmd = list_to_cmd([
                 "python",
