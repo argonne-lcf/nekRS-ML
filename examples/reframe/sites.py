@@ -32,7 +32,7 @@ site_configuration = {
                         "PrgEnv-Aurora",
                     ],
                     "extras": {
-                        "ranks_per_node": 12,
+                        "ranks_per_node": 16,
                     },
                 },
                 {
@@ -48,9 +48,11 @@ site_configuration = {
                         "ranks_per_node": 12,
                         "cpu_bind_list": "list:1:8:16:24:32:40:53:60:68:76:84:92",
                         "backend": "DPCPP",
+                        "nrs_affinity": "gpu_tile_compact.sh",
                     },
                     "env_vars": [
                         ["TZ", "/usr/share/zoneinfo/US/Central"],
+                        ["ZE_FLAT_DEVICE_HIERARCHY", "COMPOSITE"],
                         ["FI_CXI_RX_MATCH_MODE", "hybrid"],
                         ["UR_L0_USE_COPY_ENGINE", 0],
                         ["CCL_ALLTOALLV_MONOLITHIC_KERNEL", 0],

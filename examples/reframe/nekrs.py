@@ -121,12 +121,13 @@ class NekRSTest(RunOnlyTest):
             f"--cpu-bind={cpu_bind_list}",
         ]
 
-    def set_executable_options(self):
-        self.executable = f"{self.nekrs_binary}"
+    def set_executable_options(self, extra_args=[]):
+        self.executable = f"{self.current_partition.extras['nrs_affinity']} {self.nekrs_binary}"
         backend = self.current_partition.extras["backend"]
         self.executable_opts = [
             f"--setup {self.nekrs_case_name}",
             f"--backend {backend}",
+            "--device-id 0",
         ]
 
     @run_before("run")
