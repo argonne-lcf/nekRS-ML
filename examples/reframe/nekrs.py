@@ -121,7 +121,7 @@ class NekRSTest(RunOnlyTest):
             f"--cpu-bind={cpu_bind_list}",
         ]
 
-    def set_executable_options(self, extra_args=[]):
+    def set_executable_options(self):
         self.executable = f"{self.current_partition.extras['nrs_affinity']} {self.nekrs_binary}"
         backend = self.current_partition.extras["backend"]
         self.executable_opts = [
@@ -205,20 +205,24 @@ class NekRSMLTest(NekRSTest):
             self.nekrs_home, "3rd_party", "dist-gnn", "check_input_files.py"
         )
 
-    def nekrs_cmd(self):
+    def nekrs_cmd(self, extra_args=[]):
         # Set nekrs executable options used in NekRSTest class.
         super().set_executable_options()
         return list_to_cmd(
-            self.get_mpiexec() + [self.executable] + self.executable_opts
+            self.get_mpiexec()
+            + [self.executable]
+            + self.executable_opts
+            + extra_args
         )
 
-    def setupcase_cmd(self):
+    def setupcase_cmd(self, extra_args=[]):
         return list_to_cmd([
             os.path.join(Path(self.nekrs_home), "bin", "setup_case"),
             self.current_system.name,
             self.nekrs_home,
             "--venv_path",
             self.get_venv_path(),
+            *extra_args,
         ])
 
     def source_cmd(self):
