@@ -151,7 +151,7 @@ class NekRSTest(RunOnlyTest):
         self.job.launcher.options = [
             f"-np {total_ranks}",
             f"-ppn {ranks_per_node}",
-            f"--cpu-bind={cpu_bind_list}",
+            f"--cpu-bind=list:{cpu_bind_list}",
         ]
 
     def set_executable_options(self):
@@ -166,8 +166,8 @@ class NekRSTest(RunOnlyTest):
     @run_before("run")
     def setup_run(self):
         self.set_environment()
-        self.set_executable_options()
         self.set_launcher_options()
+        self.set_executable_options()
 
     @sanity_function
     def check_exit_code(self):
