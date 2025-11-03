@@ -5,7 +5,7 @@ set -a
 SYSTEM=
 NEKRS_HOME=
 VENV_PATH="../_env"
-NODES=$(cat ${PBS_NODEFILE} | wc -l)
+NODES=
 TIME="01:00"
 PROJ_ID="datascience"
 DEPLOYMENT="offline"
@@ -94,6 +94,10 @@ function parse_args() {
         exit 1
     esac
   done
+
+  if [ -z "${NODES}" ]; then
+    NODES=$(cat ${PBS_NODEFILE} | wc -l)
+  fi
 }
 
 function check_args() {
