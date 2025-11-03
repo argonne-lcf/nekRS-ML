@@ -46,7 +46,8 @@ site_configuration = {
                     ],
                     "extras": {
                         "ranks_per_node": 12,
-                        "cpu_bind_list": "1:8:16:24:32:40:53:60:68:76:84:92",
+                        "train_bind_list": "1:8:16:24:32:40:53:60:68:76:84:92",
+                        "db_bind_list": "100,101,102,103",
                         "backend": "DPCPP",
                         "nrs_affinity": "gpu_tile_compact.sh",
                     },
@@ -90,7 +91,7 @@ site_configuration = {
                     ],
                     "extras": {
                         "ranks_per_node": 12,
-                        "cpu_bind_list": "24:16:8:1",
+                        "train_bind_list": "24:16:8:1",
                     },
                 },
             ],
