@@ -185,7 +185,15 @@ class NekRSMLTest(NekRSTest):
     def __init__(self, **kwargs):
         # Check if the required arguments are in kwargs.
         check_args(
-            kwargs, ["case", "directory", "nn", "rpn", "time_dependency"]
+            kwargs,
+            [
+                "case",
+                "directory",
+                "nn",
+                "rpn",
+                "target_loss",
+                "time_dependency",
+            ],
         )
 
         super().__init__(
@@ -319,10 +327,7 @@ class NekRSMLTest(NekRSTest):
 
 class NekRSMLOfflineTest(NekRSMLTest):
     def __init__(self, **kwargs):
-        # Check if the required arguments are in kwargs.
         kwargs["example_type"] = "offline"
-        check_args(kwargs, ["target_loss"])
-
         super().__init__(**kwargs)
         self.descr = "NekRS-ML offline test"
 
@@ -359,7 +364,6 @@ class NekRSMLOfflineTest(NekRSMLTest):
     def setup_run(self):
         super().set_environment()
         super().set_launcher_options()
-        # sets self.gnn_output_dir
         self.set_prerun_cmds()
         self.set_executable_options()
 
