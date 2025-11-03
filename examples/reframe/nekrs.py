@@ -38,22 +38,22 @@ def check_args(args, required_args):
             )
 
 
-def init_missing_args(args, setup_case):
-    get_value = lambda pattern: grep(pattern, setup_case).stdout.split("=")[1]
+def init_missing_args(args):
+    # Replicating setup_case default values for the time being.
     if "time" not in args:
-        args["time"] = get_value("^TIME=")
+        args["time"] = "01:00"
     if "model" not in args:
-        args["model"] = get_value("^MODEL=")
+        args["model"] = "dist-gnn"
     if "deployment" not in args:
-        args["deployment"] = get_value("^DEPLOYMENT=")
+        args["deployment"] = "offline"
     if "client" not in args:
-        args["client"] = get_value("^CLIENT=")
+        args["client"] = "posix"
     if "db_nodes" not in args:
-        args["db_nodes"] = get_value("^DB_NODES=")
+        args["db_nodes"] = 1
     if "sim_nodes" not in args:
-        args["sim_nodes"] = get_value("^SIM_NODES=")
+        args["sim_nodes"] = 1
     if "train_nodes" not in args:
-        args["train_nodes"] = get_value("^TRAIN_NODES=")
+        args["train_nodes"] = 1
 
     return args
 
@@ -190,9 +190,7 @@ class NekRSMLTest(NekRSTest):
         )
 
         # Initialize missing arguments with default values from setup_case script.
-        self.ml_args = init_missing_args(
-            kwargs, os.path.join(Path(self.nekrs_home), "bin", "setup_case")
-        )
+        self.ml_args = init_missing_args(kwargs)
         self.descr = "NekRS-ML test"
 
     @cache
