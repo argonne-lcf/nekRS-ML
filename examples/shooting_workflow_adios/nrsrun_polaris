@@ -141,7 +141,7 @@ echo "##PBS -S /bin/bash" >> $RFILE
 echo "##PBS -N nekrs-ml" >> $RFILE
 echo "##PBS -l walltime=${TIME}:00" >> $RFILE
 echo "##PBS -l select=$NODES" >> $RFILE
-echo "##PBS -l select=home:eagle" >> $RFILE
+echo "##PBS -l filesystems=home:eagle" >> $RFILE
 echo "##PBS -k doe" >> $RFILE
 echo "##PBS -j oe" >> $RFILE
 echo "##PBS -A $PROJ_ID" >> $RFILE
