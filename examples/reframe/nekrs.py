@@ -25,10 +25,38 @@ def grep(pattern, file):
     )
 
 
-def check_args(user_args, required_args):
+def check_args(args, required_args):
     for arg in required_args:
-        if arg not in user_args:
+        if arg not in args:
             raise KeyError(f"Required kwarg {arg} was not found.")
+
+    if "deployment" in args and args["example_type"] == "online":
+        val = args["deployment"]
+        if (val != "colocated") or (val != "clustered"):
+            raise KeyError(
+                f'Key "deployment" has invalid value: "{val}" for an online example.'
+            )
+
+
+def init_missing_args(args):
+    setup_case = os.path.join(Path(self.nekrs_home), "bin", "setup_case")
+    get_value = lambda pattern: grep(pattern, setup_case).stdout.split("=")[1]
+    if "time" not in args:
+        args["time"] = get_value("^TIME=")
+    if "model" not in args:
+        args["model"] = get_value("^MODEL=")
+    if "deployment" not in args:
+        args["deployment"] = get_value("^DEPLOYMENT=")
+    if "client" not in args:
+        args["client"] = get_value("^CLIENT=")
+    if "db_nodes" not in args:
+        args["db_nodes"] = get_value("^DB_NODES=")
+    if "sim_nodes" not in args:
+        args["sim_nodes"] = get_value("^SIM_NODES=")
+    if "train_nodes" not in args:
+        args["train_nodes"] = get_value("^TRAIN_NODES=")
+
+    return args
 
 
 class SmartRedisBuild(CompileOnlyTest):
@@ -157,8 +185,9 @@ class NekRSMLTest(NekRSTest):
         check_args(
             kwargs, ["case", "directory", "nn", "rpn", "time_dependency"]
         )
+        # Initialize missing arguments with default values from setup_case script.
+        self.ml_kwargs = init_missing_args(kwargs)
 
-        self.ml_kwargs = kwargs.copy()
         super().__init__(
             self.ml_kwargs["case"],
             self.ml_kwargs["directory"],
@@ -291,6 +320,7 @@ class NekRSMLTest(NekRSTest):
 class NekRSMLOfflineTest(NekRSMLTest):
     def __init__(self, **kwargs):
         # Check if the required arguments are in kwargs.
+        kwargs["example_type"] = "offline"
         check_args(kwargs, ["target_loss"])
 
         super().__init__(**kwargs)
