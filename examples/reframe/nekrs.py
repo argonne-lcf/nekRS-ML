@@ -38,8 +38,7 @@ def check_args(args, required_args):
             )
 
 
-def init_missing_args(args):
-    setup_case = os.path.join(Path(self.nekrs_home), "bin", "setup_case")
+def init_missing_args(args, setup_case):
     get_value = lambda pattern: grep(pattern, setup_case).stdout.split("=")[1]
     if "time" not in args:
         args["time"] = get_value("^TIME=")
@@ -185,14 +184,14 @@ class NekRSMLTest(NekRSTest):
         check_args(
             kwargs, ["case", "directory", "nn", "rpn", "time_dependency"]
         )
-        # Initialize missing arguments with default values from setup_case script.
-        self.ml_kwargs = init_missing_args(kwargs)
 
         super().__init__(
-            self.ml_kwargs["case"],
-            self.ml_kwargs["directory"],
-            self.ml_kwargs["nn"],
-            self.ml_kwargs["rpn"],
+            kwargs["case"], kwargs["directory"], kwargs["nn"], kwargs["rpn"]
+        )
+
+        # Initialize missing arguments with default values from setup_case script.
+        self.ml_args = init_missing_args(
+            kwargs, os.path.join(Path(self.nekrs_home), "bin", "setup_case")
         )
         self.descr = "NekRS-ML test"
 
@@ -234,7 +233,7 @@ class NekRSMLTest(NekRSTest):
 
     @cache
     def get_ranks(self):
-        return self.ml_kwargs["nn"] * self.ml_kwargs["rpn"]
+        return self.ml_args["nn"] * self.ml_args["rpn"]
 
     def nekrs_cmd(self, extra_args=[]):
         # Set nekrs executable options used in NekRSTest class.
@@ -290,7 +289,7 @@ class NekRSMLTest(NekRSTest):
 
     def check_traj_cmd(self):
         # Check the GNN traj if the case is of `traj` type.
-        if self.ml_kwargs["time_dependency"] != "time_dependent":
+        if self.ml_args["time_dependency"] != "time_dependent":
             return []
 
         ranks = self.get_ranks()
@@ -338,10 +337,10 @@ class NekRSMLOfflineTest(NekRSMLTest):
             "backend=xccl",
             "halo_swap_mode=all_to_all_opt",
             "layer_norm=True",
-            f"target_loss={self.ml_kwargs['target_loss']}",
-            f"time_dependency={self.ml_kwargs['time_dependency']}",
             f"gnn_outputs_path={self.get_gnn_output_dir()}",
             f"traj_data_path={self.get_traj_dir()}",
+            f"target_loss={self.ml_args['target_loss']}",
+            f"time_dependency={self.ml_args['time_dependency']}",
         ]
 
     def set_prerun_cmds(self):
