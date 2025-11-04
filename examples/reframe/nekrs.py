@@ -146,12 +146,14 @@ class NekRSTest(RunOnlyTest):
 
     def set_launcher_options(self):
         train_bind_list = self.current_partition.extras["train_bind_list"]
+        gpu_bind_list = self.current_partition.extras["gpu_bind_list"]
         ranks_per_node = self.num_tasks_per_node
         total_ranks = self.num_nodes * ranks_per_node
         self.job.launcher.options = [
             f"-np {total_ranks}",
             f"-ppn {ranks_per_node}",
             f"--cpu-bind=list:{train_bind_list}",
+            f"--gpu-bind=list:{gpu_bind_list}",
         ]
 
     def get_nekrs_executable_options(self):
@@ -163,7 +165,7 @@ class NekRSTest(RunOnlyTest):
         ]
 
     def set_executable_options(self):
-        self.executable = f"{self.current_partition.extras['nrs_affinity']} {self.nekrs_binary}"
+        self.executable = f"{self.nekrs_binary}"
         self.executable_opts = self.get_nekrs_executable_options()
 
     @run_before("run")
