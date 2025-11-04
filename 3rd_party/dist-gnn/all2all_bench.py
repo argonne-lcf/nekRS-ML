@@ -14,18 +14,8 @@ except ModuleNotFoundError as e:
     pass
 
 import torch
-try:
-    import intel_extension_for_pytorch as ipex
-except ModuleNotFoundError as e:
-    pass
 import torch.distributed as dist
 import torch.distributed.nn as distnn
-#from torch.nn.parallel import DistributedDataParallel as DDP
-
-try:
-    import oneccl_bindings_for_pytorch as ccl
-except ModuleNotFoundError as e:
-    pass
 
 TORCH_FLOAT_DTYPE = torch.float32
 
@@ -38,14 +28,14 @@ if WITH_DDP:
 
     try:
         WITH_CUDA = torch.cuda.is_available()
-        if RANK == 0: print('Running on CUDA devices',flush=True)
+        if RANK == 0 and WITH_CUDA: print('Running on CUDA devices',flush=True)
     except:
         WITH_CUDA = False
         pass
 
     try:
         WITH_XPU = torch.xpu.is_available()
-        if RANK == 0: print('Running on XPU devices',flush=True)
+        if RANK == 0 and WITH_XPU: print('Running on XPU devices',flush=True)
     except:
         WITH_XPU = False
         pass
@@ -80,7 +70,7 @@ def init_process_group(
     if WITH_CUDA:
         backend = 'nccl' if backend is None else str(backend)
     elif WITH_XPU:
-        backend = 'ccl' if backend is None else str(backend)
+        backend = 'xccl' if backend is None else str(backend)
     else:
         backend = 'gloo' if backend is None else str(backend)
 

@@ -189,7 +189,21 @@ echo "export FI_CXI_RX_MATCH_MODE=hybrid" >> $RFILE # required by parRSB
 # Temporary workaround while waiting on bugfix in runtime
 echo "export UR_L0_USE_COPY_ENGINE=0" >> $RFILE
 
-echo -e "\nexport CCL_ALLTOALLV_MONOLITHIC_KERNEL=0" >> $RFILE
+echo -e "\noneCCL env variables" >> $RFILE
+echo "export CCL_PROCESS_LAUNCHER=pmix" >> $RFILE
+echo "export CCL_ATL_TRANSPORT=mpi" >> $RFILE
+echo "export CCL_KVS_MODE=mpi" >> $RFILE
+echo "export CCL_ALLREDUCE_SCALEOUT=direct:0-1048576,rabenseifner:1048577-max" >> $RFILE
+echo "export CCL_BCAST=double_tree" >> $RFILE
+echo "export CCL_CONFIGURATION_PATH=\"\"" >> $RFILE
+echo "export CCL_CONFIGURATION=cpu_gpu_dpcpp" >> $RFILE
+echo "export CCL_KVS_CONNECTION_TIMEOUT=600" >> $RFILE
+echo "export CCL_ZE_CACHE_OPEN_IPC_HANDLES_THRESHOLD=1024" >> $RFILE
+echo "export CCL_KVS_USE_MPI_RANKS=1" >> $RFILE
+echo "export CCL_ENABLE_SYCL_KERNELS=1" >> $RFILE
+echo "export CCL_ALLTOALLV=naive" >> $RFILE
+echo "export CCL_ALLTOALLV_SCALEOUT=naive" >> $RFILE
+echo "export CCL_ALLTOALLV_MONOLITHIC_KERNEL=0" >> $RFILE
 
 py_version=`python --version`
 parsed_version=$(echo ${py_version#Python } | awk -F. '{print $1"."$2}')
