@@ -189,7 +189,7 @@ echo "export FI_CXI_RX_MATCH_MODE=hybrid" >> $RFILE # required by parRSB
 # Temporary workaround while waiting on bugfix in runtime
 echo "export UR_L0_USE_COPY_ENGINE=0" >> $RFILE
 
-echo -e "\noneCCL env variables" >> $RFILE
+echo -e "\n# oneCCL env variables" >> $RFILE
 echo "export CCL_PROCESS_LAUNCHER=pmix" >> $RFILE
 echo "export CCL_ATL_TRANSPORT=mpi" >> $RFILE
 echo "export CCL_KVS_MODE=mpi" >> $RFILE

@@ -17,7 +17,7 @@ import torch
 import torch.distributed as dist
 import torch.distributed.nn as distnn
 
-TORCH_FLOAT_DTYPE = torch.float32
+TORCH_DTYPE = torch.float32
 
 # Get MPI:
 if WITH_DDP:
@@ -112,32 +112,32 @@ def build_buffers(args, neighbors):
     buff_recv_sz = [0] * SIZE
 
     if args.all_to_all_buff == 'naive':
-        buff_send = [torch.empty(0, device=DEVICE)] * SIZE
-        buff_recv = [torch.empty(0, device=DEVICE)] * SIZE
+        buff_send = [torch.empty(0, dtype=TORCH_DTYPE, device=DEVICE)] * SIZE
+        buff_recv = [torch.empty(0, dtype=TORCH_DTYPE, device=DEVICE)] * SIZE
         for i in range(SIZE):
-            buff_send[i] = torch.empty([args.num_nodes, args.num_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE)
+            buff_send[i] = torch.empty([args.num_nodes, args.num_features], dtype=TORCH_DTYPE, device=DEVICE)
             buff_send_sz[i] = torch.numel(buff_send[i])*buff_send[i].element_size()/1024/1024
-            buff_recv[i] = torch.empty([args.num_nodes, args.num_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE)
+            buff_recv[i] = torch.empty([args.num_nodes, args.num_features], dtype=TORCH_DTYPE, device=DEVICE)
             buff_recv_sz[i] = torch.numel(buff_recv[i])*buff_recv[i].element_size()/1024/1024
     elif args.all_to_all_buff == 'optimized':
-        buff_send = [torch.empty(0, device=DEVICE)] * SIZE
-        buff_recv = [torch.empty(0, device=DEVICE)] * SIZE
+        buff_send = [torch.empty(0, dtype=TORCH_DTYPE, device=DEVICE)] * SIZE
+        buff_recv = [torch.empty(0, dtype=TORCH_DTYPE, device=DEVICE)] * SIZE
         for i in neighbors:
-            buff_send[i] = torch.empty([args.num_nodes, args.num_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE)
+            buff_send[i] = torch.empty([args.num_nodes, args.num_features], dtype=TORCH_DTYPE, device=DEVICE)
             buff_send_sz[i] = torch.numel(buff_send[i])*buff_send[i].element_size()/1024/1024
-            buff_recv[i] = torch.empty([args.num_nodes, args.num_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE)
+            buff_recv[i] = torch.empty([args.num_nodes, args.num_features], dtype=TORCH_DTYPE, device=DEVICE)
             buff_recv_sz[i] = torch.numel(buff_recv[i])*buff_recv[i].element_size()/1024/1024
     elif args.all_to_all_buff == 'semi-optimized':
         #buff_send = [torch.empty([], device=DEVICE)] * SIZE
         #buff_recv = [torch.empty([], device=DEVICE)] * SIZE
-        buff_send = [torch.zeros(1, device=DEVICE)] * SIZE
-        buff_recv = [torch.zeros(1, device=DEVICE)] * SIZE
+        buff_send = [torch.zeros(1, dtype=TORCH_DTYPE, device=DEVICE)] * SIZE
+        buff_recv = [torch.zeros(1, dtype=TORCH_DTYPE, device=DEVICE)] * SIZE
         for i in neighbors:
-            #buff_send[i] = torch.empty([args.num_nodes, args.num_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE)
-            buff_send[i] = torch.zeros([args.num_nodes, args.num_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE)
+            #buff_send[i] = torch.empty([args.num_nodes, args.num_features], dtype=TORCH_DTYPE, device=DEVICE)
+            buff_send[i] = torch.zeros([args.num_nodes, args.num_features], dtype=TORCH_DTYPE, device=DEVICE)
             buff_send_sz[i] = torch.numel(buff_send[i])*buff_send[i].element_size()/1024/1024
-            #buff_recv[i] = torch.empty([args.num_nodes, args.num_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE)
-            buff_recv[i] = torch.zeros([args.num_nodes, args.num_features], dtype=TORCH_FLOAT_DTYPE, device=DEVICE)
+            #buff_recv[i] = torch.empty([args.num_nodes, args.num_features], dtype=TORCH_DTYPE, device=DEVICE)
+            buff_recv[i] = torch.zeros([args.num_nodes, args.num_features], dtype=TORCH_DTYPE, device=DEVICE)
             buff_recv_sz[i] = torch.numel(buff_recv[i])*buff_recv[i].element_size()/1024/1024
 
     # Print information about the buffers
@@ -187,7 +187,7 @@ def halo_test(args, neighbors, buffers):
                 if not torch.all(buff_recv[i] == expected):
                     print(f'[RANK {RANK}] Error: recv buffer from rank {i} does not match expected value {expected},', 
                           f'recv buffer stats: min={torch.min(buff_recv[i])}, max={torch.max(buff_recv[i])}', flush=True)
-                    #sys.exit(1)
+                    sys.exit(1)
 
     # Get stats. For Aurora, better to throw away first 10 iterations...
     if len(times) > 10: times = times[10:]
