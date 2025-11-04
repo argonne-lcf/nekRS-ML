@@ -28,3 +28,6 @@ SmartSim/
 # ML related artefacts
 __pycache__/
 
+# Reframe test data
+examples/reframe/test_data/
+

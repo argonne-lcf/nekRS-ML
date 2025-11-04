@@ -3,7 +3,7 @@
 : ${SYSTEM:="aurora:compute"}
 : ${PREFIX:="`pwd`/test_data"}
 : ${QUEUE:="prod"}
-: ${PROJECT:="Performance"}
+: ${PROJECT:="datascience"}
 : ${FS:="home"}
 : ${REUSE:=1}
 : ${TAG:="ml"}
