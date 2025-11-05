@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.12)
-project(WorkflowExample)
+project(ADIOS2Example)
 
 if(NOT TARGET adios2_core)
   set(_components CXX)

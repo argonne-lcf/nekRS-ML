@@ -22,7 +22,7 @@ elif [ ${SYSTEM} == "polaris" ]; then
   module load spack-pe-base cmake
 fi
 
-echo -e "\033[35mA Building sim.cpp ...\033[m"
+echo -e "\033[35mBuilding sim.cpp ...\033[m"
 export ADIOS2_DIR=${NEKRS_HOME}/lib/cmake/adios2/
 cmake ./
 make

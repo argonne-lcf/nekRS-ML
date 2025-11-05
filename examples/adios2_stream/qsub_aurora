@@ -29,15 +29,31 @@ echo -e "\necho Jobid: \$PBS_JOBID" >>$SFILE
 echo "echo Running on host \`hostname\`" >>$SFILE
 echo "echo Running on nodes \`cat \$PBS_NODEFILE\`" >>$SFILE
 
+echo -e "\n# Set ADIOS2 library" >>$SFILE
+echo "ADIOS2_LIBS="NEKRS" # options are NEKRS, SYSTEM" >>$SFILE
+echo "if [ \"\$ADIOS2_LIBS\" = "SYSTEM" ]; then" >>$SFILE
+echo "    module load adios2/git.86a48b9-cpu" >>$SFILE
+echo "    export FABRIC_PROVIDER=cxi" >>$SFILE
+echo "    export FABRIC_IFACE=cxi0" >>$SFILE
+echo "elif [ \"\$ADIOS2_LIBS\" = "NEKRS" ]; then" >>$SFILE
+echo "    export PYTHONPATH=\$PYTHONPATH:${NEKRS_HOME}/lib/python3.10/site-packages" >> $SFILE
+echo "fi" >> $SFILE
 echo "module load ${FRAMEWORKS_MODULE}" >> $SFILE
 echo "module list" >> $SFILE
 
 echo -e "\n# Compute number of ranks" >> $SFILE
-echo "NODES=\$(cat \$PBS_NODEFILE | wc -l)" >> $SFILE
-echo "RANKS=\$(( NODES * $RANKS_PER_NODE ))" >> $SFILE
+echo "RANKS_PER_NODE=$RANKS_PER_NODE" >> $SFILE
+echo "TOT_NODES=\$(cat \$PBS_NODEFILE | wc -l)" >> $SFILE
+echo "if [ \$((TOT_NODES % 2)) -ne 0 ]; then" >> $SFILE
+echo "    echo \"Error: Need even number of nodes, got \$TOT_NODES\"" >> $SFILE
+echo "    exit 1" >> $SFILE
+echo "fi" >> $SFILE
+echo "COMPONENT_NODES=\$((TOT_NODES / 2))" >> $SFILE
+echo "RANKS=\$(( COMPONENT_NODES * RANKS_PER_NODE ))" >> $SFILE
+echo "head -n \$COMPONENT_NODES \$PBS_NODEFILE > sim_hostfile" >> $SFILE
+echo "tail -n \$COMPONENT_NODES \$PBS_NODEFILE > trainer_hostfile" >> $SFILE
 
 echo -e "\n# ADIOS2 vars" >> $SFILE
-echo "export PYTHONPATH=\$PYTHONPATH:${NEKRS_HOME}/lib/python3.10/site-packages" >> $SFILE
 echo "#export SstVerbose=1" >> $SFILE
 echo "export OMP_PROC_BIND=spread" >> $SFILE
 echo "export OMP_PLACES=threads" >> $SFILE
@@ -52,9 +68,16 @@ echo "    echo Cleaning up old .bp files" >> $SFILE
 echo "    rm -r ./*.bp" >> $SFILE
 echo "fi" >> $SFILE
 
+echo -e "\n# Setup run" >>$SFILE
+echo "CPU_BIND=\"list:1:8:16:24:32:40:53:60:68:76:84:92\"" >>$SFILE
+echo "NUM_PTS=60000" >>$SFILE
+echo "MODE=sync" >>$SFILE
+echo "TRANSPORT=RDMA" >>$SFILE
+echo "IO_MODE=posix" >>$SFILE
+
 echo -e "\n# Run" >>$SFILE
-echo "mpirun -np \$RANKS --ppn $RANKS_PER_NODE ./sim &" >> $SFILE
-echo "mpirun -np \$RANKS --ppn $RANKS_PER_NODE python trainer.py" >> $SFILE
+echo "mpirun -np \$RANKS --ppn \$RANKS_PER_NODE --cpu-bind \$CPU_BIND --hostfile ./sim_hostfile ./sim \$NUM_PTS \$MODE \$TRANSPORT \$IO_MODE &" >> $SFILE
+echo "mpirun -np \$RANKS --ppn \$RANKS_PER_NODE --cpu-bind \$CPU_BIND --hostfile ./trainer_hostfile python trainer.py --data_plane \$TRANSPORT --io_mode \$IO_MODE" >> $SFILE
 echo "wait" >> $SFILE
 chmod u+x $SFILE
 
