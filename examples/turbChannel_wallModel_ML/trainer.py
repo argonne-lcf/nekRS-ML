@@ -241,7 +241,7 @@ def main():
     os.environ['MASTER_PORT'] = str(2345)
     if (args.device=='cpu'): backend = 'gloo'
     elif (args.device=='cuda'): backend = 'nccl'
-    elif (args.device=='xpu'): backend = 'ccl'
+    elif (args.device=='xpu'): backend = 'xccl'
     dist.init_process_group(backend,
                             rank=int(rank),
                             world_size=int(size),
