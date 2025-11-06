@@ -223,7 +223,7 @@ echo "    rm -r ./*.bp" >> $RFILE
 echo "fi" >> $RFILE
 
 echo -e "\n# precompilation" >> $RFILE
-echo "if [ ! -d .cache ]; then" >> $RFILE
+echo "if [ -d .cache ]; then" >> $RFILE
 echo "  echo Cleaning up the cache" >> $RFILE
 echo "  rm -rf .cache" >> $RFILE
 echo "fi" >> $RFILE

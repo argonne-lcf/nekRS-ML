@@ -82,7 +82,7 @@ def main():
     if rank == 0: print(f'[ML] Done reading graph data in {toc - tic} seconds', flush=True)
 
     # Receive training data
-    workflow_steps = 5
+    workflow_steps = 20
     stream_time = 0.0
     
     if rank == 0: print('[ML] Opening stream ... ',flush=True)

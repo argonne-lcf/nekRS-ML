@@ -15,7 +15,7 @@ echo "#!/bin/bash -l" > $SFILE
 echo "#PBS -S /bin/bash" >>$SFILE
 echo "#PBS -N adios2_example" >>$SFILE
 echo "#PBS -l select=${NODES}" >>$SFILE
-echo "#PBS -l walltime=${TIME}" >>$SFILE
+echo "#PBS -l walltime=${TIME}:00" >>$SFILE
 echo "#PBS -l filesystems=home:flare" >>$SFILE
 echo "#PBS -A datascience" >>$SFILE
 echo "#PBS -q ${QUEUE}" >>$SFILE

@@ -195,7 +195,7 @@ void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
     MPI_Comm &comm = platform->comm.mpiComm;
 #if defined(NEKRS_ENABLE_ADIOS)
     dlong num_dim = mesh->dim;
-    dlong field_offset = graph->fieldOffset;
+    hlong field_offset = graph->fieldOffset;
     bool store_inputs = false;
     bool send_data = false;
 
@@ -228,10 +228,10 @@ void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
         client->_global_field_offset = global;
 
         // Gather size of data
-        int* gathered = new int[size];
+        hlong* gathered = new hlong[size];
         hlong offset = 0;
-        MPI_Allgather(&field_offset, 1, MPI_INT, gathered, 1, MPI_INT, MPI_COMM_WORLD);
-        for (int i=0; i<rank; i++) {
+        MPI_Allgather(&field_offset, 1, MPI_HLONG, gathered, 1, MPI_HLONG, MPI_COMM_WORLD);
+        for (hlong i=0; i<rank; i++) {
             offset += gathered[i];
         }
         client->_offset_field_offset = offset;
