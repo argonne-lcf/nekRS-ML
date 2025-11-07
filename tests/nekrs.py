@@ -147,14 +147,14 @@ class NekRSTest(RunOnlyTest):
         }
 
     def set_launcher_options(self):
-        train_bind_list = self.current_partition.extras["train_bind_list"]
+        cpu_bind_list = self.current_partition.extras["cpu_bind_list"]
         gpu_bind_list = self.current_partition.extras["gpu_bind_list"]
         ranks_per_node = self.num_tasks_per_node
         total_ranks = self.num_nodes * ranks_per_node
         self.job.launcher.options = [
             f"-np {total_ranks}",
             f"-ppn {ranks_per_node}",
-            f"--cpu-bind=list:{train_bind_list}",
+            f"--cpu-bind=list:{cpu_bind_list}",
             f"--gpu-bind=list:{gpu_bind_list}",
         ]
 
@@ -405,7 +405,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
     def setup_config(self):
         args = self.ml_args
         db_bind_list = self.current_partition.extras["db_bind_list"]
-        train_bind_list = self.current_partition.extras["train_bind_list"]
+        cpu_bind_list = self.current_partition.extras["cpu_bind_list"]
 
         rpn = int(args["rpn"])
         ml_rpn = int(rpn / 2)
