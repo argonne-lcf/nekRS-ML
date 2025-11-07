@@ -29,5 +29,6 @@ SmartSim/
 __pycache__/
 
 # Reframe test data
-examples/reframe/test_data/
-
+tests/test_data/
+.ruff_cache/
+.venv/
