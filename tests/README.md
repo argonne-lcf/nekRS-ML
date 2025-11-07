@@ -17,8 +17,8 @@ respectively. These classes are used based on the type of test we want to execut
 This repository contains the [ReFrame](https://reframe-hpc.readthedocs.io/en/stable/)
 implementations of various tests, regression tests, and performance benchmarks.
 
-In order to run tests, you first need to install [uv](https://docs.astral.sh/uv/) on the 
-target system with
+In order to run tests, you first need to install [uv](https://docs.astral.sh/uv/) on
+the target system with
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -28,7 +28,8 @@ More installation instructions can be found [here](https://docs.astral.sh/uv/get
 
 ## How to run the tests
 
-From a login node on the target system (currently only Aurora is supported), we provide the `run.sh` script to launch the tests.
+From a login node on the target system (currently only Aurora is supported), we
+provide the `run.sh` script to launch the tests.
 
 For the full list of parameters accepted by the script, execute
 ```sh
@@ -60,7 +61,7 @@ Examples:
     ./run.sh -t offline -b
   To run all the tests based on tgv:
     ./run.sh -t tgv -b
-  Please note that the "-b (--build)" parameter is only required in the first run of  each tag.
+  Please note that the "-b (--build)" parameter is only required in the first run of each tag.
   You can pass --list-tags or -l to list all the test tags:
     ./run.sh -l
 ```
