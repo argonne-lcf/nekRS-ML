@@ -45,7 +45,9 @@ def init_missing_args(args):
     if "model" not in args:
         args["model"] = "dist-gnn"
     if "deployment" not in args:
-        args["deployment"] = "offline"
+        args["deployment"] = (
+            "offline" if args["example_type"] == "offline" else "colocated"
+        )
     if "client" not in args:
         args["client"] = "posix"
     if "db_nodes" not in args:
@@ -243,6 +245,11 @@ class NekRSMLTest(NekRSTest):
         )
 
     @cache
+    def get_max_ranks(self):
+        max_rpn = self.current_partition.extras["ranks_per_node"]
+        return self.ml_args["nn"] * max_rpn
+
+    @cache
     def get_ranks(self):
         return self.ml_args["nn"] * self.ml_args["rpn"]
 
@@ -379,3 +386,126 @@ class NekRSMLOfflineTest(NekRSMLTest):
         )
 
         return nekrs_ok and gnn_ok
+
+
+class NekRSMLOnlineTest(NekRSMLTest):
+    def __init__(self, **kwargs):
+        # deployment must be colocated or clustered for online cases.
+        kwargs["example_type"] = "online"
+        super().__init__(**kwargs)
+        self.descr = "NekRS-ML online test"
+
+    def setup_torch_env_vars(self):
+        return [
+            "export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )",
+            "export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH",
+            "export SR_SOCKET_TIMEOUT=10000",
+        ]
+
+    def setup_config(self):
+        args = self.ml_args
+        db_bind_list = self.current_partition.extras["db_bind_list"]
+        train_bind_list = self.current_partition.extras["train_bind_list"]
+
+        rpn = int(args["rpn"])
+        ml_rpn = int(rpn / 2)
+        sim_rpn = rpn - ml_rpn
+
+        ids = cpu_bind_list.split(":")
+        sim_ids = ids[:sim_rpn]
+        ml_ids = ids[sim_rpn:]
+
+        case = args["case"]
+
+        config_yaml = os.path.join(self.stagedir, "ssim_config.yaml.reframe")
+        with open(config_yaml, "w") as f:
+            f.write("# Database config\n")
+            f.write("database:\n")
+            f.write("    launch: True\n")
+            # FIXME: This should be the `--client` value in the ml_args.
+            f.write('    backend: "redis"\n')
+            f.write(f'    deployment: "{args["deployment"]}"\n')
+            f.write(f'    exp_name: "NekRS-ML-{self.nekrs_case_name}"\n')
+            # FIXME: The following should be machine-dependent:
+            f.write("    port: 6782\n")
+            f.write('    network_interface: "uds"\n')
+            f.write('    launcher: "pals"\n')
+            f.write("\n")
+
+            f.write("# Run config\n")
+            f.write("run_args:\n")
+            f.write(f"    nodes: {args['nn']}\n")
+            f.write(f"    db_nodes: {args['db_nodes']}\n")
+            f.write(f"    sim_nodes: {args['sim_nodes']}\n")
+            f.write(f"    ml_nodes: {args['sim_nodes']}\n")
+            f.write(f"    simprocs: {args['sim_nodes'] * sim_rpn}\n")
+            f.write(f"    simprocs_pn: {sim_rpn}\n")
+            f.write(f"    mlprocs: {args['train_nodes'] * ml_rpn}\n")
+            f.write(f"    mlprocs_pn: {ml_rpn}\n")
+            f.write(f"    dbprocs: {args['db_nodes'] * rpn}\n")
+            f.write(f"    dbprocs_pn: {ml_rpn}\n")
+
+            f.write(f'    sim_cpu_bind: "list:{":".join(sim_ids)}"\n')
+            f.write(f'    ml_cpu_bind: "list:{":".join(ml_ids)}"\n')
+            f.write(f"    db_cpu_bind: [{db_bind_list}]\n")
+            f.write("\n")
+
+            f.write("# Simulation config\n")
+            f.write("sim:\n")
+            f.write(f'    executable: "{self.nekrs_binary}"\n')
+            f.write(
+                f'    arguments: "{list_to_cmd(self.get_nekrs_executable_options())}"\n'
+            )
+            f.write(f'    affinity: "./affinity_nrs.sh"\n')
+            f.write(
+                f'    copy_files: ["./{case}.usr","./{case}.par","./{case}.udf","./{case}.re2"]\n'
+            )
+            f.write('    link_files: ["./affinity_nrs.sh", ".cache"]\n')
+            f.write("\n")
+
+            f.write("# Trainer config\n")
+            f.write("train:\n")
+            f.write(
+                f'    executable: "{os.path.join(self.nekrs_home, "3rd_party", "dist-gnn", "main.py")}"\n'
+            )
+            f.write('    affinity: ""\n')
+            f.write(
+                (
+                    "    arguments: "
+                    '"backend=xccl halo_swap_mode=all_to_all_opt layer_norm=True online=True verbose=True '
+                    f"client.db_nodes={args['db_nodes']} consistency=True target_loss={args['target_loss']} "
+                    f'device_skip={sim_rpn}"\n'
+                )
+            )
+            f.write("    copy_files: []\n")
+            f.write('    link_files: ["./affinity_ml.sh"]\n')
+
+    def set_prerun_cmds(self):
+        self.prerun_cmds += [
+            *self.setup_torch_env_vars(),
+            self.setup_case_cmd(
+                extra_args=["--client smartredis", "--deployment colocated"]
+            ),
+            self.source_cmd(),
+            # FIXME: Temporary workaround.
+            list_to_cmd(["mv", "ssim_config.yaml.reframe", "ssim_config.yaml"]),
+            self.nekrs_cmd(extra_args=[f"--build-only {self.get_max_ranks()}"]),
+        ]
+
+    def set_executable_options(self):
+        self.executable_opts = []
+        self.executable = list_to_cmd([
+            "python",
+            os.path.join(f"{self.stagedir}", "ssim_driver.py"),
+        ])
+
+    def set_launcher_options(self):
+        self.job.launcher.options = ["-np 1", "-ppn 1"]
+
+    @run_before("run")
+    def setup_run(self):
+        super().set_environment()
+        self.setup_config()
+        self.set_prerun_cmds()
+        self.set_launcher_options()
+        self.set_executable_options()

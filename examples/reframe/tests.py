@@ -1,6 +1,6 @@
 import reframe as rfm
 import reframe.utility.sanity as sn
-from nekrs import NekRSTest, NekRSMLOfflineTest
+from nekrs import NekRSTest, NekRSMLOfflineTest, NekRSMLOnlineTest
 import os
 
 
@@ -81,3 +81,20 @@ class NekRSTGVOfflineTraj(NekRSMLOfflineTest):
             target_loss=6.9076e-01,
         )
         self.tags |= {"tgv_offline_traj"}
+
+
+@rfm.simple_test
+class NekRSTGVOnline(NekRSMLOnlineTest):
+    num_nodes = parameter([1])
+    ranks_per_node = parameter([4])
+
+    def __init__(self):
+        super().__init__(
+            case="tgv",
+            directory="tgv_gnn_online",
+            nn=self.num_nodes,
+            rpn=self.ranks_per_node,
+            time_dependency="time_independent",
+            target_loss=1.6206e-04,
+        )
+        self.tags |= {"tgv_online"}
