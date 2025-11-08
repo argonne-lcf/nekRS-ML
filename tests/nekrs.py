@@ -127,7 +127,7 @@ class NekRSTest(RunOnlyTest):
         self.nekrs_case_name = case
         self.nekrs_case_dir = directory
 
-        super().__init__(num_nodes=nn, ranks_per_node=rpn)
+        super().__init__(nn, rpn)
         self.descr = "NekRS test"
         self.maintainers = ["kris.rowe@anl.gov"]
         self.readonly_files = [f"{self.nekrs_case_name}.re2"]
@@ -270,6 +270,8 @@ class NekRSMLTest(NekRSTest):
             self.nekrs_home,
             "--venv_path",
             self.get_venv_path(),
+            "--nodes",
+            str(self.ml_args["nn"]),
             *extra_args,
         ])
 
