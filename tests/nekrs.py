@@ -206,7 +206,7 @@ class NekRSMLTest(NekRSTest):
 
         # Initialize missing arguments with default values from setup_case script.
         self.ml_args = init_missing_args(kwargs)
-        self.descr = "NekRS-ML test"
+        self.descr = f"NekRS-ML {self.ml_args['example_type']} test"
 
     @cache
     def get_mpiexec(self):
@@ -340,7 +340,6 @@ class NekRSMLOfflineTest(NekRSMLTest):
     def __init__(self, **kwargs):
         kwargs["example_type"] = "offline"
         super().__init__(**kwargs)
-        self.descr = "NekRS-ML offline test"
 
     def set_executable_options(self):
         self.executable = list_to_cmd([
@@ -395,7 +394,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
         # deployment must be colocated or clustered for online cases.
         kwargs["example_type"] = "online"
         super().__init__(**kwargs)
-        self.descr = "NekRS-ML online test"
+        self.nekrs_ml_experiment = f"NekRS-ML-{self.nekrs_case_name}"
 
     def setup_torch_env_vars(self):
         return [
@@ -427,7 +426,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             # FIXME: This should be the `--client` value in the ml_args.
             f.write('    backend: "redis"\n')
             f.write(f'    deployment: "{args["deployment"]}"\n')
-            f.write(f'    exp_name: "NekRS-ML-{self.nekrs_case_name}"\n')
+            f.write(f'    exp_name: "{self.nekrs_ml_experiment}"\n')
             # FIXME: The following should be machine-dependent:
             f.write("    port: 6782\n")
             f.write('    network_interface: "uds"\n')
