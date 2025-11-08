@@ -474,8 +474,8 @@ class NekRSMLOnlineTest(NekRSMLTest):
                 (
                     "    arguments: "
                     '"backend=xccl halo_swap_mode=all_to_all_opt layer_norm=True online=True verbose=True '
-                    f"client.db_nodes={args['db_nodes']} consistency=True target_loss={args['target_loss']} "
-                    f'device_skip={sim_rpn}"\n'
+                    f"consistency=True client.db_nodes={args['db_nodes']} target_loss={args['target_loss']} "
+                    f'device_skip={sim_rpn} time_dependency={args["time_dependency"]}"\n'
                 )
             )
             f.write("    copy_files: []\n")
