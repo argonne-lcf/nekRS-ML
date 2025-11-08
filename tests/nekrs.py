@@ -485,7 +485,10 @@ class NekRSMLOnlineTest(NekRSMLTest):
         self.prerun_cmds += [
             *self.setup_torch_env_vars(),
             self.setup_case_cmd(
-                extra_args=["--client smartredis", "--deployment colocated"]
+                extra_args=[
+                    f"--client {self.ml_args['client']}",
+                    f"--deployment {self.ml_args['deployment']}",
+                ]
             ),
             self.source_cmd(),
             # FIXME: Temporary workaround.

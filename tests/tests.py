@@ -95,6 +95,7 @@ class NekRSTGVOnline(NekRSMLOnlineTest):
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
             time_dependency="time_independent",
+            client="smartredis",
             target_loss=1.6206e-04,
         )
         self.tags |= {"tgv_online"}
