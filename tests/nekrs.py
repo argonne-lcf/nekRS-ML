@@ -30,7 +30,7 @@ def check_args(args, required_args):
         if arg not in args:
             raise KeyError(f"Required kwarg {arg} was not found.")
 
-    if "deployment" in args and args["example_type"] == "online":
+    if "deployment" in args and args["test_type"] == "online":
         val = args["deployment"]
         if (val != "colocated") or (val != "clustered"):
             raise KeyError(
@@ -46,7 +46,7 @@ def init_missing_args(args):
         args["model"] = "dist-gnn"
     if "deployment" not in args:
         args["deployment"] = (
-            "offline" if args["example_type"] == "offline" else "colocated"
+            "offline" if args["test_type"] == "offline" else "colocated"
         )
     if "client" not in args:
         args["client"] = "posix"
@@ -206,7 +206,7 @@ class NekRSMLTest(NekRSTest):
 
         # Initialize missing arguments with default values from setup_case script.
         self.ml_args = init_missing_args(kwargs)
-        self.descr = f"NekRS-ML {self.ml_args['example_type']} test"
+        self.descr = f"NekRS-ML {self.ml_args['test_type']} test"
 
     @cache
     def get_mpiexec(self):
@@ -338,7 +338,7 @@ class NekRSMLTest(NekRSTest):
 
 class NekRSMLOfflineTest(NekRSMLTest):
     def __init__(self, **kwargs):
-        kwargs["example_type"] = "offline"
+        kwargs["test_type"] = "offline"
         super().__init__(**kwargs)
 
     def set_executable_options(self):
@@ -392,7 +392,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
 class NekRSMLOnlineTest(NekRSMLTest):
     def __init__(self, **kwargs):
         # deployment must be colocated or clustered for online cases.
-        kwargs["example_type"] = "online"
+        kwargs["test_type"] = "online"
         super().__init__(**kwargs)
         self.nekrs_ml_experiment = f"NekRS-ML-{self.nekrs_case_name}"
 
