@@ -15,7 +15,7 @@ DB_NODES=1
 SIM_NODES=1
 TRAIN_NODES=1
 MODEL="dist-gnn"
-# case name is automatically found
+# case name is found automatically
 CASE_NAME=
 
 function print_help() {
@@ -209,6 +209,7 @@ function print_args() {
   echo "DB_NODES   : ${DB_NODES}"
   echo "SIM_NODES  : ${SIM_NODES}"
   echo "TRAIN_NODES: ${TRAIN_NODES}"
+  echo "MODEL      : ${MODEL}"
   echo "CASE_NAME  : ${CASE_NAME}"
 }
 
@@ -321,10 +322,10 @@ function generate_script() {
 }
 
 parse_args "$@"
+print_args
 check_args
 check_connection
 setup_case
-print_args
 load_modules
 setup_venv
 generate_script
