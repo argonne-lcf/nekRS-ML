@@ -517,13 +517,19 @@ class NekRSMLOnlineTest(NekRSMLTest):
     @sanity_function
     def check_run(self):
         nekrs_ok = super().check_exit_code()
+
         train_out = os.path.join(
             self.stagedir, self.nekrs_ml_experiment, "train", "train.out"
         )
+        train_out_present = sn.assert_true(
+            os.path.isfile(train_out),
+            f"train.out could not be found in path {train_out}",
+        )
+
         gnn_ok = sn.assert_found(
             r"SUCCESS! GNN training validated!",
             train_out,
             msg="GNN validation failed.",
         )
 
-        return nekrs_ok and gnn_ok
+        return nekrs_ok and train_out_present and gnn_ok
