@@ -32,7 +32,7 @@ import torch
 
 # Local imports
 import utils
-from trainer import Trainer
+from trainer import DGNTrainer
 from client import OnlineClient
 
 log = logging.getLogger(__name__)
@@ -96,7 +96,7 @@ else:
 def train(cfg: DictConfig,
           client: Optional[OnlineClient] = None
     ) -> None:
-    trainer = Trainer(cfg, client=client)
+    trainer = DGNTrainer(cfg, client=client)
     trainer.writeGraphStatistics()
     n_nodes_local = trainer.data_reduced.n_nodes_local.item()
 
@@ -239,10 +239,8 @@ def main(cfg: DictConfig) -> None:
     if not cfg.online:
         train(cfg)
     else:
-        client = OnlineClient(cfg, COMM)
-        COMM.Barrier()
-        if RANK == 0: print('Initialized Online Client!\n', flush=True)
-        train(cfg, client)
+        log.info('Oline training not implemented yet for this model')
+        COMM.Abort(1)
     
     utils.cleanup()
     if RANK == 0:

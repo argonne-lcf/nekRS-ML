@@ -1,7 +1,5 @@
 #!/bin/bash
 
-rm -rf pytorch_cluster
-rm turbChannel0.f* turbChannel_p10.f* turbChannel_p70.f* turbChannel.nek5000 turbChannel_p1.nek5000 turbChannel_p7.nek5000
 rm -r gnn_outputs_poly*
-rm -r pt_datasets saved_models outputs ckpt predictions
+rm -r saved_models outputs ckpt
 rm run.sh train.log nekrs.log

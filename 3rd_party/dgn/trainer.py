@@ -46,6 +46,8 @@ import gnn
 import graph_connectivity as gcon
 from client import OnlineClient
 import create_halo_info_par
+from step_sampler import UniformStepSampler
+from diffusion_process import DiffusionProcess
 
 log = logging.getLogger(__name__)
 Tensor = torch.Tensor
@@ -98,7 +100,7 @@ else:
     DEVICE_ID = 'cpu'
 
 
-class Trainer:
+class DGNTrainer:
     def __init__(self, 
                  cfg: DictConfig, 
                  scaler: Optional[GradScaler] = None,
@@ -116,10 +118,9 @@ class Trainer:
         if not self.cfg.consistency:
             assert self.cfg.halo_swap_mode == 'none', \
                 "For inconsistent model, set halo_swap_mode=none"
-        if self.cfg.online and self.cfg.client.backend == 'adios':
-            assert self.cfg.time_dependency == 'time_dependent', \
-                'ADIOS2 backend only implemented for time dependent modeling' + \
-                'from solution trajectory'
+        if self.cfg.online:
+            log.warning('Online backends not implemented for this model yet')
+            MPI.Abort(COMM, 1)
 
         # ~~~ Initialize DDP
         if WITH_DDP:
@@ -247,6 +248,14 @@ class Trainer:
                                           self.cfg.lr_phase12, 
                                           self.cfg.lr_phase23)
         self.s_optimizer.reset_n_steps(self.iteration)
+
+        # ~~~~ Set step sampler
+        self.step_sampler = UniformStepSampler(self.cfg.num_diffusion_steps, 
+                                               self.device, 
+                                               self.torch_dtype)
+
+        # ~~~~ Set diffusion process
+        self.diffusion_process = DiffusionProcess(self.cfg.num_diffusion_steps)
 
         # ~~~~ Wrap model in DDP
         if WITH_DDP and SIZE > 1:
@@ -574,61 +583,47 @@ class Trainer:
         else:
             main_path = ""
         
-        if self.cfg.client.backend == 'adios':
-            graph_data = self.client.get_graph_data_from_stream()
-            self.Np = graph_data['Np']
-            pos = graph_data['pos']
-            
-            gli = graph_data['global_ids']
-            
-            local_unique_mask = graph_data['local_unique_mask']
-            
-            halo_unique_mask = graph_data['halo_unique_mask']
-            
-            ei = graph_data['edge_index']
-            ei = ei.astype(np.int64)
-        else:
-            path_to_pos_full = main_path + 'pos_node_rank_%d_size_%d' %(RANK,SIZE)
-            path_to_ei = main_path + 'edge_index_rank_%d_size_%d' %(RANK,SIZE)
-            path_to_overlap = main_path + 'overlap_ids_rank_%d_size_%d' %(RANK,SIZE)
-            path_to_glob_ids = main_path + 'global_ids_rank_%d_size_%d' %(RANK,SIZE)
-            path_to_unique_local = main_path + 'local_unique_mask_rank_%d_size_%d' %(RANK,SIZE)
-            path_to_unique_halo = main_path + 'halo_unique_mask_rank_%d_size_%d' %(RANK,SIZE)
+        path_to_pos_full = main_path + 'pos_node_rank_%d_size_%d' %(RANK,SIZE)
+        path_to_ei = main_path + 'edge_index_rank_%d_size_%d' %(RANK,SIZE)
+        path_to_overlap = main_path + 'overlap_ids_rank_%d_size_%d' %(RANK,SIZE)
+        path_to_glob_ids = main_path + 'global_ids_rank_%d_size_%d' %(RANK,SIZE)
+        path_to_unique_local = main_path + 'local_unique_mask_rank_%d_size_%d' %(RANK,SIZE)
+        path_to_unique_halo = main_path + 'halo_unique_mask_rank_%d_size_%d' %(RANK,SIZE)
 
-            # Polynomial order
-            self.Np = np.array([0], dtype=np.float32)
-            if RANK == 0:
-                path_to_Np = main_path + "Np_rank_%d_size_%d" %(RANK, SIZE)
-                self.Np = self.load_data(path_to_Np, dtype=np.float32)
-            COMM.Bcast(self.Np, root=0)
+        # Polynomial order
+        self.Np = np.array([0], dtype=np.float32)
+        if RANK == 0:
+            path_to_Np = main_path + "Np_rank_%d_size_%d" %(RANK, SIZE)
+            self.Np = self.load_data(path_to_Np, dtype=np.float32)
+        COMM.Bcast(self.Np, root=0)
 
-            # Node positions
-            if self.cfg.verbose: log.info('[RANK %d]: Loading positions and global node index' %(RANK))
-            #pos = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_pos_full + ".bin", dtype=np.float64).reshape((-1,3))
-            pos = self.load_data(path_to_pos_full, extension='.bin').reshape((-1,3))
+        # Node positions
+        if self.cfg.verbose: log.info('[RANK %d]: Loading positions and global node index' %(RANK))
+        #pos = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_pos_full + ".bin", dtype=np.float64).reshape((-1,3))
+        pos = self.load_data(path_to_pos_full, extension='.bin').reshape((-1,3))
 
-            # Global node index
-            #gli = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_glob_ids + ".bin", dtype=np.int64).reshape((-1,1))
-            gli = self.load_data(path_to_glob_ids,dtype=np.int64,extension='.bin').reshape((-1,1))
+        # Global node index
+        #gli = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_glob_ids + ".bin", dtype=np.int64).reshape((-1,1))
+        gli = self.load_data(path_to_glob_ids,dtype=np.int64,extension='.bin').reshape((-1,1))
 
-            # Edge index
-            if self.cfg.verbose: log.info('[RANK %d]: Loading edge index' %(RANK))
-            #ei = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_ei + ".bin", dtype=np.int32).reshape((-1,2)).T
-            ei = self.load_data(path_to_ei, dtype=np.int32, extension='.bin') 
-            if not self.cfg.online:
-                ei = ei.reshape((-1,2)).T
-            ei = ei.astype(np.int64) # sb: int64 for edge_index
+        # Edge index
+        if self.cfg.verbose: log.info('[RANK %d]: Loading edge index' %(RANK))
+        #ei = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_ei + ".bin", dtype=np.int32).reshape((-1,2)).T
+        ei = self.load_data(path_to_ei, dtype=np.int32, extension='.bin') 
+        if not self.cfg.online:
+            ei = ei.reshape((-1,2)).T
+        ei = ei.astype(np.int64) # sb: int64 for edge_index
 
-            # Local unique mask
-            if self.cfg.verbose: log.info('[RANK %d]: Loading local unique mask' %(RANK))
-            #local_unique_mask = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_unique_local + ".bin", dtype=np.int32)
-            local_unique_mask = self.load_data(path_to_unique_local,dtype=np.int32,extension='.bin')
+        # Local unique mask
+        if self.cfg.verbose: log.info('[RANK %d]: Loading local unique mask' %(RANK))
+        #local_unique_mask = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_unique_local + ".bin", dtype=np.int32)
+        local_unique_mask = self.load_data(path_to_unique_local,dtype=np.int32,extension='.bin')
 
-            # Halo unique mask
-            halo_unique_mask = np.array([])
-            if SIZE > 1:
-                #halo_unique_mask = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_unique_halo + ".bin", dtype=np.int32)
-                halo_unique_mask = self.load_data(path_to_unique_halo,dtype=np.int32,extension='.bin')
+        # Halo unique mask
+        halo_unique_mask = np.array([])
+        if SIZE > 1:
+            #halo_unique_mask = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_unique_halo + ".bin", dtype=np.int32)
+            halo_unique_mask = self.load_data(path_to_unique_halo,dtype=np.int32,extension='.bin')
 
         return pos, gli, ei, local_unique_mask, halo_unique_mask
 
@@ -784,49 +779,32 @@ class Trainer:
 
     def load_field_data(self, data_dir: str):
         if RANK == 0: log.info("Loading field data...")
-        input_field = 'u' # velocity
-        output_field = 'p' # pressure
+        field_name = 'u' # velocity
 
         # read files
         if not self.cfg.online:
             file_list = os.listdir(data_dir)
-            input_files = [item for item in file_list \
-                            if (f'fld_{input_field}' in item) and (f'rank_{RANK}' in item)]
-            input_files.sort(key=lambda x:int(x.split('.')[0].split('_')[-1]))
-            output_files = [item for item in file_list \
-                            if (f'fld_{output_field}' in item) and (f'rank_{RANK}' in item)]
-            output_files.sort(key=lambda x:int(x.split('.')[0].split('_')[-1]))
+            files = [item for item in file_list \
+                            if (f'fld_{field_name}' in item) and (f'rank_{RANK}' in item)]
+            files.sort(key=lambda x:int(x.split('.')[0].split('_')[-1]))
         else:
-            tic = time.time()
-            output_files = self.client.get_file_list(f'outputs_rank_{RANK}')
-            input_files = self.client.get_file_list(f'inputs_rank_{RANK}')
-            self.online_timers['metaData'].append(time.time()-tic)
-        assert len(input_files) == len(output_files), \
-            'ERROR: found different number of input and output files'
+            log.warning('Online backends not implemented for this model yet')
+            MPI.Abort(COMM, 1)
 
         # populate dataset
         if not self.cfg.online:
             path_prepend = data_dir + '/'
-            input_files = [path_prepend+input_file for input_file in input_files]
-            output_files = [path_prepend+output_file for output_file in output_files]
-        log.info(f'[RANK {RANK}]: Found {len(output_files)} new field files in DB')
-        for i in range(len(output_files)):
+            files = [path_prepend+file for file in files]
+        log.info(f'[RANK {RANK}]: Found {len(files)} field files to load')
+        for i in range(len(files)):
             tic = time.time()
-            data_x = self.load_data(input_files[i], dtype=np.float64).reshape((-1,3))
+            data_x = self.load_data(files[i], dtype=np.float64).reshape((-1,3))
             toc = time.time()
             if self.cfg.online:
                 self.online_timers['trainDataTime'].append(toc-tic)
                 self.online_timers['trainDataThroughput'].append(data_x.nbytes/GB_SIZE/(toc-tic))
             data_x = self.prepare_snapshot_data(data_x)
-            
-            tic = time.time()
-            data_y = self.load_data(output_files[i], dtype=np.float64).reshape((-1,1))
-            toc = time.time()
-            if self.cfg.online:
-                self.online_timers['trainDataTime'].append(toc-tic)
-                self.online_timers['trainDataThroughput'].append(data_x.nbytes/GB_SIZE/(toc-tic))
-            data_y = self.prepare_snapshot_data(data_y)
-            self.data_list.append({'x': data_x, 'y':data_y})
+            self.data_list.append({'x': data_x})
 
         # split into train/validation
         data = {'train': [], 'validation': []}
@@ -853,191 +831,25 @@ class Trainer:
         if RANK == 0: log.info(f"Number of validation snapshots: {0}")
         
         # Compute statistics for normalization
-        stats = {'x': [], 'y': []}
+        stats = {'x': []}
         if 'stats' not in self.data.keys():
             if os.path.exists(data_dir + f"/data_stats.npz"):
                 if RANK == 0:
                     npzfile = np.load(data_dir + f"/data_stats.npz")
                     stats_arr_x = np.stack([npzfile['x_mean'][0], npzfile['x_std'][0]])
-                    stats_arr_y = np.stack([npzfile['y_mean'][0], npzfile['y_std'][0]])
                 else:
                     n_features = self.data_list[0]['x'].shape[1]
-                    n_outputs = self.data_list[0]['y'].shape[1]
                     stats_arr_x = np.zeros((2,n_features), dtype=np.float32)
-                    stats_arr_y = np.zeros((2,n_outputs), dtype=np.float32)
                 COMM.Bcast(stats_arr_x, root=0)
                 stats['x'] = [stats_arr_x[0], stats_arr_x[1]]
-                COMM.Bcast(stats_arr_y, root=0)
-                stats['y'] = [stats_arr_y[0], stats_arr_y[1]]
                 if RANK == 0: log.info(f"Read training data statistics from {data_dir}/data_stats.npz")
             else: 
                 x_mean, x_std = self.compute_statistics(data['train'],'x')
-                y_mean, y_std = self.compute_statistics(data['train'],'y')
                 if RANK == 0 and not self.cfg.online:
                     np.savez(data_dir + f"/data_stats.npz", 
                         x_mean=x_mean, x_std=x_std,
-                        y_mean=y_mean, y_std=y_std,
                     )
                 stats['x'] = [x_mean, x_std]
-                stats['y'] = [y_mean, y_std]
-                if RANK == 0: log.info(f"Computed training data statistics for each node feature")
-        return data, stats
-
-    def load_trajectory(self, data_dir: str):
-        """Load a solution trajectory
-        """
-        COMM.Barrier() # sync helps here
-        # read files
-        if not self.cfg.online:
-            files = os.listdir(data_dir+f"/data_rank_{RANK}_size_{SIZE}")
-            #files = [item for item in files_temp if 'p_step' not in item]
-            files.sort(key=lambda x:int(x.split('_')[-1].split('.')[0]))
-        
-            # populate dataset for single-step predictions 
-            idx = list(range(len(files)))
-            idx_x = idx[:-1]
-            idx_y = idx[1:]
-            if RANK == 0: log.info(f"Loading {len(files)} trajectory data files ...")
-            for i in range(len(idx_x)):
-                step_x_i = idx_x[i]
-                step_y_i = idx_y[i]
-                path_x_i = data_dir + f"/data_rank_{RANK}_size_{SIZE}/" + files[idx_x[i]]
-                path_y_i = data_dir + f"/data_rank_{RANK}_size_{SIZE}/" + files[idx_y[i]]
-                data_x_i = self.load_data(path_x_i, dtype=np.float64).reshape((-1,3))
-                data_y_i = self.load_data(path_y_i, dtype=np.float64).reshape((-1,3))
-                data_x_i = self.prepare_snapshot_data(data_x_i)
-                data_y_i = self.prepare_snapshot_data(data_y_i)
-                self.data_list.append(
-                        {'x': data_x_i, 'y':data_y_i, 'step_x':step_x_i, 'step_y':step_y_i} 
-                )
-        elif self.cfg.online and self.cfg.client.backend == 'smartredis':
-            # Get the file list
-            tic = time.time()
-            output_files = self.client.get_file_list(f'outputs_rank_{RANK}') # outputs must come first
-            input_files = self.client.get_file_list(f'inputs_rank_{RANK}')
-            self.online_timers['metaData'].append(time.time()-tic)
-
-            # Load files
-            if self.cfg.verbose: log.info(f'[RANK {RANK}]: Found {len(output_files)} trajectory files in DB')
-            for i in range(len(output_files)):
-                tic = time.time()
-                data_x_i = self.client.get_array(input_files[i]).astype(NP_FLOAT_DTYPE).T
-                toc = time.time()
-                self.online_timers['trainDataTime'].append(toc-tic)
-                self.online_timers['trainDataThroughput'].append(data_x_i.nbytes/GB_SIZE/(toc-tic))
-                data_x_i = self.prepare_snapshot_data(data_x_i)
-                
-                tic = time.time()
-                data_y_i = self.client.get_array(output_files[i]).astype(NP_FLOAT_DTYPE).T
-                toc = time.time()
-                self.online_timers['trainDataTime'].append(toc-tic)
-                self.online_timers['trainDataThroughput'].append(data_y_i.nbytes/GB_SIZE/(toc-tic))
-                data_y_i = self.prepare_snapshot_data(data_y_i)
-                self.data_list.append(
-                        {'x': data_x_i, 'y':data_y_i}
-                )
-        elif self.cfg.online and self.cfg.client.backend == 'adios':
-            iter = 5 if self.cfg.target_loss != 0 else 1
-            for i in range(iter):
-                data_x_i, data_y_i, ttime = self.client.get_train_data_from_stream()
-                self.online_timers['trainDataTime'].append(ttime)
-                self.online_timers['trainDataSize'].append((data_x_i.nbytes+data_y_i.nbytes)/GB_SIZE)
-                self.online_timers['trainDataThroughput'].append(
-                            self.online_timers['trainDataSize'][-1]/(ttime)
-                )
-                data_x_i = self.prepare_snapshot_data(data_x_i)
-                data_y_i = self.prepare_snapshot_data(data_y_i)
-                self.data_list.append(
-                        {'x': data_x_i, 'y':data_y_i}
-                )
-
-        # split into train/validation
-        data = {'train': [], 'validation': []}
-        fraction_valid = 0.0
-        if fraction_valid > 0 and len(self.data_list)*fraction_valid > 1:
-            # How many total snapshots to extract 
-            n_full = len(idx_x)
-            n_valid = int(np.floor(fraction_valid * n_full))
-
-            # Get validation set indices 
-            idx_valid = np.sort(np.random.choice(n_full, n_valid, replace=False))
-
-            # Get training set indices 
-            idx_train = np.array(list(set(list(range(n_full))) - set(list(idx_valid))))
-
-            # Train/validation split 
-            data['train'] = [self.data_list[i] for i in idx_train]
-            data['validation'] = [self.data_list[i] for i in idx_valid]
-        else:
-            data['train'] = self.data_list
-            data['validation'] = [{}]
-
-        if RANK == 0: log.info(f"Number of training snapshots: {len(data['train'])}")
-        if RANK == 0: log.info(f"Number of validation snapshots: {0}")
-
-        # Compute statistics for normalization
-        stats = {'x': [], 'y': []} 
-        if 'stats' not in self.data.keys():
-            if os.path.exists(data_dir + f"/data_stats.npz"):
-                if RANK == 0:
-                    npzfile = np.load(data_dir + f"/data_stats.npz")
-                    stats_arr = np.stack([npzfile['x_mean'][0], npzfile['x_std'][0], npzfile['y_mean'][0], npzfile['y_std'][0]])
-                else:
-                    n_features = self.data_list[0]['x'].shape[1]
-                    stats_arr = np.zeros((4,n_features), dtype=np.float32)
-                COMM.Bcast(stats_arr, root=0)
-                stats['x'] = [stats_arr[0], stats_arr[1]]
-                stats['y'] = [stats_arr[2], stats_arr[3]]
-                if RANK == 0: log.info(f"Read training data statistics from {data_dir}/data_stats.npz")
-            else: 
-                if RANK == 0: log.info(f"Computing training data statistics")
-                x_mean, x_std = self.compute_statistics(data['train'],'x')
-                if RANK == 0 and not self.cfg.online:
-                    np.savez(data_dir + "/data_stats.npz", 
-                        x_mean=x_mean.cpu().to(torch.float32).numpy(), x_std=x_std.cpu().to(torch.float32).numpy(),
-                        y_mean=x_mean.cpu().to(torch.float32).numpy(), y_std=x_std.cpu().to(torch.float32).numpy(),
-                    )
-                stats['x'] = [x_mean, x_std]
-                stats['y'] = [x_mean, x_std]
-                if RANK == 0: log.info(f"Computed training data statistics for each node feature")
-        return data, stats
-    
-    def load_initial_condition(self, data_dir: str):
-        """Load the initial condition to a solution trajectory
-        """
-        COMM.Barrier() # sync helps here
-        # read files
-        if not self.cfg.online:
-            files = os.listdir(data_dir+f"/data_rank_{RANK}_size_{SIZE}")
-            #files = [item for item in files_temp if 'p_step' not in item]
-            files.sort(key=lambda x:int(x.split('_')[-1].split('.')[0]))
-            file = files[0]
-            path_x = data_dir + f"/data_rank_{RANK}_size_{SIZE}/" + file
-            data_x = self.load_data(path_x, dtype=np.float64).reshape((-1,3))
-        else:
-            if self.cfg.client.backend == 'smartredis':
-                file = f'checkpt_u_rank_{RANK}_size_{SIZE}'
-            elif self.cfg.client.backend == 'adios':
-                file = 'checkpoint.bp'
-            data_x = self.client.get_array(file).reshape((-1,3))
-        data_x = self.prepare_snapshot_data(data_x)
-        self.data_list.append({'x': data_x, 'y': data_x})
-        data = {'train': [self.data_list[0]], 'validation': [{}]}
-
-        # Compute statistics for normalization
-        stats = {'x': [], 'y': []} 
-        if 'stats' not in self.data.keys():
-            if os.path.exists(data_dir + "/data_stats.npz"):
-                if RANK == 0:
-                    npzfile = np.load(data_dir + "/data_stats.npz")
-                    stats['x'] = [npzfile['x_mean'], npzfile['x_std']]
-                    stats['y'] = [npzfile['y_mean'], npzfile['y_std']]
-                stats = COMM.bcast(stats, root=0)
-                if RANK == 0: log.info(f"Read training data statistics from {data_dir}/data_stats.npz")
-            else: 
-                x_mean, x_std = self.compute_statistics(data['train'],'x')
-                stats['x'] = [x_mean, x_std]
-                stats['y'] = [x_mean, x_std]
                 if RANK == 0: log.info(f"Computed training data statistics for each node feature")
         return data, stats
  
@@ -1050,22 +862,8 @@ class Trainer:
 
         device_for_loading = 'cpu'
 
-        if self.cfg.model_task == 'train' and self.cfg.time_dependency == "time_independent":
-            data_dir = self.cfg.gnn_outputs_path
-            data, stats = self.load_field_data(data_dir)
-        elif self.cfg.model_task == 'train' and self.cfg.time_dependency == "time_dependent":
-            data_dir = self.cfg.traj_data_path
-            data, stats = self.load_trajectory(data_dir)
-        elif self.cfg.model_task == 'inference' and self.cfg.rollout_steps > 0:
-            data_dir = self.cfg.traj_data_path
-            data, stats = self.load_initial_condition(data_dir)
-
-        # Populate data object 
-        #data_x_reduced = data['train'][0]['x']
-        #data_y_reduced = data['train'][0]['y']
-        #n_features_in = data_x_reduced.shape[1]
-        #n_features_out = data_y_reduced.shape[1]
-        #n_nodes = self.data_reduced.pos.shape[0]
+        data_dir = self.cfg.gnn_outputs_path
+        data, stats = self.load_field_data(data_dir)
         
         # Get dictionary 
         reduced_graph_dict = self.data_reduced.to_dict()
@@ -1106,7 +904,6 @@ class Trainer:
         if (RANK == 0):
             log.info(f"{data_graph}")
             log.info(f"shape of x: {data['train'][0]['x'].shape}")
-            log.info(f"shape of y: {data['train'][0]['y'].shape}")
         
         # ~~~~ Populate the data sampler. No need to use torch_geometric sampler -- we assume we have fixed connectivity, and a "GRAPH" batch size of 1. We need a sampler only over the [x,y] pairs (i.e., the elements in data_list)
         # train_loader = torch_geometric.loader.DataLoader(train_dataset, batch_size=self.cfg.batch_size, shuffle=False)
@@ -1117,7 +914,6 @@ class Trainer:
         for item in  data['train']:
             tdict = {}
             tdict['x'] = ((item['x'] - stats['x'][0])/(stats['x'][1] + SMALL)).to(self.torch_dtype)
-            tdict['y'] = ((item['y'] - stats['y'][0])/(stats['y'][1] + SMALL)).to(self.torch_dtype)
             train_data_scaled.append(tdict)
         train_loader = DataLoader(dataset=train_data_scaled,
                                      batch_size=self.cfg.batch_size,
@@ -1128,7 +924,6 @@ class Trainer:
             for item in  val_data_scaled:
                 tdict = {}
                 tdict['x'] = ((item['x'] - stats['x'][0])/(stats['x'][1] + SMALL)).to(self.torch_dtype)
-                tdict['y'] = ((item['y'] - stats['y'][0])/(stats['y'][1] + SMALL)).to(self.torch_dtype)
                 val_data_scaled.append(tdict)
         valid_loader = DataLoader(dataset=val_data_scaled,
                                             batch_size=self.cfg.val_batch_size,
@@ -1146,92 +941,9 @@ class Trainer:
             'stats': {
                 'x_mean': stats['x'][0],
                 'x_std': stats['x'][1],
-                'y_mean': stats['y'][0],
-                'y_std': stats['y'][1],
             },
             'graph': data_graph
         }
-    
-    def update_data(self) -> None:
-        """Update the data loaders after reading more data
-        """
-        COMM.Barrier() # sync helps here
-        if RANK == 0:
-            log.info('In update_data...')
-
-        if self.cfg.client.backend == 'smartredis':
-            # Check if new files are available to read
-            tic = time.time()
-            num_files = self.client.get_file_list_length(f'outputs_rank_{RANK}')
-            self.online_timers['metaData'].append(time.time()-tic)
-            num_new_files = num_files - len(self.data_list)
-            if num_new_files <= 0:
-                if RANK == 0: log.info(f'[RANK {RANK}]: No new files to read, did not update dataloader')
-                return
-            else:
-                if RANK == 0: log.info(f'[RANK {RANK}]: Found {num_new_files} new files to read, will update dataloader')
-                tic = time.time()
-                output_files = self.client.get_file_list(f'outputs_rank_{RANK}')
-                input_files = self.client.get_file_list(f'inputs_rank_{RANK}')
-                self.online_timers['metaData'].append(time.time()-tic)
-                for i in range(len(self.data_list),len(output_files)):
-                    tic = time.time()
-                    data_x_i = self.client.get_array(input_files[i]).astype(NP_FLOAT_DTYPE).T
-                    toc = time.time()
-                    self.online_timers['trainDataTime'].append(toc-tic)
-                    self.online_timers['trainDataThroughput'].append(data_x_i.nbytes/GB_SIZE/(toc-tic))
-                    data_x_i = self.prepare_snapshot_data(data_x_i)
-                    
-                    tic = time.time()
-                    data_y_i = self.client.get_array(output_files[i]).astype(NP_FLOAT_DTYPE).T
-                    toc = time.time()
-                    self.online_timers['trainDataTime'].append(toc-tic)
-                    self.online_timers['trainDataThroughput'].append(data_y_i.nbytes/GB_SIZE/(toc-tic))
-                    data_y_i = self.prepare_snapshot_data(data_y_i)
-                    self.data_list.append({'x': data_x_i, 'y': data_y_i})
-        elif self.cfg.client.backend == 'adios':
-            data_x_i, data_y_i, ttime = self.client.get_train_data_from_stream()
-            self.online_timers['trainDataTime'].append(ttime)
-            self.online_timers['trainDataSize'].append((data_x_i.nbytes+data_y_i.nbytes)/GB_SIZE)
-            self.online_timers['trainDataThroughput'].append(
-                        self.online_timers['trainDataSize'][-1]/(ttime)
-            )
-            data_x_i = self.prepare_snapshot_data(data_x_i)
-            data_y_i = self.prepare_snapshot_data(data_y_i)
-            self.data_list.append(
-                    {'x': data_x_i, 'y':data_y_i}
-            )
-            if RANK == 0: log.info(f'[RANK {RANK}]: Found 1 new sample to read, will update dataloader')
-        
-        data = {'train': [], 'validation': []}
-        data['train'] = list(self.data_list)
-        data['validation'] = [{}]
-
-        # Scale files 
-        # (ideally should save previouly scaled data so only have to scale new files)
-        stats = self.data['stats']
-        train_data_scaled = []
-        for item in  data['train']:
-            tdict = {}
-            tdict['x'] = ((item['x'] - stats['x_mean'])/(stats['x_std'] + SMALL)).to(self.torch_dtype)
-            tdict['y'] = ((item['y'] - stats['y_mean'])/(stats['y_std'] + SMALL)).to(self.torch_dtype)
-            train_data_scaled.append(tdict)
-        train_loader = DataLoader(dataset=train_data_scaled,
-                                     batch_size=self.cfg.batch_size,
-                                     shuffle=True)
-        self.data['train']['loader'] = train_loader
-
-        #val_data_scaled = data['validation'].copy()
-        #if val_data_scaled[0]:
-        #    for item in  val_data_scaled:
-        #        tdict = {}
-        #        tdict['x'] = (item['x'] - stats['x_mean'])/(stats['x_std'] + SMALL)
-        #        tdict['y'] = (item['y'] - stats['y_mean'])/(stats['y_std'] + SMALL)
-        #        val_data_scaled.append(tdict)
-        #valid_loader = DataLoader(dataset=val_data_scaled,
-        #                                    batch_size=self.cfg.val_batch_size,
-        #                                    shuffle=False)
-        #self.data['validation']['loader'] = valid_loader
 
     def setup_timers(self, n_record: int) -> dict:
         timers = {}
@@ -1322,7 +1034,6 @@ class Trainer:
         tic = time.time()
         if WITH_CUDA or WITH_XPU:
             data['x'] = data['x'].to(self.device)
-            data['y'] = data['y'].to(self.device)
             graph.edge_index = graph.edge_index.to(self.device)
             graph.edge_attr = graph.edge_attr.to(self.device)
             graph.batch = graph.batch.to(self.device) if graph.batch is not None else None
@@ -1349,10 +1060,17 @@ class Trainer:
             self.buffer_recv = None
         if self.cfg.timers: self.update_timer('bufferInit', self.timer_step, time.time() - tic)
         
+        # Sample a batch of random diffusion steps
+        r, weights = self.step_sampler.sample(batch_size=self.cfg.diffusion_step_batch_size)
+
+        # Diffuse the solution/target field
+        BC_mask = None # no BCs for now
+        field_r, noise = self.diffusion_process.forward(data['x'], r, BC_mask)
+        
         # Prediction
         tic = time.time()
         x_scaled = data['x'][0]
-        out_gnn = self.model(x = x_scaled,
+        model_noise, model_var = self.model(x = x_scaled,
                              edge_index = graph.edge_index,
                              edge_attr = graph.edge_attr,
                              edge_weight = graph.edge_weight,
@@ -1366,17 +1084,13 @@ class Trainer:
                              batch = graph.batch)
         if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
 
-        if self.cfg.use_residual:
-            pred = out_gnn + x_scaled
-        else:
-            pred = out_gnn
-
         # Accumulate loss
         tic = time.time()
         target = data['y'][0]
         n_nodes_local = graph.n_nodes_local
         if SIZE == 1 or not self.cfg.consistency:
-            loss = self.loss_fn(pred[:n_nodes_local], target[:n_nodes_local])
+            loss = self.loss_fn(model_noise[:n_nodes_local], noise[:n_nodes_local])
+            # TODO: Look at DGN4cfd hybrid loss for full loss function
             effective_nodes = n_nodes_local 
         else: # custom 
             n_output_features = pred.shape[1]
