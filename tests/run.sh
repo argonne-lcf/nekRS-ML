@@ -38,8 +38,7 @@ print_help() {
   echo "    ./$(basename "$0") -t offline -b"
   echo "  To run all the tests based on tgv:"
   echo "    ./$(basename "$0") -t tgv -b"
-  echo "  Please note that the \"-b (--build)\" parameter is only required in the first run of" \
-    " each tag."
+  echo "  Please note that the \"-b (--build)\" parameter is only required in the first run of each tag."
   echo "  You can pass --list-tags or -l to list all the test tags:"
   echo "    ./$(basename "$0") -l"
 }

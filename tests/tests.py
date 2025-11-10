@@ -1,6 +1,6 @@
 import reframe as rfm
 import reframe.utility.sanity as sn
-from nekrs import NekRSCase, NekRSTest, NekRSMLTest
+from nekrs import NekRSTest, NekRSMLOfflineTest, NekRSMLOnlineTest
 import os
 
 
@@ -11,7 +11,7 @@ class NekRSKershawTest(NekRSTest):
 
     def __init__(self):
         super().__init__(
-            NekRSCase("kershaw"), nn=self.num_nodes, rpn=self.ranks_per_node
+            "kershaw", "kershaw", nn=self.num_nodes, rpn=self.ranks_per_node
         )
 
     # Match "flops/rank" at start of line to avoid matching output during setup.
@@ -33,13 +33,14 @@ class NekRSKershawTest(NekRSTest):
 
 
 @rfm.simple_test
-class NekRSTGVOffline(NekRSMLTest):
+class NekRSTGVOffline(NekRSMLOfflineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([2])
 
     def __init__(self):
         super().__init__(
-            NekRSCase("tgv", directory="tgv_gnn_offline"),
+            case="tgv",
+            directory="tgv_gnn_offline",
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
             time_dependency="time_independent",
@@ -49,13 +50,14 @@ class NekRSTGVOffline(NekRSMLTest):
 
 
 @rfm.simple_test
-class NekRSTGVOfflineCoarseMesh(NekRSMLTest):
+class NekRSTGVOfflineCoarseMesh(NekRSMLOfflineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([2])
 
     def __init__(self):
         super().__init__(
-            NekRSCase("tgv", directory="tgv_gnn_offline_coarse_mesh"),
+            case="tgv",
+            directory="tgv_gnn_offline_coarse_mesh",
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
             time_dependency="time_independent",
@@ -65,16 +67,53 @@ class NekRSTGVOfflineCoarseMesh(NekRSMLTest):
 
 
 @rfm.simple_test
-class NekRSTGVOfflineTraj(NekRSMLTest):
+class NekRSTGVOfflineTraj(NekRSMLOfflineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([4])
 
     def __init__(self):
         super().__init__(
-            NekRSCase("tgv", directory="tgv_gnn_offline_traj"),
+            case="tgv",
+            directory="tgv_gnn_offline_traj",
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
             time_dependency="time_dependent",
             target_loss=6.9076e-01,
         )
         self.tags |= {"tgv_offline_traj"}
+
+
+@rfm.simple_test
+class NekRSTGVOnline(NekRSMLOnlineTest):
+    num_nodes = parameter([1])
+    ranks_per_node = parameter([4])
+
+    def __init__(self):
+        super().__init__(
+            case="tgv",
+            directory="tgv_gnn_online",
+            nn=self.num_nodes,
+            rpn=self.ranks_per_node,
+            time_dependency="time_independent",
+            client="smartredis",
+            target_loss=1.6206e-04,
+        )
+        self.tags |= {"tgv_online"}
+
+
+@rfm.simple_test
+class NekRSTGVOnlineTraj(NekRSMLOnlineTest):
+    num_nodes = parameter([1])
+    ranks_per_node = parameter([8])
+
+    def __init__(self):
+        super().__init__(
+            case="tgv",
+            directory="tgv_gnn_online_traj",
+            nn=self.num_nodes,
+            rpn=self.ranks_per_node,
+            time_dependency="time_dependent",
+            client="smartredis",
+            target_loss=6.9076e-01,
+        )
+        self.tags |= {"tgv_online_traj"}
