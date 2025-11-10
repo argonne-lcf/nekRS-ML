@@ -68,8 +68,9 @@ Examples:
 
 ## Output artifacts
 
-A successful run will show that all tests passed and produce test artifacts in `${PWD}/test_data` directory. 
-For example, if you ran the `tgv_offline` test with the following command (on Aurora):
+A successful run will show that all tests passed and produce test artifacts in
+`${PWD}/test_data` directory. For example, if you ran the `tgv_offline` test with the
+following command (on Aurora):
 ```sh
 ./run.sh -t tgv_offline -b -prj <PROJECT>
 ```
@@ -129,15 +130,16 @@ You will see two log files (`rfm-*.log`) under `${PWD}/test_data/output/<timesta
 One corresponds to a log level of `info` and the other is with the log level of
 `debug2` (these levels are defined by ReFrame). Output artifacts produced by the
 tests themselves will be under `${PWD}/test_data/output/<timestamp>/<system>/<PrgEnv>/<test>`.
-The test reports are in`${PWD}/test_data/reports/report_<session_id>.json`. The staging
-files of the tests can be found under `${PWD}/test_data/stage/<timestamp>`.
+The test reports are in`${PWD}/test_data/reports/report_<session_id>.json`. The
+staging files of the tests can be found under `${PWD}/test_data/stage/<timestamp>`.
 
 ## Common issues
 
-* Make sure the correct project and system parameters are being passed to the test run script.
-* If you see an error similar to the following, it means that the ReFrame
-  couldn't find a report to restore the session you asked for. In that case,
-  pass the `-b` flag to the `run.sh` to generate everything from scratch.
+* Make sure the correct project and system parameters are being passed to the test
+  run script.
+* If you see an error similar to the following, it means that the ReFrame couldn't
+  find a report to restore the session you asked for. In that case, pass the `-b`
+  flag to the `run.sh` to generate everything from scratch.
   ```
   FileNotFoundError: [Errno 2] No such file or directory: '/home/thilina/gnn/nekrs_ml.git/examples/reframe/test_data/reports'
   ```
