@@ -1,5 +1,5 @@
-from __future__ import absolute_import, division, print_function, annotations
-from typing import Optional, Union, Callable, List
+import math
+from typing import Optional, Union, Callable, List, Dict, Any
 import torch
 from torch import Tensor
 import torch.nn as nn
@@ -10,72 +10,96 @@ from torch_geometric.typing import Adj, OptTensor, PairTensor
 import torch.distributed as dist
 import torch.distributed.nn as distnn
 
-class DistributedGNN(torch.nn.Module):
-    def __init__(self,
-                 input_node_channels: int,
-                 input_edge_channels: int,
-                 hidden_channels: int,
-                 output_node_channels: int,
-                 n_mlp_hidden_layers: int,
-                 n_messagePassing_layers: int,
-                 halo_swap_mode: Optional[str] = 'all_to_all',
-                 layer_norm: Optional[bool] = False,
-                 name: Optional[str] = 'gnn'):
+class DistributedDGN(torch.nn.Module):
+    r"""Distributed Diffusion Graph Neural Network (DGN)
+    Args:
+        arch (Dict[str, Any]): Architecture configuration
+    """
+    def __init__(self, arch: Dict[str, Any]):
         super().__init__()
 
-        self.input_node_channels = input_node_channels
-        self.input_edge_channels = input_edge_channels
-        self.hidden_channels = hidden_channels
-        self.output_node_channels = output_node_channels
-        self.n_mlp_hidden_layers = n_mlp_hidden_layers
-        self.n_messagePassing_layers = n_messagePassing_layers
-        self.halo_swap_mode = halo_swap_mode
-        self.layer_norm = layer_norm
-        self.name = name
+        self.parse_arch(arch)
+
+        # ~~~~ Diffusion-step embedding
+        self.diffusion_step_embedding = nn.Sequential(
+            SinusoidalPositionEmbedding(self.mlp_hidden_channels),
+            nn.Linear(self.mlp_hidden_channels, self.emb_width),
+            nn.SELU(),
+        )
+
+        # ~~~~ Diffusion-step encoder
+        self.diffusion_step_encoder = nn.ModuleList([
+            nn.Linear(self.emb_width, self.mlp_hidden_channels),
+            nn.SELU(), 
+            nn.Linear(self.mlp_hidden_channels * 2, self.mlp_hidden_channels),
+        ])
 
         # ~~~~ node encoder MLP
         self.node_encoder = MLP(
-                input_channels = self.input_node_channels,
-                hidden_channels = [self.hidden_channels]*(self.n_mlp_hidden_layers+1),
-                output_channels = self.hidden_channels,
+                input_features = self.input_node_features + self.cond_node_features,
+                hidden_channels = [self.mlp_hidden_channels]*(self.n_mlp_hidden_layers+1),
+                output_channels = self.mlp_hidden_channels,
                 activation_layer = torch.nn.ELU(),
-                norm_layer = torch.nn.LayerNorm(self.hidden_channels) if self.layer_norm else None
-                )
+                norm_layer = torch.nn.LayerNorm(self.mlp_hidden_channels) if self.layer_norm else None,
+                dropout_rate = self.dropout_rate
+        )
 
         # ~~~~ edge encoder MLP
         self.edge_encoder = MLP(
-                input_channels = self.input_edge_channels,
-                hidden_channels = [self.hidden_channels]*(self.n_mlp_hidden_layers+1),
-                output_channels = self.hidden_channels,
+                input_features = self.input_edge_channels,
+                hidden_channels = [self.mlp_hidden_channels]*(self.n_mlp_hidden_layers+1),
+                output_channels = self.mlp_hidden_channels,
                 activation_layer = torch.nn.ELU(),
-                norm_layer = torch.nn.LayerNorm(self.hidden_channels) if self.layer_norm else None
-                )
+                norm_layer = torch.nn.LayerNorm(self.mlp_hidden_channels) if self.layer_norm else None,
+                dropout_rate = self.dropout_rate
+        )
 
         # ~~~~ node decoder MLP
         self.node_decoder = MLP(
-                input_channels = self.hidden_channels,
-                hidden_channels = [self.hidden_channels]*(self.n_mlp_hidden_layers+1),
-                output_channels = self.output_node_channels,
+                input_features = self.mlp_hidden_channels,
+                hidden_channels = [self.mlp_hidden_channels]*(self.n_mlp_hidden_layers+1),
+                output_channels = self.output_node_features,
                 activation_layer = torch.nn.ELU(),
-                )
+                norm_layer = None,
+                dropout_rate = self.dropout_rate
+        )
 
         # ~~~~ Processor
         self.processor = torch.nn.ModuleList()
-        for i in range(self.n_messagePassing_layers):
+        for _ in range(self.n_messagePassing_layers):
             self.processor.append(
-                          DistributedMessagePassingLayer(
-                                     channels = self.hidden_channels,
+                        DistributedMessagePassingLayer(
+                                     channels = self.mlp_hidden_channels,
+                                     emb_features = self.emb_width,
                                      n_mlp_hidden_layers = self.n_mlp_hidden_layers,
                                      halo_swap_mode = self.halo_swap_mode, 
-                                     layer_norm = self.layer_norm
-                                     )
-                                  )
+                                     layer_norm = self.layer_norm,
+                                     dropout_rate = self.dropout_rate
+                        )
+            )
 
         self.reset_parameters()
 
+    def parse_arch(self, arch: Dict[str, Any]):
+        self.arch = arch
+        self.input_node_features = arch['input_node_features']
+        self.cond_node_features = arch['cond_node_features']
+        self.input_edge_features = arch['input_edge_features']
+        self.mlp_hidden_channels = arch['mlp_hidden_channels']
+        self.n_mlp_hidden_layers = arch['n_mlp_hidden_layers']
+        self.n_messagePassing_layers = arch['n_messagePassing_layers']
+        self.halo_swap_mode = arch['halo_swap_mode']
+        self.layer_norm = arch['layer_norm']
+        self.dropout_rate = arch['dropout_rate']
+        self.emb_width = arch.get('emb_width', self.mlp_hidden_channels * 4)
+        self.learnable_variance = arch.get('learnable_variance', False)
+        self.output_node_features = self.input_node_features * 2 if self.learnable_variance else self.input_node_features
+        self.name = arch['name']
+
     def forward(
             self,
-            x: Tensor,
+            field_r: Tensor,
+            r: Tensor,
             edge_index: LongTensor,
             edge_attr: Tensor,
             edge_weight: Tensor,
@@ -86,36 +110,55 @@ class DistributedGNN(torch.nn.Module):
             buffer_recv: List[Tensor],
             neighboring_procs: Tensor, 
             SIZE: Tensor,
-            batch: Optional[LongTensor] = None) -> Tensor:
+            cond_node_features: Optional[Tensor] = None,
+            batch: Optional[LongTensor] = None
+    ) -> Tensor:
 
         if batch is None:
-            batch = edge_index.new_zeros(x.size(0))
+            batch = edge_index.new_zeros(field_r.size(0))
+
+        # ~~~~ Embed the diffusion step
+        emb = self.diffusion_step_embedding(r) # Shape (batch_size, emb_width)
 
         # ~~~~ Node encoder
-        x = self.node_encoder(x)
+        x = torch.cat([field_r, cond_node_features], dim=1) if cond_node_features is not None else field_r
+        x = self.node_encoder(x) # Shape (num_nodes, mlp_hidden_channels)
+
+        # ~~~~ Encode the diffusion step embedding into the node features
+        emb_proj = self.diffusion_step_encoder[0](emb)
+        x = torch.cat([x, emb_proj[batch]], dim=1)
+        for layer in self.diffusion_step_encoder[1:]:
+            x = layer(x)
 
         # ~~~~ Edge encoder
-        e = self.edge_encoder(edge_attr)
-        
+        e = self.edge_encoder(edge_attr) # Shape (num_edges, mlp_hidden_channels)
+
         # ~~~~ Processor
         for i in range(self.n_messagePassing_layers):
-            x,_ = self.processor[i](x,
-                                    e,
-                                    edge_index,
-                                    edge_weight,
-                                    halo_info,
-                                    mask_send,
-                                    mask_recv,
-                                    buffer_send,
-                                    buffer_recv,
-                                    neighboring_procs,
-                                    SIZE,
-                                    batch)
+            x , _ = self.processor[i](x,
+                                      e,
+                                      emb, # TODO: need to figure out what to do with this
+                                      edge_index,
+                                      edge_weight,
+                                      halo_info,
+                                      mask_send,
+                                      mask_recv,
+                                      buffer_send,
+                                      buffer_recv,
+                                      neighboring_procs,
+                                      SIZE,
+                                      batch
+            )
 
         # ~~~~ Node decoder
         x = self.node_decoder(x)
 
-        return x
+        # Return the output
+        if self.learnable_variance:
+            return torch.chunk(x, 2, dim=1)
+        else:
+            return x, torch.zeros_like(x)
+
 
     def reset_parameters(self):
         self.node_encoder.reset_parameters()
@@ -125,189 +168,34 @@ class DistributedGNN(torch.nn.Module):
             module.reset_parameters()
         return
 
-    def input_dict(self) -> dict:
-        a = {'input_node_channels': self.input_node_channels,
-             'input_edge_channels': self.input_edge_channels,
-             'hidden_channels': self.hidden_channels,
-             'output_node_channels': self.output_node_channels,
-             'n_mlp_hidden_layers': self.n_mlp_hidden_layers,
-             'n_messagePassing_layers': self.n_messagePassing_layers,
-             'halo_swap_mode': self.halo_swap_mode,
-             'name': self.name}
-        return a
-
     def get_save_header(self) -> str:
-        a = self.input_dict()
-        header = a['name']
-
-        for key in a.keys():
+        header = self.name
+        for key in self.arch.keys():
             if key != 'name':
-                header += '_' + str(a[key])
-
-        #for item in self.input_dict():
+                header += '_' + str(self.arch[key])
         return header
 
-class DistributedGNN_EdgeSkip(torch.nn.Module):
-    def __init__(self,
-                 input_node_channels: int,
-                 input_edge_channels: int,
-                 hidden_channels: int,
-                 output_node_channels: int,
-                 n_mlp_hidden_layers: int,
-                 n_messagePassing_layers: int,
-                 halo_swap_mode: Optional[str] = 'all_to_all',
-                 name: Optional[str] = 'gnn_edgeskip'):
-        super().__init__()
-
-        self.input_node_channels = input_node_channels
-        self.input_edge_channels = input_edge_channels
-        self.hidden_channels = hidden_channels
-        self.output_node_channels = output_node_channels
-        self.n_mlp_hidden_layers = n_mlp_hidden_layers
-        self.n_messagePassing_layers = n_messagePassing_layers
-        self.halo_swap_mode = halo_swap_mode
-        self.name = name
-
-        # ~~~~ node encoder MLP
-        self.node_encoder = MLP(
-                input_channels = self.input_node_channels,
-                hidden_channels = [self.hidden_channels]*(self.n_mlp_hidden_layers+1),
-                output_channels = self.hidden_channels,
-                activation_layer = torch.nn.ELU(),
-                norm_layer = torch.nn.LayerNorm(self.hidden_channels)
-                )
-
-        # ~~~~ edge encoder MLP
-        self.edge_encoder = MLP(
-                input_channels = self.input_edge_channels,
-                hidden_channels = [self.hidden_channels]*(self.n_mlp_hidden_layers+1),
-                output_channels = self.hidden_channels,
-                activation_layer = torch.nn.ELU(),
-                norm_layer = torch.nn.LayerNorm(self.hidden_channels)
-                )
-
-        # ~~~~ node decoder MLP
-        self.node_decoder = MLP(
-                input_channels = self.hidden_channels,
-                hidden_channels = [self.hidden_channels]*(self.n_mlp_hidden_layers+1),
-                output_channels = self.output_node_channels,
-                activation_layer = torch.nn.ELU(),
-                )
-
-        # ~~~~ Processor
-        self.processor = torch.nn.ModuleList()
-        for i in range(self.n_messagePassing_layers):
-            self.processor.append(
-                          DistributedMessagePassingLayer(
-                                     channels = self.hidden_channels,
-                                     n_mlp_hidden_layers = self.n_mlp_hidden_layers,
-                                     halo_swap_mode = self.halo_swap_mode, 
-                                     )
-                                  )
-
-        self.reset_parameters()
-
-    def forward(
-            self,
-            x: Tensor,
-            edge_index: LongTensor,
-            edge_weight: Tensor,
-            pos: Tensor,
-            halo_info: Tensor,
-            mask_send: list,
-            mask_recv: list,
-            buffer_send: List[Tensor],
-            buffer_recv: List[Tensor],
-            neighboring_procs: Tensor, 
-            SIZE: Tensor,
-            batch: Optional[LongTensor] = None) -> Tensor:
-
-        if batch is None:
-            batch = edge_index.new_zeros(x.size(0))
-
-        # ~~~~ Compute edge features
-        x_send = x[edge_index[0,:],:]
-        x_recv = x[edge_index[1,:],:]
-        pos_send = pos[edge_index[0,:],:]
-        pos_recv = pos[edge_index[1,:],:]
-        e_1 = pos_send - pos_recv
-        e_2 = torch.norm(e_1, dim=1, p=2, keepdim=True)
-        e_3 = x_send - x_recv
-        e = torch.cat((e_1, e_2, e_3), dim=1)
-
-        # ~~~~ Node encoder
-        x = self.node_encoder(x)
-
-        # ~~~~ Edge encoder
-        e = self.edge_encoder(e)
-        
-        # ~~~~ Processor
-        for i in range(self.n_messagePassing_layers):
-            x,e = self.processor[i](x,
-                                    e,
-                                    edge_index,
-                                    edge_weight,
-                                    halo_info,
-                                    mask_send,
-                                    mask_recv,
-                                    buffer_send,
-                                    buffer_recv,
-                                    neighboring_procs,
-                                    SIZE,
-                                    batch)
-
-        # ~~~~ Node decoder
-        x = self.node_decoder(x)
-
-        return x
-
-    def reset_parameters(self):
-        self.node_encoder.reset_parameters()
-        self.edge_encoder.reset_parameters()
-        self.node_decoder.reset_parameters()
-        for module in self.processor:
-            module.reset_parameters()
-        return
-
-    def input_dict(self) -> dict:
-        a = {'input_node_channels': self.input_node_channels,
-             'input_edge_channels': self.input_edge_channels,
-             'hidden_channels': self.hidden_channels,
-             'output_node_channels': self.output_node_channels,
-             'n_mlp_hidden_layers': self.n_mlp_hidden_layers,
-             'n_messagePassing_layers': self.n_messagePassing_layers,
-             'halo_swap_mode': self.halo_swap_mode,
-             'name': self.name}
-        return a
-
-    def get_save_header(self) -> str:
-        a = self.input_dict()
-        header = a['name']
-
-        for key in a.keys():
-            if key != 'name':
-                header += '_' + str(a[key])
-
-        #for item in self.input_dict():
-        return header
 
 class MLP(torch.nn.Module):
     def __init__(self,
-                 input_channels: int,
+                 input_features: int,
                  hidden_channels: List[int],
-                 output_channels: int,
+                 output_channels: Optional[int] = None,
                  norm_layer: Optional[Callable[..., torch.nn.Module]] = None,
                  activation_layer: Optional[Callable[..., torch.nn.Module]] = torch.nn.ReLU(),
+                 dropout_rate: Optional[float] = 0.0,
                  bias: bool = True):
         super().__init__()
 
-        self.input_channels = input_channels
+        self.input_features = input_features
         self.hidden_channels = hidden_channels
-        self.output_channels = output_channels
+        self.output_channels = output_channels if output_channels is not None else hidden_channels[-1]
         self.norm_layer = norm_layer
         self.activation_layer = activation_layer
-
-        self.ic = [input_channels] + hidden_channels # input channel dimensions for each layer
+        self.dropout_rate = dropout_rate
+        self.dropout_layer = nn.Dropout(self.dropout_rate)
+        
+        self.ic = [input_features] + hidden_channels # input channel dimensions for each layer
         self.oc = hidden_channels + [output_channels] # output channel dimensions for each layer 
 
         self.mlp = torch.nn.ModuleList()
@@ -323,7 +211,8 @@ class MLP(torch.nn.Module):
             x = self.mlp[i](x)
             if i < (len(self.ic) - 1):
                 x = self.activation_layer(x)
-        x = self.norm_layer(x) if self.norm_layer else x
+                x = self.norm_layer(x) if self.norm_layer else x
+                x = self.dropout_layer(x)
         return x
 
     def reset_parameters(self):
@@ -336,9 +225,12 @@ class MLP(torch.nn.Module):
 class DistributedMessagePassingLayer(torch.nn.Module):
     def __init__(self, 
                  channels: int, 
+                 emb_features: int,
                  n_mlp_hidden_layers: int,
                  halo_swap_mode: str,
-                 layer_norm: Optional[bool] = False):
+                 layer_norm: Optional[bool] = False,
+                 dropout_rate: Optional[float] = 0.0
+    ) -> None:
         super().__init__()
 
         self.edge_aggregator = EdgeAggregation(aggr='add')
@@ -346,24 +238,32 @@ class DistributedMessagePassingLayer(torch.nn.Module):
         self.n_mlp_hidden_layers = n_mlp_hidden_layers 
         self.halo_swap_mode = halo_swap_mode
         self.layer_norm = layer_norm
+        self.dropout_rate = dropout_rate
+
+        # Projection of the diffusion-step embedding
+        self.emb_features = emb_features
+        if self.emb_features > 0: 
+            self.node_emb_linear = nn.Linear(emb_features, channels)
 
         # Edge update MLP 
         self.edge_updater = MLP(
-                input_channels = self.channels*3,
+                input_features = self.channels*3,
                 hidden_channels = [self.channels]*(self.n_mlp_hidden_layers+1),
                 output_channels = self.channels,
                 activation_layer = torch.nn.ELU(),
-                norm_layer = torch.nn.LayerNorm(self.channels) if self.layer_norm else None
-                )
+                norm_layer = torch.nn.LayerNorm(self.channels) if self.layer_norm else None,
+                dropout_rate = self.dropout_rate
+        )
 
         # Node update MLP
         self.node_updater = MLP(
-                input_channels = self.channels*2,
+                input_features = self.channels*2,
                 hidden_channels = [self.channels]*(self.n_mlp_hidden_layers+1),
                 output_channels = self.channels,
                 activation_layer = torch.nn.ELU(),
-                norm_layer = torch.nn.LayerNorm(self.channels) if self.layer_norm else None
-                )
+                norm_layer = torch.nn.LayerNorm(self.channels) if self.layer_norm else None,
+                dropout_rate = self.dropout_rate
+        )
 
         self.reset_parameters()
 
@@ -372,6 +272,7 @@ class DistributedMessagePassingLayer(torch.nn.Module):
     def forward(self,
             x: Tensor,
             e: Tensor,
+            emb: Tensor,
             edge_index: LongTensor,
             edge_weight: Tensor,
             halo_info: Tensor,
@@ -385,6 +286,10 @@ class DistributedMessagePassingLayer(torch.nn.Module):
 
         if batch is None:
             batch = edge_index.new_zeros(x.size(0))
+
+        # ~~~~ Project the diffusion-step embedding to the node embedding space
+        if self.emb_features > 0:
+            x += self.node_emb_linear(emb)[batch] # Shape (num_nodes, in_node_features)
         
         # ~~~~ Edge update 
         x_send = x[edge_index[0,:],:]
@@ -568,3 +473,35 @@ class EdgeAggregation(MessagePassing):
 
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}'
+
+
+class SinusoidalPositionEmbedding(nn.Module):
+    r"""Defines a sinusoidal embedding like in the paper "Attention is All You Need" (https://arxiv.org/abs/1706.03762).
+
+    Args:
+        dim (int): The dimension of the embedding.
+        theta (float, optional): The theta parameter of the sinusoidal embedding. Defaults to 10000.
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        theta: float = 10000.,
+        ) -> None:
+        super().__init__()
+        assert dim % 2 == 0, "Dimension must be even."
+        self.dim = dim
+        self.theta = theta
+
+    def forward(
+        self,
+        r: torch.Tensor,
+    ) -> torch.Tensor:
+        """Returns the embedding of position `r`."""    
+        device = r.device
+        half_dim = self.dim // 2
+        emb = math.log(self.theta) / (half_dim - 1)
+        emb = torch.exp(torch.arange(half_dim, device=device) * -emb) # Dimensions: [dim/2]
+        emb = r.unsqueeze(-1) * emb.unsqueeze(0) # Dimensions: [batch_size, dim/2]
+        emb = torch.cat((emb.sin(), emb.cos()), dim=-1) # Dimensions: [batch_size, dim]
+        return emb

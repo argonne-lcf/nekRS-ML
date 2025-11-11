@@ -20,7 +20,7 @@ class StepSampler():
 
     def sample(
         self,
-        batch_size: int = 64,
+        batch_size: int = 1,
     ) -> torch.Tensor:
         w = self.weights
         p = w / torch.sum(w)

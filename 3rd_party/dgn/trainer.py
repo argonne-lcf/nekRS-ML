@@ -328,29 +328,22 @@ class DGNTrainer:
         except:
             poly = 0
 
-        # Full model
-        input_node_channels = sample['x'].shape[1]
-        input_edge_channels = graph.edge_attr.shape[1]
-        hidden_channels = self.cfg.hidden_channels
-        output_node_channels = sample['y'].shape[1]
-        n_mlp_hidden_layers = self.cfg.n_mlp_hidden_layers
-        n_messagePassing_layers = self.cfg.n_messagePassing_layers
-        halo_swap_mode = self.cfg.halo_swap_mode
-        layer_norm = self.cfg.layer_norm
-        #name = 'POLY_%d_RANK_%d_SIZE_%d_SEED_%d' %(poly,RANK,SIZE,self.cfg.seed)
-        name = 'POLY_%d_SIZE_%d_SEED_%d' %(poly,SIZE,self.cfg.seed)
-        if self.cfg.use_residual:
-            name += "_RESID"
+        # Model architecture
+        arch = {
+            'input_node_features': sample['x'].shape[1],
+            'input_edge_features': graph.edge_attr.shape[1],
+            'mlp_hidden_channels': self.cfg.mlp_hidden_channels,
+            'n_mlp_hidden_layers': self.cfg.n_mlp_hidden_layers,
+            'n_messagePassing_layers': self.cfg.n_messagePassing_layers,
+            'halo_swap_mode': self.cfg.halo_swap_mode,
+            'layer_norm': self.cfg.layer_norm,
+            'dropout_rate': self.cfg.dropout_rate,
+            'name': 'POLY_%d_SIZE_%d_SEED_%d' %(poly,SIZE,self.cfg.seed)
+        }
+        # TODO: this is where things like Re, num_pins, distance to wall, etc. would go
+        arch['cond_node_features'] = 0
 
-        model = gnn.DistributedGNN(input_node_channels,
-                           input_edge_channels,
-                           hidden_channels,
-                           output_node_channels,
-                           n_mlp_hidden_layers,
-                           n_messagePassing_layers,
-                           halo_swap_mode,
-                           layer_norm,
-                           name)
+        model = gnn.DistributedDGN(arch)
         return model
 
     def count_weights(self, model) -> int:
@@ -1061,16 +1054,20 @@ class DGNTrainer:
         if self.cfg.timers: self.update_timer('bufferInit', self.timer_step, time.time() - tic)
         
         # Sample a batch of random diffusion steps
-        r, weights = self.step_sampler.sample(batch_size=self.cfg.diffusion_step_batch_size)
+        r, weights = self.step_sampler.sample(batch_size=self.cfg.batch_size)
+        if self.cfg.verbose:
+            if RANK == 0: log.info(f"Sampled diffusion steps: {r} for batch size {self.cfg.batch_size}")
 
         # Diffuse the solution/target field
         BC_mask = None # no BCs for now
         field_r, noise = self.diffusion_process.forward(data['x'], r, BC_mask)
+        if self.cfg.verbose:
+            if RANK == 0: log.info(f"Performed forward diffusion process on {self.cfg.batch_size} solution fields")
         
         # Prediction
         tic = time.time()
-        x_scaled = data['x'][0]
-        model_noise, model_var = self.model(x = x_scaled,
+        model_noise, model_var = self.model(field_r = field_r,
+                             r = r,
                              edge_index = graph.edge_index,
                              edge_attr = graph.edge_attr,
                              edge_weight = graph.edge_weight,
@@ -1081,6 +1078,7 @@ class DGNTrainer:
                              buffer_recv = self.buffer_recv,
                              neighboring_procs = self.neighboring_procs,
                              SIZE = SIZE,
+                             cond_node_features = None, # TODO: Add conditional node features
                              batch = graph.batch)
         if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
 
