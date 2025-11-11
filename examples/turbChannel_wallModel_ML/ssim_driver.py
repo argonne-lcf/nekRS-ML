@@ -23,7 +23,7 @@ def parseNodeList(fname):
 def launch_coDB(cfg, nodelist, nNodes):
     # Print nodelist
     if (nodelist is not None):
-        print(f"\nRunning on {nNodes} total nodes on Polaris")
+        print(f"\nRunning on {nNodes} total nodes")
         print(nodelist, "\n")
         hosts = ','.join(nodelist)
 

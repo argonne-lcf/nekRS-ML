@@ -233,7 +233,7 @@ function load_modules() {
   fi
 }
 
-function build_smartsim() {
+function build_and_setup_smartsim() {
   if [ "${SYSTEM}" == "polaris" ]; then
       export CC=cc
       export CXX=CC
@@ -242,8 +242,10 @@ function build_smartsim() {
       export CUDNN_INCLUDE_DIR=$CUDNN_BASE/include/
       export LD_LIBRARY_PATH=$CUDNN_LIBRARY:$LD_LIBRARY_PATH
   fi
+
   CASE_DIR=$PWD
   cd ../
+
   git clone https://github.com/rickybalin/SmartSim.git
   cd SmartSim
   git checkout rollback_aurora
@@ -261,7 +263,12 @@ function build_smartsim() {
   smart build -v --device $DEVICE --torch_dir $TORCH_CMAKE_PATH --no_tf
   smart validate
   cd ..
-  cd $CASE_DIR
+  cd ${CASE_DIR}
+
+  # Copy `ssim_driver.py` to ${CASE_DIR} if the client is smartredis
+  if [ "${CLIENT}" == "smartredis" ]; then
+    cp ${NEKRS_HOME}/scripts/ssim_driver.py ${CASE_DIR}/
+  fi
 }
 
 function setup_venv() {
@@ -299,7 +306,7 @@ function setup_venv() {
     pip install pymech
 
     if [ "${CLIENT}" == "smartredis" ]; then
-      build_smartsim
+      build_and_setup_smartsim
     fi
   else
     echo -e "\033[35mPython venv \"${VENV_PATH}\" already exists, reusing it ... \033[m"
@@ -307,7 +314,7 @@ function setup_venv() {
     if [ "${CLIENT}" == "smartredis" ]; then
       if ! pip show smartsim > /dev/null 2>&1; then
         echo -e "\033[35mRequested the smartredis backend, but SmartSim is not installed \033[m"
-        build_smartsim
+        build_and_setup_smartsim
       fi
     fi
   fi
