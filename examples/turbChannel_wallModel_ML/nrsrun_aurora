@@ -133,25 +133,23 @@ echo "# Trainer config" >> $CFILE
 echo "train:" >> $CFILE
 if [ ${ML_TASK} == "train" ]; then
   echo "    executable: \"${PWD}/trainer.py\"" >> $CFILE
-  echo "    device: \"xpu\"" >> $CFILE
+  arguments="+device=xpu"
   if [ ${DEPLOYMENT} == "colocated"  ]; then
-    echo "    device_skip: ${SIM_RANKS_PER_NODE}" >> $CFILE
+    arguments="${arguments} +device_skip=${SIM_RANKS_PER_NODE}"
   elif [ ${DEPLOYMENT} == "clustered"  ]; then
-    echo "    device_skip: 0" >> $CFILE
+    arguments="${arguments} +device_skip=0"
   fi
-  echo "    logging: \"info\"" >> $CFILE
-  echo "    affinity: \"\"" >> $CFILE
-  echo "    copy_files: []" >> $CFILE
   echo "    link_files: [\"./${TAFF_FILE}\"]" >> $CFILE
 else
+  arguments="+device=cpu +device_skip=0" >> $CFILE
   echo "    executable: \"\"" >> $CFILE
-  echo "    device: \"\"" >> $CFILE
-  echo "    device_skip: 0" >> $CFILE
-  echo "    logging: \"\"" >> $CFILE
-  echo "    affinity: \"\"" >> $CFILE
-  echo "    copy_files: []" >> $CFILE
   echo "    link_files: []" >> $CFILE
 fi
+arguments="${arguments} +logging=info +dbnodes=${DB_NODES} +ppn=${TRAIN_RANKS_PER_NODE} +master_addr=none"
+echo "    arguments: \"${arguments}\"" >> $CFILE
+echo "    affinity: \"\"" >> $CFILE
+echo "    copy_files: []" >> $CFILE
+echo "" >> $CFILE
 echo "" >> $CFILE
 echo "# Inference config" >> $CFILE
 echo "inference:" >> $CFILE
@@ -239,4 +237,3 @@ echo "python ssim_driver.py" >> $RFILE
 echo -e "\n# remove input files" >>$RFILE
 echo "rm turbChannel.*" >>$RFILE
 chmod u+x $RFILE
-

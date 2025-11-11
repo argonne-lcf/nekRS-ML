@@ -3,6 +3,7 @@ import os
 import sys 
 from omegaconf import DictConfig, OmegaConf
 import hydra
+import socket
 
 # smartsim and smartredis imports
 from smartsim import Experiment
@@ -23,7 +24,7 @@ def parseNodeList(fname):
 def launch_coDB(cfg, nodelist, nNodes):
     # Print nodelist
     if (nodelist is not None):
-        print(f"\nRunning on {nNodes} total nodes on Polaris")
+        print(f"\nRunning on {nNodes} total nodes")
         print(nodelist, "\n")
         hosts = ','.join(nodelist)
 
@@ -105,10 +106,7 @@ def launch_coDB(cfg, nodelist, nNodes):
     # Setup and launch the training script
     if (cfg.train.executable):
         ml_exe = cfg.train.executable
-        ml_exe = ml_exe + f' --dbnodes={cfg.run_args.db_nodes}' \
-                        + f' --device={cfg.train.device}' \
-                        + f' --ppn={cfg.run_args.mlprocs_pn}' \
-                        + f' --logging={cfg.train.logging}'
+        ml_exe = ml_exe + ' ' + cfg.train.arguments + f' master_addr={socket.gethostname()}'
         SSDB = colo_model.run_settings.env_vars['SSDB']
         if (cfg.database.launcher=='local'):
             ml_settings = RunSettings(
@@ -242,10 +240,7 @@ def launch_clDB(cfg, nodelist, nNodes):
     # Setup and launch the training script
     if (cfg.train.executable):
         ml_exe = cfg.train.executable
-        ml_exe = ml_exe + f' --dbnodes={cfg.run_args.db_nodes}' \
-                        + f' --device={cfg.train.device}' \
-                        + f' --ppn={cfg.run_args.mlprocs_pn}' \
-                        + f' --logging={cfg.train.logging}'
+        ml_exe = ml_exe + ' ' + cfg.train.arguments + f' master_addr={ml_head_node}'
         if (cfg.database.launcher=='local'):
             ml_settings = RunSettings(
                            'python',
