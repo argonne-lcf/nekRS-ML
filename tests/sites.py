@@ -66,32 +66,55 @@ site_configuration = {
             "descr": "Polaris at ALCF",
             "modules_system": "lmod",
             "modules": ["conda"],
-            "hostnames": [],
+            "hostnames": ["^polaris-login-[0-9]{2}.*", "^x3[1-7]{4}.*"],
             "partitions": [
                 {
                     "name": "login",
                     "descr": "Login nodes",
                     "scheduler": "local",
-                    "launcher": "alcf_mpiexec",
-                    "environs": [
-                        "PrgEnv-gnu",
-                    ],
+                    "launcher": "mpiexec",
+                    "environs": ["PrgEnv-Polaris"],
                     "extras": {
-                        "ranks_per_node": 8,
+                        "ranks_per_node": 16,
                     },
+                },
+                {
+                    "name": "gateway",
+                    "descr": "Gateway nodes",
+                    "scheduler": "ssh",
+                    "sched_options": {
+                        "ssh_hosts": [
+                            *(
+                                f"polaris-gateway-{i:02}.hostmgmt.cm.polaris.alcf.anl.gov"
+                                for i in range(1, 51)
+                            )
+                        ]
+                    },
+                    "launcher": "mpiexec",
+                    "environs": ["PrgEnv-Polaris"],
                 },
                 {
                     "name": "compute",
                     "descr": "Compute nodes",
                     "scheduler": "pbs",
-                    "launcher": "alcf_mpiexec",
+                    "launcher": "mpiexec",
                     "max_jobs": 128,
-                    "environs": [
-                        "PrgEnv-gnu",
+                    "environs": ["PrgEnv-Polaris"],
+                    "env_vars": [
+                        ["TZ", "/usr/share/zoneinfo/US/Central"],
+                        ["NEKRS_CACHE_BCAST", "0"],
+                        ["NEKRS_LOCAL_TMP_DIR", "/local/scratch"],
+                        ["NEKRS_GPU_MPI", "0"],
+                        ["MPICH_MPIIO_STATS", "0"],
+                        ["MPICH_GPU_SUPPORT_ENABLED", "0"],
+                        ["MPICH_OFI_NIC_POLICY", "NUMA"],
                     ],
                     "extras": {
-                        "ranks_per_node": 12,
+                        "ranks_per_node": 4,
                         "cpu_bind_list": "24:16:8:1",
+                        "db_bind_list": "100,101,102,103",
+                        "gpu_bind_list": "0:1:2:3",
+                        "backend": "CUDA",
                     },
                 },
             ],
@@ -119,17 +142,16 @@ site_configuration = {
             "target_systems": ["aurora"],
         },
         {
-            "name": "PrgEnv-gnu",
+            "name": "PrgEnv-Polaris",
             "prepare_cmds": [
-                "module restore",
-                "module load conda",
+                "module use /soft/modulefiles/",
+                "module load conda/2025-09-25",
                 "conda activate",
+                "module load spack-pe-base cmake",
                 "module list",
             ],
+            "env_vars": [],
             "target_systems": ["polaris"],
-            "cc": "gcc",
-            "cxx": "g++",
-            "ftn": "gfortran",
         },
     ],
     "logging": [
