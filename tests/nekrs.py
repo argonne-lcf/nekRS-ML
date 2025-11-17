@@ -70,9 +70,9 @@ class SmartRedisBuild(CompileOnlyTest):
     def configure_buld(self):
         self.sourcesdir = "https://github.com/rickybalin/SmartRedis.git"
         self.build_system = "Make"
-        self.build_system.cc = "mpicc"
-        self.build_system.cxx = "mpicxx"
-        self.build_system.ftn = "mpif77"
+        self.build_system.cc = self.current_environ.cc
+        self.build_system.cxx = self.current_environ.cxx
+        self.build_system.ftn = self.current_environ.ftn
         self.build_system.flags_from_environ = False
         self.build_system.max_concurrency = 16
         self.build_system.options = ["lib"]
@@ -95,9 +95,9 @@ class NekRSBuild(CompileOnlyTest):
     def configure_build(self):
         self.sourcesdir = "https://github.com/argonne-lcf/nekRS-ML.git"
         self.build_system = "CMake"
-        self.build_system.cc = "mpicc"
-        self.build_system.cxx = "mpicxx"
-        self.build_system.ftn = "mpif77"
+        self.build_system.cc = self.current_environ.cc
+        self.build_system.cxx = self.current_environ.cxx
+        self.build_system.ftn = self.current_environ.ftn
         self.build_system.flags_from_environ = False
         self.build_system.builddir = "build"
         self.build_system.max_concurrency = 16

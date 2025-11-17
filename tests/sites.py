@@ -140,6 +140,9 @@ site_configuration = {
                 ],
             ],
             "target_systems": ["aurora"],
+            "cc": "mpicc",
+            "cxx": "mpicxx",
+            "ftn": "mpif77",
         },
         {
             "name": "PrgEnv-Polaris",
@@ -152,6 +155,9 @@ site_configuration = {
             ],
             "env_vars": [],
             "target_systems": ["polaris"],
+            "cc": "cc",
+            "cxx": "CC",
+            "ftn": "ftn",
         },
     ],
     "logging": [
