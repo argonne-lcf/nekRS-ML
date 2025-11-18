@@ -72,10 +72,14 @@ site_configuration = {
                     "name": "login",
                     "descr": "Login nodes",
                     "scheduler": "local",
-                    "launcher": "mpiexec",
-                    "environs": ["PrgEnv-Polaris"],
+                    "launcher": "alcf_mpiexec",
+                    "environs": [
+                        "PrgEnv-Polaris",
+                    ],
                     "extras": {
-                        "ranks_per_node": 16,
+                        # The NekRS build on Polaris fails with >= 12 parallel
+                        # threads on Polaris. Maybe running out of memory?
+                        "ranks_per_node": 10,
                     },
                 },
                 {
@@ -91,13 +95,15 @@ site_configuration = {
                         ]
                     },
                     "launcher": "mpiexec",
-                    "environs": ["PrgEnv-Polaris"],
+                    "environs": [
+                        "PrgEnv-Polaris",
+                    ],
                 },
                 {
                     "name": "compute",
                     "descr": "Compute nodes",
                     "scheduler": "pbs",
-                    "launcher": "mpiexec",
+                    "launcher": "alcf_mpiexec",
                     "max_jobs": 128,
                     "environs": ["PrgEnv-Polaris"],
                     "env_vars": [
@@ -147,10 +153,13 @@ site_configuration = {
         {
             "name": "PrgEnv-Polaris",
             "prepare_cmds": [
+                "module restore",
+                "module load libfabric",
+                "module load PrgEnv-gnu",
                 "module use /soft/modulefiles/",
-                "module load conda/2025-09-25",
-                "conda activate",
                 "module load spack-pe-base cmake",
+                "module load conda",
+                "conda activate",
                 "module list",
             ],
             "env_vars": [],
