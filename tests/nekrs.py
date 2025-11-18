@@ -111,6 +111,12 @@ class NekRSBuild(CompileOnlyTest):
             f"-DSMARTREDIS_INSTALL_DIR={self.smartredis_build.get_install_path()}",
         ]
 
+        self.prebuild_cmds += [
+            f"export CC={self.build_system.cc}",
+            f"export CXX={self.build_system.cxx}",
+            f"export FC={self.build_system.ftn}",
+        ]
+
     @sanity_function
     def validate_build(self):
         nekrs_binary = os.path.join(self.binary_path, "nekrs")
