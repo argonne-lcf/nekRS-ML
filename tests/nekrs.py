@@ -74,7 +74,9 @@ class SmartRedisBuild(CompileOnlyTest):
         self.build_system.cxx = self.current_environ.cxx
         self.build_system.ftn = self.current_environ.ftn
         self.build_system.flags_from_environ = False
-        self.build_system.max_concurrency = 16
+        self.build_system.max_concurrency = self.current_partition.extras[
+            "ranks_per_node"
+        ]
         self.build_system.options = ["lib"]
         self.install_path = os.path.join(f"{self.stagedir}", "install")
 
@@ -100,7 +102,9 @@ class NekRSBuild(CompileOnlyTest):
         self.build_system.ftn = self.current_environ.ftn
         self.build_system.flags_from_environ = False
         self.build_system.builddir = "build"
-        self.build_system.max_concurrency = 16
+        self.build_system.max_concurrency = self.current_partition.extras[
+            "ranks_per_node"
+        ]
         self.build_system.make_opts = ["install"]
         self.install_path = os.path.join(f"{self.stagedir}", "install")
         self.binary_path = os.path.join(self.install_path, "bin")
