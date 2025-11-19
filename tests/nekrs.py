@@ -158,23 +158,29 @@ class NekRSTest(RunOnlyTest):
 
     def set_launcher_options(self):
         cpu_bind_list = self.current_partition.extras["cpu_bind_list"]
-        gpu_bind_list = self.current_partition.extras["gpu_bind_list"]
         ranks_per_node = self.num_tasks_per_node
         total_ranks = self.num_nodes * ranks_per_node
         self.job.launcher.options = [
             f"-np {total_ranks}",
             f"-ppn {ranks_per_node}",
             f"--cpu-bind=list:{cpu_bind_list}",
-            f"--gpu-bind=list:{gpu_bind_list}",
         ]
 
+        if "gpu_bind_list" in self.current_partition.extras:
+            gpu_bind_list = self.current_partition.extras["gpu_bind_list"]
+            self.job.launcher.options += [f"--gpu-bind=list:{gpu_bind_list}"]
+
     def get_nekrs_executable_options(self):
-        backend = self.current_partition.extras["backend"]
-        return [
+        backend = self.current_partition.extras["occa_backend"]
+        exec_opts = [
             f"--setup {self.nekrs_case_name}",
             f"--backend {backend}",
-            "--device-id 0",
         ]
+
+        if "gpu_bind_list" in self.current_partition.extras:
+            exec_opts += ["--device-id 0"]
+
+        return exec_opts
 
     def set_executable_options(self):
         self.executable = f"{self.nekrs_binary}"

@@ -119,7 +119,6 @@ site_configuration = {
                         "ranks_per_node": 4,
                         "cpu_bind_list": "24:16:8:1",
                         "db_bind_list": "100,101,102,103",
-                        "gpu_bind_list": "0:1:2:3",
                         "backend": "CUDA",
                     },
                 },
