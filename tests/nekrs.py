@@ -365,8 +365,6 @@ class NekRSMLOfflineTest(NekRSMLTest):
 
         # FIXME: master_addr=$head_node
         self.executable_opts = [
-            # FIXME: backend should be calculated.
-            "backend=xccl",
             "halo_swap_mode=all_to_all_opt",
             "layer_norm=True",
             f"gnn_outputs_path={self.get_gnn_output_dir()}",
@@ -489,7 +487,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write(
                 (
                     "    arguments: "
-                    '"backend=xccl halo_swap_mode=all_to_all_opt layer_norm=True online=True verbose=True '
+                    '"halo_swap_mode=all_to_all_opt layer_norm=True online=True verbose=True '
                     f"consistency=True client.db_nodes={args['db_nodes']} target_loss={args['target_loss']} "
                     f'device_skip={sim_rpn} time_dependency={args["time_dependency"]}"\n'
                 )
