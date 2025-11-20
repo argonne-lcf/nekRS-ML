@@ -44,13 +44,6 @@ site_configuration = {
                     "environs": [
                         "PrgEnv-Aurora",
                     ],
-                    "env_vars": [
-                        ["TZ", "/usr/share/zoneinfo/US/Central"],
-                        ["ZE_FLAT_DEVICE_HIERARCHY", "FLAT"],
-                        ["FI_CXI_RX_MATCH_MODE", "hybrid"],
-                        ["UR_L0_USE_COPY_ENGINE", 0],
-                        ["CCL_ALLTOALLV_MONOLITHIC_KERNEL", 0],
-                    ],
                     "extras": {
                         "ranks_per_node": 12,
                         "cpu_bind_list": "1:8:16:24:32:40:53:60:68:76:84:92",
@@ -106,15 +99,6 @@ site_configuration = {
                     "launcher": "alcf_mpiexec",
                     "max_jobs": 128,
                     "environs": ["PrgEnv-Polaris"],
-                    "env_vars": [
-                        ["TZ", "/usr/share/zoneinfo/US/Central"],
-                        ["NEKRS_CACHE_BCAST", "0"],
-                        ["NEKRS_LOCAL_TMP_DIR", "/local/scratch"],
-                        ["NEKRS_GPU_MPI", "0"],
-                        ["MPICH_MPIIO_STATS", "0"],
-                        ["MPICH_GPU_SUPPORT_ENABLED", "0"],
-                        ["MPICH_OFI_NIC_POLICY", "NUMA"],
-                    ],
                     "extras": {
                         "ranks_per_node": 4,
                         "cpu_bind_list": "24:16:8:1",
@@ -134,6 +118,11 @@ site_configuration = {
                 "module list",
             ],
             "env_vars": [
+                ["TZ", "/usr/share/zoneinfo/US/Central"],
+                ["ZE_FLAT_DEVICE_HIERARCHY", "FLAT"],
+                ["FI_CXI_RX_MATCH_MODE", "hybrid"],
+                ["UR_L0_USE_COPY_ENGINE", 0],
+                ["CCL_ALLTOALLV_MONOLITHIC_KERNEL", 0],
                 ["OCCA_CXX", "icpx"],
                 [
                     "OCCA_CXXFLAGS",
@@ -161,7 +150,15 @@ site_configuration = {
                 "conda activate",
                 "module list",
             ],
-            "env_vars": [],
+            "env_vars": [
+                ["TZ", "/usr/share/zoneinfo/US/Central"],
+                ["NEKRS_CACHE_BCAST", "0"],
+                ["NEKRS_LOCAL_TMP_DIR", "/local/scratch"],
+                ["NEKRS_GPU_MPI", "0"],
+                ["MPICH_MPIIO_STATS", "0"],
+                ["MPICH_GPU_SUPPORT_ENABLED", "0"],
+                ["MPICH_OFI_NIC_POLICY", "NUMA"],
+            ],
             "target_systems": ["polaris"],
             "cc": "cc",
             "cxx": "CC",
