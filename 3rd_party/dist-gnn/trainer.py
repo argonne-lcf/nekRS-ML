@@ -132,7 +132,7 @@ class Trainer:
                 MASTER_ADDR = str(cfg.master_addr)
             os.environ['MASTER_ADDR'] = MASTER_ADDR
             os.environ['MASTER_PORT'] = str(cfg.master_port)
-            utils.init_process_group(RANK, SIZE, backend=self.backend)
+            utils.init_process_group(RANK, SIZE)
         
         # ~~~~ Init torch stuff 
         self.setup_torch()
