@@ -145,6 +145,7 @@ class ElementWiseAttention(nn.Module):
         use_bias: bool = False,
         mlp_ratio: float = 1.0,
         activation: str = "swish",
+        halo_swap_mode: str = "none",
     ):
         super().__init__()
         self.hidden_channels = hidden_channels
@@ -154,6 +155,7 @@ class ElementWiseAttention(nn.Module):
         self.use_bias = use_bias
         self.activation = activation
         self.mlp_ratio = mlp_ratio
+        self.halo_swap_mode = halo_swap_mode
 
         # attention specific layers:
         self.norm1 = nn.LayerNorm(hidden_channels)
@@ -257,15 +259,19 @@ class ElementWiseAttention(nn.Module):
             # add attn_output to x except the last num_halo_nodes
             x[:-num_halo_nodes] = res[:-num_halo_nodes] + attn_output
             # this should have populated the halo nodes
-            x = self.halo_swap(
-                x,
-                mask_send,
-                mask_recv,
-                buffer_send,
-                buffer_recv,
-                neighboring_procs,
-                SIZE,
-            )
+            if self.halo_swap_mode == "all_to_all":
+                x = self.halo_swap(
+                    x,
+                    mask_send,
+                    mask_recv,
+                    buffer_send,
+                    buffer_recv,
+                    neighboring_procs,
+                    SIZE,
+                )
+
+            else:
+                assert self.halo_swap_mode == "none", "Invalid halo swap mode"
 
             # now we'll aggregate the information:
             idx_recv = halo_info[:, 0]
@@ -325,6 +331,7 @@ class GraphTransformer(nn.Module):
         n_transformer_layers,
         num_heads,
         num_elements,
+        halo_swap_mode,
         name,
     ):
         super().__init__()
@@ -338,10 +345,15 @@ class GraphTransformer(nn.Module):
         self.processor = nn.ModuleList()
         for i in range(n_transformer_layers):
             self.processor.append(
-                ElementWiseAttention(hidden_channels, num_heads, num_elements)
+                ElementWiseAttention(
+                    hidden_channels,
+                    num_heads,
+                    num_elements,
+                    halo_swap_mode=halo_swap_mode,
+                )
             )
         self.decoder = MlpBlock(hidden_channels, hidden_channels, output_node_channels)
-        
+        self.halo_swap_mode = halo_swap_mode
 
     def forward(
         self,
