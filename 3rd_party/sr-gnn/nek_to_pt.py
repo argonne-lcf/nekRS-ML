@@ -8,7 +8,7 @@ import numpy as np
 import argparse
 import torch
 
-import nekrs_graph_setup as ngs
+import dataprep.nekrs_graph_setup as ngs
 
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', force=True)

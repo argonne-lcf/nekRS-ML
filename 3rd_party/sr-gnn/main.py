@@ -6,6 +6,7 @@ import numpy as np
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import time
+from pickle import UnpicklingError
 
 import torch
 from torch.cuda.amp.grad_scaler import GradScaler
@@ -21,7 +22,7 @@ from torch_geometric.data import Data
 
 # GNN model
 from gnn import GNN_Element_Neighbor_Lo_Hi
-import nekrs_graph_setup # needed to load the .pt data
+import dataprep.nekrs_graph_setup # needed to load the .pt data
 
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', force=True)
@@ -93,6 +94,7 @@ def init_process_group(
         rank=int(rank),
         world_size=int(world_size),
         init_method='env://',
+        device_id=DEVICE_ID
     )
 
 def force_abort():
@@ -125,6 +127,11 @@ class Trainer:
             self.scaler = None
         self.device = DEVICE
         self.backend = self.cfg.backend
+
+        # ~~~~ Init torch stuff 
+        self.setup_torch()
+
+        # ~~~~ Init DDP
         if WITH_DDP:
             os.environ['RANK'] = str(RANK)
             os.environ['WORLD_SIZE'] = str(SIZE)
@@ -134,9 +141,6 @@ class Trainer:
             os.environ['MASTER_PORT'] = str(2345)
             init_process_group(RANK, SIZE, backend=self.backend)
         
-        # ~~~~ Init torch stuff 
-        self.setup_torch()
-
         # ~~~~ Init training and testing loss history 
         self.loss_hist_train = np.zeros(self.cfg.epochs)
         self.loss_hist_test = np.zeros(self.cfg.epochs)
@@ -273,8 +277,19 @@ class Trainer:
     
         # multi snapshot - oneshot  
         n_element_neighbors = self.cfg.n_element_neighbors
-        train_dataset = torch.load(self.cfg.data_dir + f"/train_dataset.pt", weights_only=False)
-        test_dataset = torch.load(self.cfg.data_dir + f"/valid_dataset.pt", weights_only=False)
+        try:
+            train_dataset = torch.load(self.cfg.data_dir + f"/train_dataset.pt", weights_only=False)
+            test_dataset = torch.load(self.cfg.data_dir + f"/valid_dataset.pt", weights_only=False)
+        except UnpicklingError as e:
+            if RANK == 0: logger.warning(f'{e}')
+            torch.serialization.add_safe_globals([dataprep.nekrs_graph_setup.DataLoHi])
+            torch.serialization.add_safe_globals([torch_geometric.data.data.DataEdgeAttr])
+            torch.serialization.add_safe_globals([torch_geometric.data.data.DataTensorAttr])
+            torch.serialization.add_safe_globals([torch_geometric.data.storage.GlobalStorage])
+            train_dataset = torch.load(self.cfg.data_dir + f"/train_dataset.pt", weights_only=True)
+            test_dataset = torch.load(self.cfg.data_dir + f"/valid_dataset.pt", weights_only=True)
+        except Exception:
+            raise
 
         if RANK == 0:
             logger.info('train dataset: %d elements' %(len(train_dataset)))
