@@ -68,40 +68,36 @@ def get_upsample_indices(data_full: Data, data_reduced: Data, idx_full2reduced: 
     This function produces the indices that allow to go from the reduced (non-overlapping) node 
     representation, to the full (overlapping) node representation. 
     """
+    # 1. Make all global IDs unique so coincident nodes share the same ID
+    data_full, data_reduced = update_global_ids(
+        data_full, data_reduced, idx_full2reduced
+    )
 
-    # Update global ids 
-    data_full, data_reduced = update_global_ids(data_full, data_reduced, idx_full2reduced)
+    gid_full: Tensor = data_full.global_ids  # (N_full,)
 
-    # Get global ids 
-    gid = data_full.global_ids
+    # Build mapping from global id -> *first* index in reduced graph (original order)
+    gid_reduced: Tensor = data_reduced.global_ids  # (N_reduced,)
 
-    # Get quantities from reduced graph (no coincident nodes)  
-    gid_reduced = data_reduced.global_ids
+    # Sort reduced gids to group identical IDs
+    gid_red_sorted, idx_sort_red = torch.sort(gid_reduced)
 
-    # Step 3: Sorting 
-    # Sort full graph based on global id
-    _, idx_sort = torch.sort(gid)
-    gid = gid[idx_sort]
+    # Identify first occurrence of each distinct gid
+    is_first = torch.ones_like(gid_red_sorted, dtype=torch.bool)
+    is_first[1:] = gid_red_sorted[1:] != gid_red_sorted[:-1]
+    gid_unique = gid_red_sorted[is_first]  # ascending unique gids
+    red_first_orig_idx = idx_sort_red[is_first]  # corresponding original indices
 
-    # Sort reduced graph based on global id 
-    _, idx_sort_reduced = torch.sort(gid_reduced)
-    gid_reduced = gid_reduced[idx_sort_reduced]
+    # Map every full-graph node to the first occurrence in reduced graph
+    # (gid_unique is sorted ascending, required by searchsorted)
+    pos = torch.searchsorted(gid_unique, gid_full)  # (N_full,)
+    scatter_ids = red_first_orig_idx[pos]
 
-    # Step 4: Get the scatter assignments 
-    count = 0
-    scatter_ids = torch.zeros(data_full.pos.shape[0], dtype=torch.int64)
-    scatter_ids[0] = count
-    for i in range(1,len(gid)):
-
-        gid_prev = gid[i-1]
-        gid_curr = gid[i]
-
-        if (gid_curr > gid_prev):
-            count += 1
-
-        scatter_ids[i] = count
-
-    return scatter_ids 
+    # Sanity check: the mapping must reproduce gid_full exactly
+    assert torch.equal(gid_reduced[scatter_ids], gid_full), (
+        "get_upsample_indices: Inconsistent mapping - gid_reduced[scatter_ids] "
+        "does not match gid_full"
+    )
+    return scatter_ids
 
 def upsample_node_attributes(x_reduced: Tensor, 
                              gid_reduced: Tensor, lid_reduced: Tensor,

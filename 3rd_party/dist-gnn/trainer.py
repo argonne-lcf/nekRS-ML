@@ -43,6 +43,7 @@ import torch_geometric.utils as pyg_utils
 import utils
 from scheduler import ScheduledOptim
 import gnn
+import graph_transformer as gtr
 import graph_connectivity as gcon
 from client import OnlineClient
 import create_halo_info_par
@@ -321,27 +322,43 @@ class Trainer:
 
         # Full model
         input_node_channels = sample['x'].shape[1]
-        input_edge_channels = graph.edge_attr.shape[1]
         hidden_channels = self.cfg.hidden_channels
         output_node_channels = sample['y'].shape[1]
-        n_mlp_hidden_layers = self.cfg.n_mlp_hidden_layers
-        n_messagePassing_layers = self.cfg.n_messagePassing_layers
-        halo_swap_mode = self.cfg.halo_swap_mode
-        layer_norm = self.cfg.layer_norm
-        #name = 'POLY_%d_RANK_%d_SIZE_%d_SEED_%d' %(poly,RANK,SIZE,self.cfg.seed)
-        name = 'POLY_%d_SIZE_%d_SEED_%d' %(poly,SIZE,self.cfg.seed)
-        if self.cfg.use_residual:
-            name += "_RESID"
+        if self.cfg.model_name == "gnn":
+            input_edge_channels = graph.edge_attr.shape[1]
+            n_mlp_hidden_layers = self.cfg.n_mlp_hidden_layers
+            n_messagePassing_layers = self.cfg.n_messagePassing_layers
+            halo_swap_mode = self.cfg.halo_swap_mode
+            layer_norm = self.cfg.layer_norm
+            #name = 'POLY_%d_RANK_%d_SIZE_%d_SEED_%d' %(poly,RANK,SIZE,self.cfg.seed)
+            name = 'POLY_%d_SIZE_%d_SEED_%d' %(poly,SIZE,self.cfg.seed)
+            if self.cfg.use_residual:
+                name += "_RESID"
 
-        model = gnn.DistributedGNN(input_node_channels,
-                           input_edge_channels,
-                           hidden_channels,
-                           output_node_channels,
-                           n_mlp_hidden_layers,
-                           n_messagePassing_layers,
-                           halo_swap_mode,
-                           layer_norm,
-                           name)
+            model = gnn.DistributedGNN(input_node_channels,
+                            input_edge_channels,
+                            hidden_channels,
+                            output_node_channels,
+                            n_mlp_hidden_layers,
+                            n_messagePassing_layers,
+                            halo_swap_mode,
+                            layer_norm,
+                            name)
+
+        elif self.cfg.model_name == "transformer":
+            # TODO: Find a way to avoid hardcoding this:
+            num_node_per_element = (7 + 1) ** 3
+            num_elements = pos_graph.shape[0] // num_node_per_element
+            model = gnn.DistributedTransformer(            
+                input_node_channels,
+                hidden_channels,
+                output_node_channels,
+                n_transformer_layers=self.cfg.n_transformer_layers,
+                num_heads=self.cfg.num_heads,
+                num_elements=num_elements,
+                name
+            )
+
         return model
 
     def count_weights(self, model) -> int:
@@ -642,6 +659,9 @@ class Trainer:
         # We are only periodic in z for the BFS. so we do the following:  
         pos = pos.astype(NP_FLOAT_DTYPE)
         pos_orig = np.copy(pos)
+        # NOTE: May need to be careful about this.
+        # Sometimes tends to break the mapping from local to global indices
+        # when operating with the graph transformer. (TODO: FIX)
         L_z = 2. 
         # pos[:,2] = np.cos(2.*np.pi*pos[:,2]/L_z) # cosine
         pos[:,2] = np.abs((pos[:,2] % L_z) - L_z / 2) # piecewise linear 
