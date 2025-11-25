@@ -111,7 +111,7 @@ gnn_t::gnn_t(nrs_t *nrs_, int poly_order, bool log_verbose)
     }
     ogs = mesh->ogs;
     fieldOffset = mesh->Np * (mesh->Nelements);
-    fieldOffset = alignStride<dfloat>(fieldOffset);
+    fieldOffset = alignStride<dlong>(fieldOffset);
 
     // allocate memory 
     N = mesh->Nelements * mesh->Np; // total number of nodes
@@ -257,27 +257,40 @@ void gnn_t::gnnWriteADIOS(adios_client_t* client)
     client->_num_dim = mesh->dim;
 
     // Get global size of data
-    int global_N, global_num_edges;
-    MPI_Allreduce(&N, &global_N, 1, MPI_INT, MPI_SUM, comm);
-    MPI_Allreduce(&num_edges, &global_num_edges, 1, MPI_INT, MPI_SUM, comm);
-    client->_N = N;
+    hlong _N, _num_edges, _field_offset;
+    hlong global_N, global_num_edges, global_field_offset;
+    _N = N;
+    _num_edges = num_edges;
+    _field_offset = fieldOffset;
+    MPI_Allreduce(&_N, &global_N, 1, MPI_HLONG, MPI_SUM, comm);
+    MPI_Allreduce(&_num_edges, &global_num_edges, 1, MPI_HLONG, MPI_SUM, comm);
+    MPI_Allreduce(&_field_offset, &global_field_offset, 1, MPI_HLONG, MPI_SUM, comm);
+    client->_N = _N;
     client->_global_N = global_N;
-    client->_num_edges = num_edges;
+    client->_num_edges = _num_edges;
     client->_global_num_edges = global_num_edges;
+    client->_field_offset = _field_offset;
+    client->_global_field_offset = global_field_offset;
+    std::cout << "[RANK " << rank << "] -- N: " << _N << " global_N: " << global_N << std::endl;
 
     // Gather size of data
-    int* gathered_N = new int[size];
-    int* gathered_num_edges = new int[size];
-    int offset_N = 0;
-    int offset_num_edges = 0;
-    MPI_Allgather(&N, 1, MPI_INT, gathered_N, 1, MPI_INT, MPI_COMM_WORLD);
-    MPI_Allgather(&num_edges, 1, MPI_INT, gathered_num_edges, 1, MPI_INT, MPI_COMM_WORLD);
+    hlong* gathered_N = new hlong[size];
+    hlong* gathered_num_edges = new hlong[size];
+    hlong* gathered_field_offset = new hlong[size];
+    hlong offset_N = 0;
+    hlong offset_num_edges = 0;
+    hlong offset_field_offset = 0;
+    MPI_Allgather(&_N, 1, MPI_HLONG, gathered_N, 1, MPI_HLONG, MPI_COMM_WORLD);
+    MPI_Allgather(&_num_edges, 1, MPI_HLONG, gathered_num_edges, 1, MPI_HLONG, MPI_COMM_WORLD);
+    MPI_Allgather(&_field_offset, 1, MPI_HLONG, gathered_field_offset, 1, MPI_HLONG, MPI_COMM_WORLD);
     for (int i=0; i<rank; i++) {
         offset_N += gathered_N[i];
         offset_num_edges += gathered_num_edges[i];
+        offset_field_offset += gathered_field_offset[i];
     }
     client->_offset_N = offset_N;
     client->_offset_num_edges = offset_num_edges;
+    client->_offset_field_offset = offset_field_offset;
 
     // Define ADIOS2 variables to send
     auto posFloats = client->_write_io.DefineVariable<dfloat>("pos_node", 
@@ -301,16 +314,18 @@ void gnn_t::gnnWriteADIOS(adios_client_t* client)
                                                             {client->_offset_num_edges * 2}, 
                                                             {client->_num_edges * 2});
     auto NpInts = client->_write_io.DefineVariable<dlong>("Np", {1}, {1}, {1});
-    auto NInts = client->_write_io.DefineVariable<dlong>("N", {_size}, {_rank}, {1});
-    auto numedgesInts = client->_write_io.DefineVariable<dlong>("num_edges", {_size}, {_rank}, {1});
+    auto NInts = client->_write_io.DefineVariable<hlong>("N", {_size}, {_rank}, {1});
+    auto numedgesInts = client->_write_io.DefineVariable<hlong>("num_edges", {_size}, {_rank}, {1});
+    auto fieldOffsetInts = client->_write_io.DefineVariable<hlong>("field_offset", {_size}, {_rank}, {1});
 
     // Write the graph data
     //adios2::Engine graphWriter = client->_stream_io.Open("graphStream", adios2::Mode::Write);
     adios2::Engine graphWriter = client->_write_io.Open("graph.bp", adios2::Mode::Write);
     graphWriter.BeginStep();
 
-    graphWriter.Put<dlong>(NInts, N);
-    graphWriter.Put<dlong>(numedgesInts, static_cast<dlong>(num_edges));
+    graphWriter.Put<hlong>(NInts, _N);
+    graphWriter.Put<hlong>(numedgesInts, _num_edges);
+    graphWriter.Put<hlong>(fieldOffsetInts, _field_offset);
     graphWriter.Put<dfloat>(posFloats, pos_node);
     graphWriter.Put<dlong>(locInts, local_unique_mask);
     graphWriter.Put<dlong>(haloInts, halo_unique_mask);

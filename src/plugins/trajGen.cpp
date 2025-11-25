@@ -195,7 +195,7 @@ void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
     MPI_Comm &comm = platform->comm.mpiComm;
 #if defined(NEKRS_ENABLE_ADIOS)
     dlong num_dim = mesh->dim;
-    dlong field_offset = graph->fieldOffset;
+    hlong field_offset = graph->fieldOffset;
     bool store_inputs = false;
     bool send_data = false;
 
@@ -221,20 +221,23 @@ void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
         U = new dfloat[num_dim * field_offset]();
 
 #if defined(NEKRS_ENABLE_ADIOS)
+        /*  
         // Get global size of data
         hlong global = field_offset;
         MPI_Allreduce(MPI_IN_PLACE, &global, 1, MPI_HLONG, MPI_SUM, comm);
         client->_field_offset = field_offset;
         client->_global_field_offset = global;
+        std::cout << "[RANK " << rank << "] -- field_offset: " << field_offset << " global_field_offset: " << global << std::endl;
 
         // Gather size of data
-        int* gathered = new int[size];
+        hlong* gathered = new hlong[size];
         hlong offset = 0;
-        MPI_Allgather(&field_offset, 1, MPI_INT, gathered, 1, MPI_INT, MPI_COMM_WORLD);
-        for (int i=0; i<rank; i++) {
+        MPI_Allgather(&field_offset, 1, MPI_HLONG, gathered, 1, MPI_HLONG, MPI_COMM_WORLD);
+        for (hlong i=0; i<rank; i++) {
             offset += gathered[i];
         }
         client->_offset_field_offset = offset;
+        */
 
         // Define ADIOS variables
         client->uIn = client->_stream_io.DefineVariable<dfloat>("in_u", 
@@ -253,7 +256,7 @@ void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
 
     if (send_data) {
         if (field_name == "velocity") {
-            graph->interpolateField(nrs, nrs->o_U, U, graph->mesh->dim);
+            graph->interpolateField(nrs, nrs->o_U, U, num_dim);
         }
 
 #if defined(NEKRS_ENABLE_ADIOS)
@@ -278,7 +281,7 @@ void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
     }
 
     if (store_inputs) {
-        graph->interpolateField(nrs, nrs->o_U, previous_U, graph->mesh->dim);
+        graph->interpolateField(nrs, nrs->o_U, previous_U, num_dim);
     }
 #else
     if (rank == 0) printf("[RANK %d] -- Error: Adios is not enabled!\n", rank);

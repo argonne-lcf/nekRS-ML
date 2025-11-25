@@ -226,7 +226,7 @@ class ShootingWorkflow():
     def compute_fom_nekrs(self) -> float:
         """Compute the nekRS FOM from reading input and log files
         """
-        with open(f'{self.log_dir}/nekrs_0.out','r') as fh:
+        with open(f'{self.log_dir}/nekrs_0.out','r',encoding='utf-8',errors='ignore') as fh:
             for l in fh:
                 if 'unique number of gridpoints' in l:
                     num_nodes = int(l.split(':')[-1].strip())

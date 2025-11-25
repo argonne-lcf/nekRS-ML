@@ -22,14 +22,6 @@ except ModuleNotFoundError as e:
     pass
 
 import torch
-try:
-    import intel_extension_for_pytorch as ipex
-except ModuleNotFoundError as e:
-    pass
-try:
-    import oneccl_bindings_for_pytorch as ccl
-except ModuleNotFoundError as e:
-    pass
 
 # Local imports
 import utils
@@ -154,7 +146,7 @@ def gather_wrapper(temp: NDArray[np.float32]) -> NDArray[np.float32]:
 def inference(cfg: DictConfig) -> None:
     """Perform 'a-priori' inference from a set of loaded input files
     """
-    trainer = Trainer(cfg)
+    trainer = Trainer(cfg, COMM)
     trainer.writeGraphStatistics()
 
     if RANK == 0:
@@ -207,12 +199,15 @@ def inference(cfg: DictConfig) -> None:
                 np.save(cfg.inference_dir + trainer.model.module.get_save_header() + f"/error_{bidx}", error_gathered)
                 np.save(cfg.inference_dir + trainer.model.module.get_save_header() + f"/pos_{bidx}", pos_gathered)
 
+    # Torch distributed cleanup
+    trainer.cleanup()
+
 def inference_rollout(cfg: DictConfig,
                       client: Optional[OnlineClient] = None
     ) -> None:
     """Perform 'a-posteriori' inference by rolling out in time an initial condition
     """
-    trainer = Trainer(cfg, client=client)
+    trainer = Trainer(cfg, COMM, client=client)
     trainer.writeGraphStatistics()
 
     dataloader = trainer.data['train']['loader']
@@ -274,8 +269,11 @@ def inference_rollout(cfg: DictConfig,
     else:
         client.put_array(f'checkpt_u_rank_{RANK}_size_{SIZE}',x.to(torch.float32).numpy())
 
+    # Torch distributed cleanup
+    trainer.cleanup()
+
     # Print performance stats
-    global_stats = utils.collect_stats(n_nodes_local, local_time, local_throughput)
+    global_stats = utils.collect_stats(COMM, n_nodes_local, local_time, local_throughput)
     if RANK == 0:
         log.info('Performance metrics:')
         log.info(f'\tTotal number of graph nodes: {global_stats["n_nodes"]}')
@@ -315,7 +313,6 @@ def main(cfg: DictConfig) -> None:
         if RANK == 0: print('Initialized Online Client!\n', flush=True)
         inference_rollout(cfg, client)
 
-    utils.cleanup()
     if RANK == 0:
         log.info('Exiting ...')
 
