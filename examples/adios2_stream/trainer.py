@@ -82,7 +82,7 @@ def main():
     if rank == 0: print(f'[ML] Done reading graph data in {toc - tic} seconds', flush=True)
 
     # Receive training data
-    workflow_steps = 20
+    workflow_steps = 2
     stream_time = 0.0
     
     if rank == 0: print('[ML] Opening stream ... ',flush=True)
@@ -91,21 +91,31 @@ def main():
         sleep(5)
         if rank == 0: print(f'[ML] Reading solution data for step {step}',flush=True)
         stream.begin_step()
-        var = stream.inquire_variable("U")
+
+        var = stream.inquire_variable("Uout")
         count = N
         start = sum(N_list[:rank])
         # stream.read() gets data now, Mode.Sync is default 
         # see 
         #   - https://github.com/ornladios/ADIOS2/blob/67f771b7a2f88ce59b6808cc4356159d86255f1d/python/adios2/stream.py#L331
         #   - https://github.com/ornladios/ADIOS2/blob/67f771b7a2f88ce59b6808cc4356159d86255f1d/python/adios2/engine.py#L123)
-        
         tic = MPI.Wtime()
-        train_data = stream.read("U", [start], [count])
+        output = stream.read("Uout", [start], [count])
+        toc = MPI.Wtime()
+
+        var = stream.inquire_variable("Uin")
+        tic = MPI.Wtime()
+        input = stream.read("Uin", [start], [count])
         toc = MPI.Wtime()
         
         if step > 0:
             stream_time += toc - tic
         stream.end_step()
+        
+        frac = step * 0.01 if step > 0 else 0.0
+        if not np.allclose(input, output) and not np.allclose(input, np.ones_like(input)*(rank+frac)):
+            print(f'[ML] Input and output are not correct on rank {rank} for step {step}',flush=True)
+            MPI.Abort(MPI.COMM_WORLD, 1)
         comm.Barrier()
         if rank == 0: print(f'[ML] Done reading solution data for step {step} in {toc - tic} seconds',flush=True)
     stream.close()

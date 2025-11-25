@@ -172,11 +172,17 @@ class OnlineClient:
 
                 arr = stream.inquire_variable('N')
                 N = stream.read('N', [self.rank], [1])
+                print(f'[RANK {self.rank}] -- N: {N}',flush=True)
                 self.N_list = self.comm.allgather(N)
 
                 arr = stream.inquire_variable('num_edges')
                 num_edges = stream.read('num_edges', [self.rank], [1])
                 self.num_edges_list = self.comm.allgather(num_edges)
+
+                arr = stream.inquire_variable('field_offset')
+                field_offset = stream.read('field_offset', [self.rank], [1])
+                print(f'[RANK {self.rank}] -- field_offset: {field_offset}',flush=True)
+                self.field_offset_list = self.comm.allgather(field_offset)
 
                 arr = stream.inquire_variable('pos_node')
                 count = N * 3
@@ -220,8 +226,8 @@ class OnlineClient:
             self.solutionStream.begin_step()
 
             arr = self.solutionStream.inquire_variable('out_u')
-            count = self.N_list[self.rank] * 3
-            start = sum(self.N_list[:self.rank]) * 3
+            count = self.field_offset_list[self.rank] * 3
+            start = sum(self.field_offset_list[:self.rank]) * 3
             # stream.read() gets data now, Mode.Sync is default 
             # see 
             #   - https://github.com/ornladios/ADIOS2/blob/67f771b7a2f88ce59b6808cc4356159d86255f1d/python/adios2/stream.py#L331
@@ -232,8 +238,6 @@ class OnlineClient:
             outputs = outputs.reshape((-1,3),order='F')
 
             arr = self.solutionStream.inquire_variable('in_u')
-            count = self.N_list[self.rank] * 3
-            start = sum(self.N_list[:self.rank]) * 3
             ticc = perf_counter()
             inputs = self.solutionStream.read('in_u', [start], [count])
             transfer_time += perf_counter() - ticc

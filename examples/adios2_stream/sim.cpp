@@ -122,7 +122,7 @@ int main(int argc, char *argv[])
         }
 
         // Get global size of data
-        long long int global_N, global_num_edges;
+        long long int global_N;
         MPI_Allreduce(&N, &global_N, 1, MPI_LONG_LONG, MPI_SUM, comm);
 
         // Gather size of data
@@ -168,7 +168,8 @@ int main(int argc, char *argv[])
         // Setup iteration loop and open stream
         int iters = 500;
 	    std::vector<double> U(N, 0.0);
-        auto UVar = sstIO.DefineVariable<double>("U", {_global_N}, {_offset_N}, {_N});
+        auto UInVar = sstIO.DefineVariable<double>("Uin", {_global_N}, {_offset_N}, {_N});
+        auto UOutVar = sstIO.DefineVariable<double>("Uout", {_global_N}, {_offset_N}, {_N});
 	    if (rank == 0) {
             std::cout << "[Sim] Opening stream ... " << std::endl;
         }
@@ -184,9 +185,9 @@ int main(int argc, char *argv[])
             
             // Update solution vector and sleep to emulate compute time
             std::this_thread::sleep_for(std::chrono::milliseconds(2000));
-            double frac = (iter != 0) ? (1.0 / iter) : 0.0;
-            for (int n=0; n<N; n++) {
-                U[n] = static_cast<double>(n+frac);
+            double frac = (iter != 0) ? (iter * 0.01) : 0.0;
+            for (long long int n=0; n<N; n++) {
+                U[n] = static_cast<double>(rank+frac);
             }
 
             if (rank == 0) {
@@ -194,7 +195,8 @@ int main(int argc, char *argv[])
             }
             double tic = MPI_Wtime();
             solWriter.BeginStep();
-	        solWriter.Put<double>(UVar, U.data());
+	        solWriter.Put<double>(UInVar, U.data());
+            solWriter.Put<double>(UOutVar, U.data());
 	        solWriter.EndStep();
             MPI_Barrier(comm);
             double toc = MPI_Wtime();
