@@ -232,9 +232,9 @@ def main(cfg: DictConfig):
     master_addr = comm.bcast(master_addr, root=0)
     os.environ['MASTER_ADDR'] = master_addr
     os.environ['MASTER_PORT'] = str(2345)
-    if (cfg.device=='cpu'): backend = 'gloo'
-    elif (cfg.device=='cuda'): backend = 'nccl'
-    elif (cfg.device=='xpu'): backend = 'ccl'
+    if (args.device=='cpu'): backend = 'gloo'
+    elif (args.device=='cuda'): backend = 'nccl'
+    elif (args.device=='xpu'): backend = 'xccl'
     dist.init_process_group(backend,
                             rank=int(rank),
                             world_size=int(size),

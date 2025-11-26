@@ -291,8 +291,6 @@ function setup_venv() {
         sed -i 's/fopenmp/lgomp/' setup.py
         CXX=$(which dpcpp) python setup.py install
         cd ../..
-      elif [ ${SYSTEM} == "polaris" ]; then
-        pip install torch-cluster
       fi
     fi
     

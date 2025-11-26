@@ -12,7 +12,7 @@ import torch_geometric.nn as tgnn
 from pymech.neksuite import readnek,writenek
 
 from gnn import GNN_Element_Neighbor_Lo_Hi
-import nekrs_graph_setup as ngs
+import dataprep.nekrs_graph_setup as ngs
 
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', force=True)
