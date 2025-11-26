@@ -145,7 +145,7 @@ else
   echo "    executable: \"\"" >> $CFILE
   echo "    link_files: []" >> $CFILE
 fi
-arguments="${arguments} +logging=info +dbnodes=${DB_NODES} +ppn=${TRAIN_RANKS_PER_NODE} +master_addr=none"
+arguments="${arguments} +logging=info +dbnodes=${DB_NODES} +ppn=${TRAIN_RANKS_PER_NODE}"
 echo "    arguments: \"${arguments}\"" >> $CFILE
 echo "    affinity: \"\"" >> $CFILE
 echo "    copy_files: []" >> $CFILE
