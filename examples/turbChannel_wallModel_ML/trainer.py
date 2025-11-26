@@ -1,12 +1,13 @@
 # General imports
 import sys
 import os
-import argparse
+from omegaconf import DictConfig, OmegaConf
 import logging
 import numpy as np
 from time import sleep, perf_counter
 from os.path import exists
 import socket
+import hydra
 import datetime
 
 # MPI
@@ -14,10 +15,6 @@ from mpi4py import MPI
 
 # ML imports
 import torch
-try:
-    import intel_extension_for_pytorch as ipex
-except ModuleNotFoundError as e:
-    pass
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
@@ -25,12 +22,6 @@ from torch.utils.data.distributed import DistributedSampler
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import all_gather
-
-try:
-    import oneccl_bindings_for_pytorch as ccl
-except ModuleNotFoundError as e:
-    pass
-
 
 # SmartRedis imports
 from smartredis import Client
@@ -48,8 +39,8 @@ def setup_logger(name, log_file, level=logging.INFO):
     return logger
 
 ## Initialize Redis clients
-def init_client(SSDB, args, logger_init):
-    if (args.dbnodes==1):
+def init_client(SSDB, cfg, logger_init):
+    if (cfg.dbnodes==1):
         tic = perf_counter()
         client = Client(address=SSDB,cluster=False)
         toc = perf_counter()
@@ -57,7 +48,7 @@ def init_client(SSDB, args, logger_init):
         tic = perf_counter()
         client = Client(address=SSDB,cluster=True)
         toc = perf_counter()
-    if (args.logging=='verbose'):
+    if (cfg.logging=='verbose'):
         logger_init.info('%.8e',toc-tic)
     return client
 
@@ -125,7 +116,7 @@ class MinibDataset(torch.utils.data.Dataset):
 
 ## Training subroutine
 def train(comm, model, train_sampler, train_tensor_loader, optimizer, epoch, 
-          batch, ndIn, client, args, logger_data):
+          batch, ndIn, client, cfg, logger_data):
     rank = comm.Get_rank()
     size = comm.Get_size()
 
@@ -137,13 +128,13 @@ def train(comm, model, train_sampler, train_tensor_loader, optimizer, epoch,
 
     for tensor_idx, tensor_keys in enumerate(train_tensor_loader):
         # grab data from database
-        if args.logging == 'verbose':
+        if cfg.logging == 'verbose':
             print(f'[{rank}]: Grabbing tensors with key {tensor_keys}', flush=True)
         tic = perf_counter()
         concat_tensor = torch.cat([torch.from_numpy(client.get_tensor(key)) \
                       for key in tensor_keys], dim=0)
         toc = perf_counter()
-        if (args.logging=='verbose'):
+        if (cfg.logging=='verbose'):
             logger_data.info('%.8e',toc-tic)
         concat_tensor = concat_tensor.float()
 
@@ -154,8 +145,8 @@ def train(comm, model, train_sampler, train_tensor_loader, optimizer, epoch,
             sleep(0.001)
 
             # split inputs and outputs
-            if (args.device != 'cpu'):
-               dbdata = dbdata.to(args.device)
+            if (cfg.device != 'cpu'):
+               dbdata = dbdata.to(cfg.device)
             features = dbdata[:, :ndIn]
             target = dbdata[:, ndIn:]
 
@@ -203,7 +194,8 @@ def metric_average(comm, size, val):
 
 
 ## Main
-def main():
+@hydra.main(version_base=None)
+def main(cfg: DictConfig):
     # MPI import and initialization
     comm = MPI.COMM_WORLD
     size = comm.Get_size()
@@ -213,18 +205,9 @@ def main():
     print(f'Rank {rank}/{size}, local rank {rankl} says hello from {name}', flush=True)
     comm.Barrier()
 
-    # Parse arguments
-    parser = argparse.ArgumentParser(description='')
-    parser.add_argument('--dbnodes',default=1,type=int,help='Number of database nodes')
-    parser.add_argument('--device',default='cpu',help='Device to run on')
-    parser.add_argument('--ppn',default=1,type=int,help='Number of processes per node')
-    parser.add_argument('--logging',default='info',choices=['verbose','info'],help='Level of performance logging')
-    parser.add_argument('--device_skip',default=0,type=int,help='Number of GPU devices to skip')
-    args = parser.parse_args()
-
     # Create log files
     time_meta = 0.
-    if (args.logging=='verbose'):
+    if (cfg.logging=='verbose'):
         logger_init = setup_logger('client_init', f'client_init_ml_{rank}.log')
         logger_meta = setup_logger('meta', f'meta_data_ml_{rank}.log')
         logger_data = setup_logger('train_data', f'train_data_ml_{rank}.log')
@@ -239,9 +222,9 @@ def main():
     master_addr = comm.bcast(master_addr, root=0)
     os.environ['MASTER_ADDR'] = master_addr
     os.environ['MASTER_PORT'] = str(2345)
-    if (args.device=='cpu'): backend = 'gloo'
-    elif (args.device=='cuda'): backend = 'nccl'
-    elif (args.device=='xpu'): backend = 'xccl'
+    if (cfg.device=='cpu'): backend = 'gloo'
+    elif (cfg.device=='cuda'): backend = 'nccl'
+    elif (cfg.device=='xpu'): backend = 'xccl'
     dist.init_process_group(backend,
                             rank=int(rank),
                             world_size=int(size),
@@ -250,7 +233,7 @@ def main():
 
     # Initialize Redis clients on each rank
     address = os.getenv('SSDB')
-    client = init_client(address, args, logger_init)
+    client = init_client(address, cfg, logger_init)
     comm.Barrier()
     if (rank == 0):
         print("All Python clients initialized\n", flush=True)
@@ -279,7 +262,7 @@ def main():
 
     # NN Training Hyper-Parameters
     Nepochs = 100 # number of epochs
-    batch =  int(num_db_tensors/args.ppn) # how many tensors to grab from db
+    batch =  int(num_db_tensors/cfg.ppn) # how many tensors to grab from db
     mini_batch = 2048 # batch size once tensors obtained from db and concatenated 
     learning_rate = 0.001 # learning rate
     nNeurons = 20 # number of neuronsining settings
@@ -287,22 +270,22 @@ def main():
 
     # Set device to run on
     if (rank == 0):
-        print(f"\nRunning on device: {args.device} \n",flush=True)
+        print(f"\nRunning on device: {cfg.device} \n",flush=True)
     torch.set_num_threads(1)
-    device = torch.device(args.device)
-    if (args.device == 'cuda'):
+    device = torch.device(cfg.device)
+    if (cfg.device == 'cuda'):
         if torch.cuda.is_available():
             device_id = rankl if torch.cuda.device_count()>1 else 0
-            torch.cuda.set_device(device_id+args.device_skip)
-    elif (args.device == 'xpu'):
+            torch.cuda.set_device(device_id+cfg.device_skip)
+    elif (cfg.device == 'xpu'):
         if torch.xpu.is_available():
             device_id = rankl if torch.xpu.device_count()>1 else 0
-            torch.xpu.set_device(device_id+args.device_skip)
+            torch.xpu.set_device(device_id+cfg.device_skip)
 
     # Instantiate the NN model and optimizer
     model = FCN(input_size=ndIn, hidden_size=nNeurons, output_size=ndOut)
-    if (args.device != 'cpu'):
-        model.to(args.device)
+    if (cfg.device != 'cpu'):
+        model.to(cfg.device)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate*size, weight_decay=1e-3)
     
     # Wrap model with DDP
@@ -330,13 +313,13 @@ def main():
         if (istep != tmp[0]): 
             istep = tmp[0]
             step_list.append(istep)
-            batch =  int(num_db_tensors*len(step_list)/args.ppn)
+            batch =  int(num_db_tensors*len(step_list)/cfg.ppn)
             if (rank == 0):
                 print("\nGetting new training data from DB ...")
                 print(f"Added time step {istep} to training data\n", flush=True)
 
             datasetTrain = RankStepDataset(num_db_tensors,step_list,head_rank)
-            train_sampler = DistributedSampler(datasetTrain, num_replicas=args.ppn, 
+            train_sampler = DistributedSampler(datasetTrain, num_replicas=cfg.ppn,
                                                rank=rankl, drop_last=False)
             train_tensor_loader = DataLoader(datasetTrain, batch_size=batch, 
                                              sampler=train_sampler)
@@ -345,7 +328,7 @@ def main():
             print(f"\n Epoch {iepoch}\n-------------------------------", flush=True)
         
         model, global_loss = train(comm, model, train_sampler, train_tensor_loader, optimizer,
-                                    iepoch, mini_batch, ndIn, client, args, logger_data)
+                                    iepoch, mini_batch, ndIn, client, cfg, logger_data)
             
         # check if tolerance on loss is satisfied
         if (global_loss <= tol):
@@ -361,7 +344,7 @@ def main():
 
         iepoch = iepoch + 1        
 
-    if (args.logging=='verbose'):
+    if (cfg.logging=='verbose'):
         logger_meta.info('%.8e',time_meta)    
 
     # Save model to file before exiting
@@ -373,7 +356,7 @@ def main():
         torch.save(model.state_dict(), f"{model_name}.pt", _use_new_zipfile_serialization=False)
         # save jit traced model to be used for online inference with SmartSim
         features = np.double(np.random.uniform(low=0, high=10, size=(npts,ndIn)))
-        features = torch.from_numpy(features).to(args.device)
+        features = torch.from_numpy(features).to(cfg.device)
         module = torch.jit.trace(model, features)
         torch.jit.save(module, f"{model_name}_jit.pt")
         print("Saved model to disk\n", flush=True)
@@ -381,7 +364,7 @@ def main():
 
     # Exit and tell data loader to exit too
     comm.Barrier()
-    if (rank%args.ppn == 0):
+    if (rank%cfg.ppn == 0):
         print(f"[{rank}]: Telling NEKRS to quit ... \n")
         arrMLrun = np.int32(np.zeros(1))
         client.put_tensor("check-run",arrMLrun)
