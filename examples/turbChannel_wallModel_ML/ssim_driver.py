@@ -106,7 +106,7 @@ def launch_coDB(cfg, nodelist, nNodes):
     # Setup and launch the training script
     if (cfg.train.executable):
         ml_exe = cfg.train.executable
-        ml_exe = ml_exe + ' ' + cfg.train.arguments + f' master_addr={socket.gethostname()}'
+        ml_exe = ml_exe + ' ' + cfg.train.arguments
         SSDB = colo_model.run_settings.env_vars['SSDB']
         if (cfg.database.launcher=='local'):
             ml_settings = RunSettings(
@@ -240,7 +240,7 @@ def launch_clDB(cfg, nodelist, nNodes):
     # Setup and launch the training script
     if (cfg.train.executable):
         ml_exe = cfg.train.executable
-        ml_exe = ml_exe + ' ' + cfg.train.arguments + f' master_addr={ml_head_node}'
+        ml_exe = ml_exe + ' ' + cfg.train.arguments
         if (cfg.database.launcher=='local'):
             ml_settings = RunSettings(
                            'python',
