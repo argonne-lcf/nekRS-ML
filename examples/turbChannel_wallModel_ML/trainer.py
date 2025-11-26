@@ -15,10 +15,6 @@ from mpi4py import MPI
 
 # ML imports
 import torch
-try:
-    import intel_extension_for_pytorch as ipex
-except ModuleNotFoundError as e:
-    pass
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
@@ -26,12 +22,6 @@ from torch.utils.data.distributed import DistributedSampler
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import all_gather
-
-try:
-    import oneccl_bindings_for_pytorch as ccl
-except ModuleNotFoundError as e:
-    pass
-
 
 # SmartRedis imports
 from smartredis import Client
@@ -232,9 +222,9 @@ def main(cfg: DictConfig):
     master_addr = comm.bcast(master_addr, root=0)
     os.environ['MASTER_ADDR'] = master_addr
     os.environ['MASTER_PORT'] = str(2345)
-    if (args.device=='cpu'): backend = 'gloo'
-    elif (args.device=='cuda'): backend = 'nccl'
-    elif (args.device=='xpu'): backend = 'xccl'
+    if (cfg.device=='cpu'): backend = 'gloo'
+    elif (cfg.device=='cuda'): backend = 'nccl'
+    elif (cfg.device=='xpu'): backend = 'xccl'
     dist.init_process_group(backend,
                             rank=int(rank),
                             world_size=int(size),

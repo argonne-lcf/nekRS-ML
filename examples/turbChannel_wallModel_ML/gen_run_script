@@ -4,7 +4,7 @@ SYSTEM=$1
 NEKRS_HOME=$2
 
 if [ $# -lt 2 ]; then
-  $NEKRS_HOME/bin/setup_case --help
+  ../../scripts/setup_case --help
 else
   $NEKRS_HOME/bin/setup_case $SYSTEM $NEKRS_HOME --ml_task train --client smartredis --deployment colocated ${@:3}
 fi
