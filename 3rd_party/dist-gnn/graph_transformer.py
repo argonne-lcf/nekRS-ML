@@ -247,7 +247,7 @@ class ElementWiseAttention(nn.Module):
         # we need to reconcile this by doing an average across points with shared IDs:
         ne, np, c = attn_output.shape
         # NOTE: we can possibly just compute this once and reuse it
-        _, grouping_index = torch.unique(index, return_inverse=True)
+        _, grouping_index = torch.unique(index[idx_reduced2full], return_inverse=True)
         attn_output = attn_output.reshape(ne * np, c)
         attn_output = scatter_mean(attn_output, grouping_index, dim=0)[grouping_index]
         # make attention output in reduced:
@@ -259,7 +259,7 @@ class ElementWiseAttention(nn.Module):
             # add attn_output to x except the last num_halo_nodes
             x[:-num_halo_nodes] = res[:-num_halo_nodes] + attn_output
             # this should have populated the halo nodes
-            if self.halo_swap_mode == "all_to_all":
+            if self.halo_swap_mode == "all_to_all" or self.halo_swap_mode == "all_to_all_opt":
                 x = self.halo_swap(
                     x,
                     mask_send,
@@ -354,6 +354,7 @@ class GraphTransformer(nn.Module):
             )
         self.decoder = MlpBlock(hidden_channels, hidden_channels, output_node_channels)
         self.halo_swap_mode = halo_swap_mode
+        self.name = name
 
     def forward(
         self,
