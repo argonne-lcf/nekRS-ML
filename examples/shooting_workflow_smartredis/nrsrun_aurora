@@ -161,7 +161,7 @@ echo "    link_files: [\"./${SAFF_FILE}\",\".cache\"]" >> $CFILE
 echo "" >> $CFILE
 echo "# Trainer config" >> $CFILE
 echo "train:" >> $CFILE
-echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/main.py\"" >> $CFILE
+echo "    executable: \"${NEKRS_HOME}/3rd_party/dist-gnn/main.py\"" >> $CFILE
 #echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
 echo "    affinity: \"\"" >> $CFILE
 if [ ${DEPLOYMENT} == "colocated"  ]; then
@@ -174,7 +174,7 @@ echo "    link_files: [\"./${TAFF_FILE}\"]" >> $CFILE
 echo "" >> $CFILE
 echo "# Inference config" >> $CFILE
 echo "inference:" >> $CFILE
-echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/inference.py\"" >> $CFILE
+echo "    executable: \"${NEKRS_HOME}/3rd_party/dist-gnn/inference.py\"" >> $CFILE
 echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
 echo "    arguments: \"model_task=inference rollout_steps=100 backend=xccl halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
 echo "    copy_files: []" >> $CFILE
