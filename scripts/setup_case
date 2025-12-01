@@ -15,7 +15,7 @@ DB_NODES=1
 SIM_NODES=1
 TRAIN_NODES=1
 MODEL="dist-gnn"
-# case name is automatically found
+# case name is found automatically
 CASE_NAME=
 
 function print_help() {
@@ -209,6 +209,7 @@ function print_args() {
   echo "DB_NODES   : ${DB_NODES}"
   echo "SIM_NODES  : ${SIM_NODES}"
   echo "TRAIN_NODES: ${TRAIN_NODES}"
+  echo "MODEL      : ${MODEL}"
   echo "CASE_NAME  : ${CASE_NAME}"
 }
 
@@ -235,16 +236,20 @@ function load_modules() {
 
 function build_smartsim() {
   if [ "${SYSTEM}" == "polaris" ]; then
-      export CC=cc
-      export CXX=CC
-      export CUDNN_BASE=/soft/libraries/cudnn/cudnn-12-linux-x64-v9.1.0.70
-      export CUDNN_LIBRARY=$CUDNN_BASE/lib/
-      export CUDNN_INCLUDE_DIR=$CUDNN_BASE/include/
-      export LD_LIBRARY_PATH=$CUDNN_LIBRARY:$LD_LIBRARY_PATH
+    export CC=cc
+    export CXX=CC
+    export CUDNN_BASE=/soft/libraries/cudnn/cudnn-12-linux-x64-v9.1.0.70
+    export CUDNN_LIBRARY=$CUDNN_BASE/lib/
+    export CUDNN_INCLUDE_DIR=$CUDNN_BASE/include/
+    export LD_LIBRARY_PATH=$CUDNN_LIBRARY:$LD_LIBRARY_PATH
   fi
-  CASE_DIR=$PWD
-  cd ../
-  git clone https://github.com/rickybalin/SmartSim.git
+
+  cwd=$PWD
+
+  cd ${VENV_PATH}
+  if [ ! -d SmartSim ]; then
+    git clone https://github.com/rickybalin/SmartSim.git
+  fi
   cd SmartSim
   git checkout rollback_aurora
   pip install -e .
@@ -260,8 +265,8 @@ function build_smartsim() {
   export TORCH_CMAKE_PATH=$( python -c 'import torch;print(torch.utils.cmake_prefix_path)' )
   smart build -v --device $DEVICE --torch_dir $TORCH_CMAKE_PATH --no_tf
   smart validate
-  cd ..
-  cd $CASE_DIR
+
+  cd ${cwd}
 }
 
 function setup_venv() {
@@ -319,10 +324,10 @@ function generate_script() {
 }
 
 parse_args "$@"
+print_args
 check_args
 check_connection
 setup_case
-print_args
 load_modules
 setup_venv
 generate_script

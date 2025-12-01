@@ -17,8 +17,8 @@ respectively. These classes are used based on the type of test we want to execut
 This repository contains the [ReFrame](https://reframe-hpc.readthedocs.io/en/stable/)
 implementations of various tests, regression tests, and performance benchmarks.
 
-In order to run tests, you first need to install [uv](https://docs.astral.sh/uv/) on the 
-target system with
+In order to run tests, you first need to install [uv](https://docs.astral.sh/uv/) on
+the target system with
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -28,7 +28,8 @@ More installation instructions can be found [here](https://docs.astral.sh/uv/get
 
 ## How to run the tests
 
-From a login node on the target system (currently only Aurora is supported), we provide the `run.sh` script to launch the tests.
+From a login node on the target system (currently only Aurora is supported), we
+provide the `run.sh` script to launch the tests.
 
 For the full list of parameters accepted by the script, execute
 ```sh
@@ -60,15 +61,16 @@ Examples:
     ./run.sh -t offline -b
   To run all the tests based on tgv:
     ./run.sh -t tgv -b
-  Please note that the "-b (--build)" parameter is only required in the first run of  each tag.
+  Please note that the "-b (--build)" parameter is only required in the first run of each tag.
   You can pass --list-tags or -l to list all the test tags:
     ./run.sh -l
 ```
 
 ## Output artifacts
 
-A successful run will show that all tests passed and produce test artifacts in `${PWD}/test_data` directory. 
-For example, if you ran the `tgv_offline` test with the following command (on Aurora):
+A successful run will show that all tests passed and produce test artifacts in
+`${PWD}/test_data` directory. For example, if you ran the `tgv_offline` test with the
+following command (on Aurora):
 ```sh
 ./run.sh -t tgv_offline -b -prj <PROJECT>
 ```
@@ -128,15 +130,16 @@ You will see two log files (`rfm-*.log`) under `${PWD}/test_data/output/<timesta
 One corresponds to a log level of `info` and the other is with the log level of
 `debug2` (these levels are defined by ReFrame). Output artifacts produced by the
 tests themselves will be under `${PWD}/test_data/output/<timestamp>/<system>/<PrgEnv>/<test>`.
-The test reports are in`${PWD}/test_data/reports/report_<session_id>.json`. The staging
-files of the tests can be found under `${PWD}/test_data/stage/<timestamp>`.
+The test reports are in`${PWD}/test_data/reports/report_<session_id>.json`. The
+staging files of the tests can be found under `${PWD}/test_data/stage/<timestamp>`.
 
 ## Common issues
 
-* Make sure the correct project and system parameters are being passed to the test run script.
-* If you see an error similar to the following, it means that the ReFrame
-  couldn't find a report to restore the session you asked for. In that case,
-  pass the `-b` flag to the `run.sh` to generate everything from scratch.
+* Make sure the correct project and system parameters are being passed to the test
+  run script.
+* If you see an error similar to the following, it means that the ReFrame couldn't
+  find a report to restore the session you asked for. In that case, pass the `-b`
+  flag to the `run.sh` to generate everything from scratch.
   ```
   FileNotFoundError: [Errno 2] No such file or directory: '/home/thilina/gnn/nekrs_ml.git/examples/reframe/test_data/reports'
   ```

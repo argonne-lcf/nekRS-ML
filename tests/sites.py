@@ -32,7 +32,7 @@ site_configuration = {
                         "PrgEnv-Aurora",
                     ],
                     "extras": {
-                        "ranks_per_node": 12,
+                        "ranks_per_node": 16,
                     },
                 },
                 {
@@ -46,14 +46,11 @@ site_configuration = {
                     ],
                     "extras": {
                         "ranks_per_node": 12,
-                        "cpu_bind_list": "list:1:8:16:24:32:40:53:60:68:76:84:92",
-                        "backend": "DPCPP",
+                        "cpu_bind_list": "1:8:16:24:32:40:53:60:68:76:84:92",
+                        "db_bind_list": "100,101,102,103",
+                        "gpu_bind_list": "0:1:2:3:4:5:6:7:8:9:10:11",
+                        "occa_backend": "DPCPP",
                     },
-                    "env_vars": [
-                        ["FI_CXI_RX_MATCH_MODE", "hybrid"],
-                        ["UR_L0_USE_COPY_ENGINE", 0],
-                        ["CCL_ALLTOALLV_MONOLITHIC_KERNEL", 0],
-                    ],
                 },
             ],
         },
@@ -62,7 +59,7 @@ site_configuration = {
             "descr": "Polaris at ALCF",
             "modules_system": "lmod",
             "modules": ["conda"],
-            "hostnames": [],
+            "hostnames": ["^polaris-login-[0-9]{2}.*", "^x3[1-7]{4}.*"],
             "partitions": [
                 {
                     "name": "login",
@@ -70,11 +67,30 @@ site_configuration = {
                     "scheduler": "local",
                     "launcher": "alcf_mpiexec",
                     "environs": [
-                        "PrgEnv-gnu",
+                        "PrgEnv-Polaris",
                     ],
                     "extras": {
-                        "ranks_per_node": 8,
+                        # The NekRS build on Polaris fails with >= 12 parallel
+                        # threads on Polaris. Maybe running out of memory?
+                        "ranks_per_node": 10,
                     },
+                },
+                {
+                    "name": "gateway",
+                    "descr": "Gateway nodes",
+                    "scheduler": "ssh",
+                    "sched_options": {
+                        "ssh_hosts": [
+                            *(
+                                f"polaris-gateway-{i:02}.hostmgmt.cm.polaris.alcf.anl.gov"
+                                for i in range(1, 51)
+                            )
+                        ]
+                    },
+                    "launcher": "mpiexec",
+                    "environs": [
+                        "PrgEnv-Polaris",
+                    ],
                 },
                 {
                     "name": "compute",
@@ -82,12 +98,12 @@ site_configuration = {
                     "scheduler": "pbs",
                     "launcher": "alcf_mpiexec",
                     "max_jobs": 128,
-                    "environs": [
-                        "PrgEnv-gnu",
-                    ],
+                    "environs": ["PrgEnv-Polaris"],
                     "extras": {
-                        "ranks_per_node": 12,
+                        "ranks_per_node": 4,
                         "cpu_bind_list": "24:16:8:1",
+                        "db_bind_list": "100,101,102,103",
+                        "occa_backend": "CUDA",
                     },
                 },
             ],
@@ -102,6 +118,11 @@ site_configuration = {
                 "module list",
             ],
             "env_vars": [
+                ["TZ", "/usr/share/zoneinfo/US/Central"],
+                ["ZE_FLAT_DEVICE_HIERARCHY", "FLAT"],
+                ["FI_CXI_RX_MATCH_MODE", "hybrid"],
+                ["UR_L0_USE_COPY_ENGINE", 0],
+                ["CCL_ALLTOALLV_MONOLITHIC_KERNEL", 0],
                 ["OCCA_CXX", "icpx"],
                 [
                     "OCCA_CXXFLAGS",
@@ -113,19 +134,35 @@ site_configuration = {
                 ],
             ],
             "target_systems": ["aurora"],
+            "cc": "mpicc",
+            "cxx": "mpicxx",
+            "ftn": "mpif77",
         },
         {
-            "name": "PrgEnv-gnu",
+            "name": "PrgEnv-Polaris",
             "prepare_cmds": [
                 "module restore",
+                "module load libfabric",
+                "module load PrgEnv-gnu",
+                "module use /soft/modulefiles/",
+                "module load spack-pe-base cmake",
                 "module load conda",
                 "conda activate",
                 "module list",
             ],
+            "env_vars": [
+                ["TZ", "/usr/share/zoneinfo/US/Central"],
+                ["NEKRS_CACHE_BCAST", "0"],
+                ["NEKRS_LOCAL_TMP_DIR", "/local/scratch"],
+                ["NEKRS_GPU_MPI", "0"],
+                ["MPICH_MPIIO_STATS", "0"],
+                ["MPICH_GPU_SUPPORT_ENABLED", "0"],
+                ["MPICH_OFI_NIC_POLICY", "NUMA"],
+            ],
             "target_systems": ["polaris"],
-            "cc": "gcc",
-            "cxx": "g++",
-            "ftn": "gfortran",
+            "cc": "cc",
+            "cxx": "CC",
+            "ftn": "ftn",
         },
     ],
     "logging": [
