@@ -66,6 +66,14 @@ provided by `run.sh` to customize the tests for a given platform. For example, y
 can use `--system/-s` to select the site, `--project/-prj` to select the correct
 project, and `--queue/-q` to set the correct queue, etc.
 
+You can use regex in the tag to filter the tests you would like to run. For example,
+if you only want to run `tgv_offline` (without also running `tgv_offline_traj`,
+etc.), you can use the following tag:
+
+```sh
+./run.sh -b -t tgv_offline$
+```
+
 ### Aurora
 
 We define two partitions for Aurora: `aurora:compute` and `aurora:login`. Below is
