@@ -120,7 +120,7 @@ class DiffusionProcess:
         else:
             noise = torch.randn_like(field_start) # (num_nodes, num_fields)
         if batch is None:
-            batch = torch.zeros(field_start.size(0), device=field_start.device)
+            batch = torch.zeros(field_start.size(0), device=field_start.device, dtype=torch.long)
         
         # Get the coefficients for the diffusion process
         sqrt_alphas_cumprod_t = self.get_index_from_list(self.sqrt_alphas_cumprod, batch, r) # Dimensions: (num_nodes, 1)
@@ -188,7 +188,13 @@ class DiffusionProcess:
         # Get the 'r'-th element of 'fields' for each graph in 'batch'
         node_r = values.to(device)[r] # Dimensions: [batch_size]
         # Get the number of nodes in each graph
-        num_nodes_per_graph = torch.bincount(batch)
+        try:
+            num_nodes_per_graph = torch.bincount(batch)
+        except NotImplementedError: 
+            # torch.bincount is not implemented for float on xpu devices
+            size = int(batch.max().item()) + 1
+            num_nodes_per_graph = torch.zeros(size, dtype=torch.long, device=device)
+            num_nodes_per_graph.scatter_add_(0, batch, torch.ones_like(batch, dtype=torch.long))
         # Stack the repeated values for each graph in the batch
         node_r = node_r.repeat_interleave(num_nodes_per_graph) # Dimensions: [num_nodes]
         # Add a pseudo-field dimension

@@ -11,15 +11,10 @@ import time
 from omegaconf import DictConfig, OmegaConf
 
 import torch
-try:
-    import intel_extension_for_pytorch as ipex
-except Exception as e:
-    pass
-
-from torch.utils.data import DataLoader
 from torch.cuda.amp.grad_scaler import GradScaler
 import torch.nn as nn
 import torch.optim as optim
+#from torch.utils.data import DataLoader
 #torch.use_deterministic_algorithms(True)
 #import torch.utils.data
 #import torch.utils.data.distributed
@@ -36,6 +31,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 # PyTorch Geometric
 import torch_geometric
 from torch_geometric.data import Data
+from torch_geometric.loader import DataLoader
 import torch_geometric.utils as pyg_utils
 #import torch_geometric.nn as tgnn
 
@@ -121,6 +117,9 @@ class DGNTrainer:
         if self.cfg.online:
             log.warning('Online backends not implemented for this model yet')
             MPI.Abort(COMM, 1)
+        if self.cfg.batch_size > 1 or self.cfg.val_batch_size > 1:
+            log.error('Only batch size 1 is currently supported')
+            MPI.Abort(COMM, 1)
 
         # ~~~ Initialize DDP
         if WITH_DDP:
@@ -171,7 +170,7 @@ class DGNTrainer:
         self.mask_send, self.mask_recv = self.build_masks()
         if RANK == 0: log.info('Done with build_masks')
 
-        self.buffer_send, self.buffer_recv, self.n_buffer_rows = self.build_buffers(self.cfg.hidden_channels)
+        self.buffer_send, self.buffer_recv, self.n_buffer_rows = self.build_buffers(self.cfg.mlp_hidden_channels)
         if RANK == 0: log.info('Done with build_buffers')
 
         # ~~~~ Build model and move to gpu 
@@ -235,10 +234,6 @@ class DGNTrainer:
             if RANK == 0:
                 astr = 'Restarting from checkpoint -- Iteration %d/%d' %(self.iteration, self.total_iterations)
                 log.info(astr)
-        
-        # ~~~ IPEX optimizations
-        #if WITH_XPU:
-        #    self.model, self.optimizer = ipex.optimize(self.model, optimizer=self.optimizer)
 
         # ~~~~ Set scheduler:
         self.s_optimizer = ScheduledOptim(self.optimizer, 
@@ -338,6 +333,7 @@ class DGNTrainer:
             'halo_swap_mode': self.cfg.halo_swap_mode,
             'layer_norm': self.cfg.layer_norm,
             'dropout_rate': self.cfg.dropout_rate,
+            'emb_width': self.cfg.emb_width,
             'name': 'POLY_%d_SIZE_%d_SEED_%d' %(poly,SIZE,self.cfg.seed)
         }
         # TODO: this is where things like Re, num_pins, distance to wall, etc. would go
@@ -890,37 +886,30 @@ class DGNTrainer:
         distance_max = distnn.all_reduce(distance_max_, op=distnn.ReduceOp.MAX).to(device_for_loading)
         data_graph.edge_attr = (data_graph.edge_attr/distance_max).to(self.torch_dtype)
 
+        # ~~~~ Populate the data loader
         # No need for distributed sampler -- create standard dataset loader  
         # We can use the standard pytorch dataloader on (x,y) 
-        #train_loader = torch_geometric.loader.DataLoader(train_dataset, batch_size=self.cfg.batch_size, shuffle=False)
-        #test_loader = torch_geometric.loader.DataLoader(test_dataset, batch_size=self.cfg.test_batch_size, shuffle=False) 
         if (RANK == 0):
             log.info(f"{data_graph}")
             log.info(f"shape of x: {data['train'][0]['x'].shape}")
-        
-        # ~~~~ Populate the data sampler. No need to use torch_geometric sampler -- we assume we have fixed connectivity, and a "GRAPH" batch size of 1. We need a sampler only over the [x,y] pairs (i.e., the elements in data_list)
-        # train_loader = torch_geometric.loader.DataLoader(train_dataset, batch_size=self.cfg.batch_size, shuffle=False)
-        assert self.cfg.batch_size == 1, f"batch_size {self.cfg.batch_size} must be set to 1!"
-        assert self.cfg.val_batch_size == 1, f"val_batch_size {self.cfg.batch_size} must be set to 1!"
-
         train_data_scaled = []
         for item in  data['train']:
-            tdict = {}
-            tdict['x'] = ((item['x'] - stats['x'][0])/(stats['x'][1] + SMALL)).to(self.torch_dtype)
-            train_data_scaled.append(tdict)
-        train_loader = DataLoader(dataset=train_data_scaled,
-                                     batch_size=self.cfg.batch_size,
-                                     shuffle=True)
+            #tdict = {}
+            #data = ((item['x'] - stats['x'][0])/(stats['x'][1] + SMALL)).to(self.torch_dtype)
+            train_data_scaled.append(Data(x=((item['x'] - stats['x'][0])/(stats['x'][1] + SMALL)).to(self.torch_dtype)))
+        train_loader = DataLoader(train_data_scaled,
+                                  batch_size=self.cfg.batch_size,
+                                  shuffle=True)
 
         val_data_scaled = data['validation'].copy()
         if val_data_scaled[0]:
             for item in  val_data_scaled:
-                tdict = {}
-                tdict['x'] = ((item['x'] - stats['x'][0])/(stats['x'][1] + SMALL)).to(self.torch_dtype)
-                val_data_scaled.append(tdict)
-        valid_loader = DataLoader(dataset=val_data_scaled,
-                                            batch_size=self.cfg.val_batch_size,
-                                            shuffle=False)
+                #tdict = {}
+                #tdict['x'] = ((item['x'] - stats['x'][0])/(stats['x'][1] + SMALL)).to(self.torch_dtype)
+                val_data_scaled.append(Data(x=((item['x'] - stats['x'][0])/(stats['x'][1] + SMALL)).to(self.torch_dtype)))
+        valid_loader = DataLoader(val_data_scaled,
+                                  batch_size=self.cfg.val_batch_size,
+                                  shuffle=False)
 
         self.data =  {
             'train': {
@@ -1021,12 +1010,12 @@ class DGNTrainer:
         if WITH_XPU:
             torch.xpu.synchronize()
 
-    def train_step(self, data) -> Tensor:
+    def train_step(self, data: Data) -> Tensor:
         loss = torch.tensor([0.0])
         graph = self.data['graph']
         tic = time.time()
         if WITH_CUDA or WITH_XPU:
-            data['x'] = data['x'].to(self.device)
+            data = data.to(self.device)
             graph.edge_index = graph.edge_index.to(self.device)
             graph.edge_attr = graph.edge_attr.to(self.device)
             graph.batch = graph.batch.to(self.device) if graph.batch is not None else None
@@ -1056,17 +1045,21 @@ class DGNTrainer:
         # Sample a batch of random diffusion steps
         r, weights = self.step_sampler.sample(batch_size=self.cfg.batch_size)
         if self.cfg.verbose:
-            if RANK == 0: log.info(f"Sampled diffusion steps: {r} for batch size {self.cfg.batch_size}")
+            if RANK == 0: log.info(f"Sampled diffusion steps: {r.cpu().numpy().tolist()} for batch size {self.cfg.batch_size}")
 
         # Diffuse the solution/target field
         BC_mask = None # no BCs for now
         field_r, noise = self.diffusion_process.forward(data['x'], r, BC_mask)
         if self.cfg.verbose:
             if RANK == 0: log.info(f"Performed forward diffusion process on {self.cfg.batch_size} solution fields")
+            if RANK == 0: 
+                log.info(f"Shape of field_r: {field_r.shape}, shape of x: {data['x'].shape}, shape of r: {r.shape}")
+                log.info(f"graph.batch: {graph.batch}")
         
         # Prediction
         tic = time.time()
-        model_noise, model_var = self.model(field_r = field_r,
+        model_noise, model_var = self.model(
+                             field_r = field_r,
                              r = r,
                              edge_index = graph.edge_index,
                              edge_attr = graph.edge_attr,
@@ -1084,13 +1077,15 @@ class DGNTrainer:
 
         # Accumulate loss
         tic = time.time()
-        target = data['y'][0]
         n_nodes_local = graph.n_nodes_local
         if SIZE == 1 or not self.cfg.consistency:
             loss = self.loss_fn(model_noise[:n_nodes_local], noise[:n_nodes_local])
             # TODO: Look at DGN4cfd hybrid loss for full loss function
             effective_nodes = n_nodes_local 
         else: # custom 
+            if RANK == 0: log.error('Custom loss function not implemented for SIZE > 1')
+            MPI.Abort(COMM, 1)
+            """
             n_output_features = pred.shape[1]
             squared_errors_local = torch.pow(pred[:n_nodes_local] - target[:n_nodes_local], 2)
             squared_errors_local = squared_errors_local/graph.node_degree[:n_nodes_local].unsqueeze(-1)
@@ -1101,6 +1096,7 @@ class DGNTrainer:
             effective_nodes = distnn.all_reduce(effective_nodes_local)
             sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
             loss = (1.0/(effective_nodes*n_output_features)) * sum_squared_errors
+            """
         if self.cfg.timers: self.update_timer('loss', self.timer_step, time.time() - tic)
 
         tic = time.time()
@@ -1272,9 +1268,9 @@ class DGNTrainer:
         if RANK == 0:
             if not os.path.exists(savepath):
                 os.makedirs(savepath)
-                print("Directory created by root processor.")
+                log.info("Directory created by root processor.")
             else:
-                print("Directory already exists.")
+                log.info("Directory already exists.")
         COMM.Barrier()
 
         # Number of local nodes 

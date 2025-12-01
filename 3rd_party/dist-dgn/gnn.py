@@ -46,7 +46,7 @@ class DistributedDGN(torch.nn.Module):
 
         # ~~~~ edge encoder MLP
         self.edge_encoder = MLP(
-                input_features = self.input_edge_channels,
+                input_features = self.input_edge_features,
                 hidden_channels = [self.mlp_hidden_channels]*(self.n_mlp_hidden_layers+1),
                 output_channels = self.mlp_hidden_channels,
                 activation_layer = torch.nn.ELU(),
@@ -100,7 +100,7 @@ class DistributedDGN(torch.nn.Module):
             self,
             field_r: Tensor,
             r: Tensor,
-            edge_index: LongTensor,
+            edge_index: torch.LongTensor,
             edge_attr: Tensor,
             edge_weight: Tensor,
             halo_info: Tensor,
@@ -111,22 +111,22 @@ class DistributedDGN(torch.nn.Module):
             neighboring_procs: Tensor, 
             SIZE: Tensor,
             cond_node_features: Optional[Tensor] = None,
-            batch: Optional[LongTensor] = None
+            batch: Optional[torch.LongTensor] = None
     ) -> Tensor:
 
         if batch is None:
-            batch = edge_index.new_zeros(field_r.size(0))
+            batch = torch.zeros(field_r.size(0), device=field_r.device, dtype=torch.long) # Shape (num_nodes,)
 
         # ~~~~ Embed the diffusion step
         emb = self.diffusion_step_embedding(r) # Shape (batch_size, emb_width)
 
         # ~~~~ Node encoder
         x = torch.cat([field_r, cond_node_features], dim=1) if cond_node_features is not None else field_r
-        x = self.node_encoder(x) # Shape (num_nodes, mlp_hidden_channels)
+        x = self.node_encoder(x) # Shape (batch_size, num_nodes, mlp_hidden_channels)
 
         # ~~~~ Encode the diffusion step embedding into the node features
-        emb_proj = self.diffusion_step_encoder[0](emb)
-        x = torch.cat([x, emb_proj[batch]], dim=1)
+        emb_proj = self.diffusion_step_encoder[0](emb) # Shape (batch_size, mlp_hidden_channels)
+        x = torch.cat([x, emb_proj[batch]], dim=1) # Shape (batch_size, num_nodes, 2*mlp_hidden_channels)
         for layer in self.diffusion_step_encoder[1:]:
             x = layer(x)
 
@@ -167,6 +167,9 @@ class DistributedDGN(torch.nn.Module):
         for module in self.processor:
             module.reset_parameters()
         return
+
+    def input_dict(self) -> dict:
+        return self.arch
 
     def get_save_header(self) -> str:
         header = self.name
@@ -273,7 +276,7 @@ class DistributedMessagePassingLayer(torch.nn.Module):
             x: Tensor,
             e: Tensor,
             emb: Tensor,
-            edge_index: LongTensor,
+            edge_index: torch.LongTensor,
             edge_weight: Tensor,
             halo_info: Tensor,
             mask_send: list,
@@ -282,10 +285,10 @@ class DistributedMessagePassingLayer(torch.nn.Module):
             buffer_recv: list,
             neighboring_procs: Tensor,
             SIZE: Tensor,
-            batch: Optional[LongTensor] = None) -> Tensor:
+            batch: Optional[torch.LongTensor] = None) -> Tensor:
 
         if batch is None:
-            batch = edge_index.new_zeros(x.size(0))
+            batch = torch.zeros(x.size(0), device=x.device, dtype=torch.long) # Shape (num_nodes,)
 
         # ~~~~ Project the diffusion-step embedding to the node embedding space
         if self.emb_features > 0:

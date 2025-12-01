@@ -21,14 +21,6 @@ except ModuleNotFoundError as e:
     pass
 
 import torch
-#try:
-#    import intel_extension_for_pytorch as ipex
-#except Exception as e:
-#    pass
-#try:
-#    import oneccl_bindings_for_pytorch as ccl
-#except Exception as e:
-#    pass
 
 # Local imports
 import utils
@@ -172,11 +164,11 @@ def train(cfg: DictConfig,
     # Correctness validation
     if cfg.target_loss != 0:
         if math.isclose(cfg.target_loss,loss.item(),rel_tol=0.001):
-            if RANK==0: print('\n\nSUCCESS! GNN training validated!\n\n')
+            if RANK==0: log.info('\n\nSUCCESS! GNN training validated!\n\n')
         else:
             if RANK==0: 
-                print('\n\nWARNING! GNN training failed validation!')
-                print(f'Target loss: {cfg.target_loss}, obtained loss: {loss.item()}\n\n')
+                log.info('\n\nWARNING! GNN training failed validation!')
+                log.info(f'Target loss: {cfg.target_loss}, obtained loss: {loss.item()}\n\n')
     
     # Save model
     trainer.save_model()

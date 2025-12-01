@@ -37,6 +37,7 @@ n_mlp_hidden_layers: 5
 n_messagePassing_layers: 4
 layer_norm: False
 dropout_rate: 0.0
+emb_width: 128
 
 # Halo swap mode 
 halo_swap_mode : none
