@@ -1115,17 +1115,30 @@ class DGNTrainer:
                 self.timer_step += 1
         return loss
     
-    def inference_step(self, x) -> Tensor:
+    @torch.no_grad()
+    def sample(self, field_r: Tensor, steps: list[int] = None) -> Tensor:
+        self.model.eval()
         graph = self.data['graph']
-        stats = self.data['stats']
+
+        # Assert step list is all integers and is sorted
+        if steps is not None:
+            if RANK == 0: log.error('Passing a subset of steps is not supported yet')
+            MPI.Abort(COMM, 1)
+        else:
+            steps = list(range(self.cfg.num_diffusion_steps))
+
+        # initialize the diffusion process
+        diff_process = self.diffusion_process
+
         tic = time.time()
+        batch = torch.zeros(field_r.size(0), dtype=torch.long)
         if WITH_CUDA or WITH_XPU:
-            x = x.to(self.device)
+            field_r = field_r.to(self.device)
             graph.edge_index = graph.edge_index.to(self.device)
-            graph.edge_weight = graph.edge_weight.to(self.device)
             graph.edge_attr = graph.edge_attr.to(self.device)
-            graph.batch = graph.batch.to(self.device) if graph.batch is not None else None
+            graph.batch = batch.to(self.device)
             graph.halo_info = graph.halo_info.to(self.device)
+            graph.edge_weight = graph.edge_weight.to(self.device)
             graph.node_degree = graph.node_degree.to(self.device)
         if self.cfg.timers: self.update_timer('dataTransfer', self.timer_step, time.time() - tic)
                 
@@ -1144,28 +1157,37 @@ class DGNTrainer:
             self.buffer_recv = None
         if self.cfg.timers: self.update_timer('bufferInit', self.timer_step, time.time() - tic)
         
-        # Prediction
-        tic = time.time()
-        #x_scaled = (x[0] - stats['mean'])/(stats['std'] + SMALL)
-        x_scaled = x[0] if len(x.shape) > 2 else x
-        out_gnn = self.model(x = x_scaled,
-                             edge_index = graph.edge_index,
-                             edge_attr = graph.edge_attr,
-                             edge_weight = graph.edge_weight,
-                             halo_info = graph.halo_info,
-                             mask_send = self.mask_send,
-                             mask_recv = self.mask_recv,
-                             buffer_send = self.buffer_send,
-                             buffer_recv = self.buffer_recv,
-                             neighboring_procs = self.neighboring_procs,
-                             SIZE = SIZE,
-                             batch = graph.batch)
-        if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
+        # Prediction (de-noise step by step)
+        for r in diff_process.steps[::-1]:
+            tic = time.time()
+            model_noise, model_var = self.model(
+                                field_r = field_r,
+                                r = r,
+                                edge_index = graph.edge_index,
+                                edge_attr = graph.edge_attr,
+                                edge_weight = graph.edge_weight,
+                                halo_info = graph.halo_info,
+                                mask_send = self.mask_send,
+                                mask_recv = self.mask_recv,
+                                buffer_send = self.buffer_send,
+                                buffer_recv = self.buffer_recv,
+                                neighboring_procs = self.neighboring_procs,
+                                SIZE = SIZE,
+                                cond_node_features = None, # TODO: Add conditional node features
+                                batch = graph.batch)
+            if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
 
-        if self.cfg.use_residual: 
-            pred = out_gnn + x_scaled
-        else:
-            pred = out_gnn
+            # Get the posterior mean and variance from the model output
+            betas_r = diff_process.get_index_from_list(diff_process.betas, graph.batch, graph.r)
+            sqrt_one_minus_alphas_cumprod_r = diff_process.get_index_from_list(diff_process.sqrt_one_minus_alphas_cumprod, graph.batch, graph.r)
+            sqrt_recip_alphas_r = diff_process.get_index_from_list(diff_process.sqrt_recip_alphas, graph.batch, graph.r)
+            variance = diff_process.get_index_from_list(diff_process.posterior_variance, graph.batch, graph.r)
+            mean =  sqrt_recip_alphas_r * (graph.field_r - betas_r * model_noise/sqrt_one_minus_alphas_cumprod_r)
+            #mean, variance = self.get_posterior_mean_and_variance_from_output(model_noise, graph, diff_process)
+            
+            # Update field_r
+            gaussian_noise = torch.randn_like(mean)
+            field_r = mean + torch.sqrt(variance) * gaussian_noise
 
         # Update timers
         self.synchronize()
@@ -1174,85 +1196,7 @@ class DGNTrainer:
                 self.update_timer_stats()
                 self.timer_step += 1
 
-        return pred
-
-    def test(self) -> dict:
-        running_loss = torch.tensor(0.)
-        count = torch.tensor(0.)
-        if WITH_CUDA or WITH_XPU:
-            running_loss = running_loss.to(self.device)
-            count = count.to(self.device)
-        self.model.eval()
-        test_loader = self.data['test']['loader']
-
-        with torch.no_grad():
-            for data in test_loader:
-                loss = torch.tensor([0.0])
-                graph = self.data['graph']
-        
-                if WITH_CUDA or WITH_XPU:
-                    data['x'] = data['x'].to(self.device)
-                    data['y'] = data['y'].to(self.device)
-                    graph.edge_index = graph.edge_index.to(self.device)
-                    graph.edge_attr = graph.edge_attr.to(self.device)
-                    graph.batch = graph.batch.to(self.device) if graph.batch is not None else None
-                    graph.halo_info = graph.halo_info.to(self.device)
-                    graph.edge_weight = graph.edge_weight.to(self.device)
-                    graph.node_degree = graph.node_degree.to(self.device)
-                    loss = loss.to(self.device)
-
-
-                # re-allocate send buffer
-                if self.cfg.halo_swap_mode != 'none':
-                    for i in range(SIZE):
-                        if self.cfg.halo_swap_mode == "all_to_all_opt_intel":
-                            self.buffer_send[i] = torch.zeros_like(self.buffer_send[i])
-                            self.buffer_recv[i] = torch.zeros_like(self.buffer_recv[i])
-                        else:
-                            self.buffer_send[i] = torch.empty_like(self.buffer_send[i])
-                            self.buffer_recv[i] = torch.empty_like(self.buffer_recv[i])
-                else:
-                    self.buffer_send = None
-                    self.buffer_recv = None
-
-                out_gnn = self.model(x = data['x'][0],
-                             edge_index = graph.edge_index,
-                             edge_attr = graph.edge_attr,
-                             edge_weight = graph.edge_weight,
-                             halo_info = graph.halo_info,
-                             mask_send = self.mask_send,
-                             mask_recv = self.mask_recv,
-                             buffer_send = self.buffer_send,
-                             buffer_recv = self.buffer_recv,
-                             neighboring_procs = self.neighboring_procs,
-                             SIZE = SIZE,
-                             batch = graph.batch)   
-       
-                # Accumulate loss
-                target = data['y'][0]
-                n_nodes_local = graph.n_nodes_local
-                if SIZE == 1 or not self.cfg.consistency:
-                    loss = self.loss_fn(out_gnn[:n_nodes_local], target[:n_nodes_local])
-                    effective_nodes = n_nodes_local 
-                else: # custom 
-                    n_output_features = out_gnn.shape[1]
-                    squared_errors_local = torch.pow(out_gnn[:n_nodes_local] - target[:n_nodes_local], 2)
-                    squared_errors_local = squared_errors_local/graph.node_degree[:n_nodes_local].unsqueeze(-1)
-
-                    sum_squared_errors_local = squared_errors_local.sum()
-                    effective_nodes_local = torch.sum(1.0/graph.node_degree[:n_nodes_local])
-
-                    effective_nodes = distnn.all_reduce(effective_nodes_local)
-                    sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
-                    loss = (1.0/(effective_nodes*n_output_features)) * sum_squared_errors
-
-                running_loss += loss.item()
-                count += 1
-
-            running_loss = running_loss / count
-            loss_avg = utils.metric_average(running_loss)
-
-        return {'loss': loss_avg}
+        return field_r
 
     def writeGraphStatistics(self):
         if RANK == 0: log.info(f"In writeGraphStatistics")

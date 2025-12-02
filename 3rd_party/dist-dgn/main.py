@@ -1,5 +1,5 @@
 """
-PyTorch DDP training script for GNN-based surrogates from mesh data
+PyTorch DDP training script for GNN-based diffusion models from mesh data
 """
 import os
 import logging

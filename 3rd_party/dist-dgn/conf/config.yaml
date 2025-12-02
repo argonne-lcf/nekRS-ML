@@ -19,12 +19,13 @@ device_skip: 0 # temporary workaround to skip GPU on a node
 # DGN specific parameters
 num_diffusion_steps: 100
 diffusion_step_sampler: "uniform"
+num_gen_samples: 1
 
 # Modeling task
 model_task: "train"
 consistency: True
 
-# learning rate schedule 
+# learning rate schedule and training steps
 phase1_steps: 100 
 phase2_steps: 0
 phase3_steps: 0
