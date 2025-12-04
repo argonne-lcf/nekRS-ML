@@ -113,11 +113,10 @@ class Trainer:
         self.neighboring_procs = []
         self.setup_halo()
 
-        # ~~~~ Setup data 
-        self.data_list = []
+        # ~~~~ Setup graph data 
         self.data = {}
-        self.setup_data()
-        if self.rank == 0: log.info('Done with setup_data')
+        self.setup_graph_data()
+        if self.rank == 0: log.info('Done with setup_graph_data')
 
         # ~~~~ Setup halo exchange masks
         self.mask_send, self.mask_recv = self.build_masks()
@@ -134,20 +133,9 @@ class Trainer:
         self.model.to(self.torch_dtype)
         if self.rank == 0: log.info('Done with build_model')
 
-        # ~~~~ Set the total number of training iterations 
-        self.total_iterations = self.cfg.phase1_steps + self.cfg.phase2_steps + self.cfg.phase3_steps
-
-        # ~~~~ Init training and validation loss history 
-        self.loss_hist_train = np.zeros(self.total_iterations)
-        self.loss_hist_val = np.zeros(self.total_iterations)
-
-        # ~~~~ Set model and checkpoint savepaths 
-        try:
-            self.ckpt_path = cfg.ckpt_dir + '/' + self.model.get_save_header() + '.tar'
-            self.model_path = cfg.model_dir + '/' + self.model.get_save_header() + '.tar'
-        except (AttributeError) as e:
-            self.ckpt_path = cfg.ckpt_dir + 'checkpoint.tar'
-            self.model_path = cfg.model_dir + 'model.tar'
+        # ~~~~ Wrap model in DDP
+        if self.size > 1:
+            self.model = DDP(self.model, broadcast_buffers=False, gradient_as_bucket_view=True)
 
         # ~~~~ Load model parameters if we are restarting from checkpoint
         self.iteration = 0
@@ -187,10 +175,6 @@ class Trainer:
             if self.rank == 0:
                 astr = 'Restarting from checkpoint -- Iteration %d/%d' %(self.iteration, self.total_iterations)
                 log.info(astr)
-        
-        # ~~~ IPEX optimizations
-        #if WITH_XPU:
-        #    self.model, self.optimizer = ipex.optimize(self.model, optimizer=self.optimizer)
 
         # ~~~~ Set scheduler:
         self.s_optimizer = ScheduledOptim(self.optimizer, 
@@ -201,9 +185,25 @@ class Trainer:
                                           self.cfg.lr_phase23)
         self.s_optimizer.reset_n_steps(self.iteration)
 
-        # ~~~~ Wrap model in DDP
-        if self.size > 1:
-            self.model = DDP(self.model, broadcast_buffers=False, gradient_as_bucket_view=True)
+        # ~~~~ Set the total number of training iterations 
+        self.total_iterations = self.cfg.phase1_steps + self.cfg.phase2_steps + self.cfg.phase3_steps
+
+        # ~~~~ Init training and validation loss history 
+        self.loss_hist_train = np.zeros(self.total_iterations)
+        self.loss_hist_val = np.zeros(self.total_iterations)
+
+        # ~~~~ Set model and checkpoint savepaths 
+        try:
+            self.ckpt_path = cfg.ckpt_dir + '/' + self.model.get_save_header() + '.tar'
+            self.model_path = cfg.model_dir + '/' + self.model.get_save_header() + '.tar'
+        except (AttributeError) as e:
+            self.ckpt_path = cfg.ckpt_dir + 'checkpoint.tar'
+            self.model_path = cfg.model_dir + 'model.tar'
+
+        # ~~~~ Setup training data 
+        self.data_list = []
+        self.setup_training_data()
+        if self.rank == 0: log.info('Done with setup_training_data')
 
     def init_process_group(self, master_addr: str, master_port: int):
         os.environ['RANK'] = str(self.rank)
@@ -284,8 +284,8 @@ class Trainer:
         if self.rank == 0:
             log.info('In build_model...')
 
-        sample = self.data['train']['example']
-        graph = self.data['graph']
+        #sample = self.data['train']['example']
+        graph_data = self.data['graph']
 
         # Get the polynomial order -- for naming the model
         try:
@@ -295,10 +295,10 @@ class Trainer:
             poly = 0
 
         # Full model
-        input_node_channels = sample['x'].shape[1]
-        input_edge_channels = graph.edge_attr.shape[1]
+        input_node_channels = 3 #sample['x'].shape[1]
+        input_edge_channels = self.data['graph'].edge_attr.shape[1]
         hidden_channels = self.cfg.hidden_channels
-        output_node_channels = sample['y'].shape[1]
+        output_node_channels = 3 #sample['y'].shape[1]
         n_mlp_hidden_layers = self.cfg.n_mlp_hidden_layers
         n_messagePassing_layers = self.cfg.n_messagePassing_layers
         halo_swap_mode = self.cfg.halo_swap_mode
@@ -1030,36 +1030,19 @@ class Trainer:
                 if self.rank == 0: log.info(f"Computed training data statistics for each node feature")
         return data, stats
  
-    def setup_data(self):
+    def setup_graph_data(self):
         """
-        Generate the PyTorch Geometric Dataset 
+        Generate the PyTorch Geometric Dataset for the graph data
         """
         if self.rank == 0:
-            log.info('In setup_data...')
+            log.info('In setup_graph_data...')
 
         device_for_loading = 'cpu'
-
-        if self.cfg.model_task == 'train' and self.cfg.time_dependency == "time_independent":
-            data_dir = self.cfg.gnn_outputs_path
-            data, stats = self.load_field_data(data_dir)
-        elif self.cfg.model_task == 'train' and self.cfg.time_dependency == "time_dependent":
-            data_dir = self.cfg.traj_data_path
-            data, stats = self.load_trajectory(data_dir)
-        elif self.cfg.model_task == 'inference' and self.cfg.rollout_steps > 0:
-            data_dir = self.cfg.traj_data_path
-            data, stats = self.load_initial_condition(data_dir)
-
-        # Populate data object 
-        #data_x_reduced = data['train'][0]['x']
-        #data_y_reduced = data['train'][0]['y']
-        #n_features_in = data_x_reduced.shape[1]
-        #n_features_out = data_y_reduced.shape[1]
-        #n_nodes = self.data_reduced.pos.shape[0]
         
-        # Get dictionary 
+        # Get data_reduced as a dictionary 
         reduced_graph_dict = self.data_reduced.to_dict()
 
-        # Create training dataset -- only 1 snapshot for demo
+        # Create graph data object
         data_graph = Data()
         for key in reduced_graph_dict.keys():
             data_graph[key] = reduced_graph_dict[key]
@@ -1070,10 +1053,6 @@ class Trainer:
             data_graph.pos = torch.cat((data_graph.pos, pos_halo), dim=0)
         else:
             data_graph.pos = data_graph.pos
-        #data_temp.node_degree = torch.cat((data_temp.node_degree, node_degree_halo), dim=0)
-        #data_temp.edge_index = torch.cat((data_temp.edge_index, edge_index_halo), dim=1)
-        #data_temp.edge_weight = torch.cat((data_temp.edge_weight, edge_weight_halo), dim=0)
-        #data_temp.edge_weight_temp = data_temp.edge_weight
 
         # Populate edge_attrs
         cart = torch_geometric.transforms.Cartesian(norm=False, max_value = None, cat = False)
@@ -1088,12 +1067,33 @@ class Trainer:
         distance_max = distnn.all_reduce(distance_max_, op=distnn.ReduceOp.MAX).to(device_for_loading)
         data_graph.edge_attr = (data_graph.edge_attr/distance_max).to(self.torch_dtype)
 
+        if (self.rank == 0):
+            log.info(f"Graph data: {data_graph}")
+
+        self.data['graph'] = data_graph
+    
+    def setup_training_data(self):
+        """
+        Generate the PyTorch Geometric Dataset for the training data
+        """
+        if self.rank == 0:
+            log.info('In setup_training_data...')
+
+        if self.cfg.model_task == 'train' and self.cfg.time_dependency == "time_independent":
+            data_dir = self.cfg.gnn_outputs_path
+            data, stats = self.load_field_data(data_dir)
+        elif self.cfg.model_task == 'train' and self.cfg.time_dependency == "time_dependent":
+            data_dir = self.cfg.traj_data_path
+            data, stats = self.load_trajectory(data_dir)
+        elif self.cfg.model_task == 'inference' and self.cfg.rollout_steps > 0:
+            data_dir = self.cfg.traj_data_path
+            data, stats = self.load_initial_condition(data_dir)
+
         # No need for distributed sampler -- create standard dataset loader  
         # We can use the standard pytorch dataloader on (x,y) 
         #train_loader = torch_geometric.loader.DataLoader(train_dataset, batch_size=self.cfg.batch_size, shuffle=False)
         #test_loader = torch_geometric.loader.DataLoader(test_dataset, batch_size=self.cfg.test_batch_size, shuffle=False) 
         if (self.rank == 0):
-            log.info(f"{data_graph}")
             log.info(f"shape of x: {data['train'][0]['x'].shape}")
             log.info(f"shape of y: {data['train'][0]['y'].shape}")
         
@@ -1123,22 +1123,19 @@ class Trainer:
                                             batch_size=self.cfg.val_batch_size,
                                             shuffle=False)
 
-        self.data =  {
-            'train': {
-                'loader': train_loader,
-                'example': data['train'][0],
-            },
-            'validation': {
-                'loader': valid_loader,
-                'example': data['validation'][0],
-            },
-            'stats': {
-                'x_mean': stats['x'][0],
-                'x_std': stats['x'][1],
-                'y_mean': stats['y'][0],
-                'y_std': stats['y'][1],
-            },
-            'graph': data_graph
+        self.data['train'] =  {
+            'loader': train_loader,
+            'example': data['train'][0],
+        }
+        self.data['validation'] =  {
+            'loader': valid_loader,
+            'example': data['validation'][0],
+        }
+        self.data['stats'] = {
+            'x_mean': stats['x'][0],
+            'x_std': stats['x'][1],
+            'y_mean': stats['y'][0],
+            'y_std': stats['y'][1],
         }
     
     def update_data(self) -> None:

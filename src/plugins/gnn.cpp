@@ -123,11 +123,13 @@ gnn_t::gnn_t(nrs_t *nrs_, int poly_order, bool log_verbose)
     graphNodes = (graphNode_t*) calloc(N, sizeof(graphNode_t)); // full domain
     graphNodes_element = (graphNode_t*) calloc(mesh->Np, sizeof(graphNode_t)); // a single element
 
-    if (verbose) {
+    //if (verbose) {
+    if (true) {
         printf("\n[RANK %d] -- Finished instantiating gnn_t object\n", rank);
         printf("[RANK %d] -- The polynomial degree of the GNN mesh is %d \n", rank, gnnMeshPOrder);
         printf("[RANK %d] -- The number of elements of the GNN mesh is %d \n", rank, mesh->Nelements);
         printf("[RANK %d] -- The number of nodes of the GNN mesh is %d \n", rank, N);
+        printf("[RANK %d] -- The field offset is %d \n", rank, fieldOffset);
         fflush(stdout);
     }
 }
@@ -272,6 +274,7 @@ void gnn_t::gnnWriteADIOS(adios_client_t* client)
     client->_field_offset = _field_offset;
     client->_global_field_offset = global_field_offset;
     std::cout << "[RANK " << rank << "] -- N: " << _N << " global_N: " << global_N << std::endl;
+    std::cout << "[RANK " << rank << "] -- field_offset: " << _field_offset << " global_field_offset: " << global_field_offset << std::endl;
 
     // Gather size of data
     hlong* gathered_N = new hlong[size];

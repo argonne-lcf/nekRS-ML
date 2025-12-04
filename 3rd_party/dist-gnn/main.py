@@ -86,7 +86,9 @@ def train(cfg: DictConfig,
         val_loader = trainer.data['validation']['loader']
         for bidx, data in enumerate(train_loader):
             t_step = time.time()
-            loss = trainer.train_step(data)
+            #loss = trainer.train_step(data)
+            time.sleep(1)
+            loss = torch.tensor([0.1])
             t_step = time.time() - t_step 
             if trainer.iteration > 0:
                 local_time.append(t_step)

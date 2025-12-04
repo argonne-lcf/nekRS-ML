@@ -14,12 +14,11 @@ void deleteDirectoryContents(const std::filesystem::path& dir)
 }
 
 
-trajGen_t::trajGen_t(gnn_t *graph_, int dt_factor_, int skip_, dfloat time_init_)
+//trajGen_t::trajGen_t(gnn_t *graph_, int dt_factor_, int skip_, dfloat time_init_)
+trajGen_t::trajGen_t(int dt_factor_, int skip_, dfloat time_init_)
 {
-    //nrs = nrs_; // set nekrs object
-    //mesh = nrs->mesh; // set mesh object
-    graph = graph_;
-    mesh = graph->mesh;
+    //graph = graph_;
+    //mesh = graph->mesh;
     dt_factor = dt_factor_; 
     skip = skip_;
     time_init = time_init_; 
@@ -32,11 +31,8 @@ trajGen_t::trajGen_t(gnn_t *graph_, int dt_factor_, int skip_, dfloat time_init_
     irank = "_rank_" + std::to_string(rank);
     nranks = "_size_" + std::to_string(size);
 
-    // allocate memory 
-    //dlong N = mesh->Nelements * mesh->Np; // total number of nodes
-
     if (verbose) printf("\n[RANK %d] -- Finished instantiating trajGen_t object\n", rank);
-    if (verbose) printf("[RANK %d] -- The number of elements is %d \n", rank, mesh->Nelements);
+    //if (verbose) printf("[RANK %d] -- The number of elements is %d \n", rank, mesh->Nelements);
 }
 
 trajGen_t::~trajGen_t()
@@ -186,7 +182,8 @@ void trajGen_t::trajGenWriteDB(nrs_t *nrs,
 }
 #endif
 
-void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
+//void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
+void trajGen_t::trajGenWriteADIOS(
     adios_client_t* client, 
     dfloat time, 
     int tstep, 
@@ -194,10 +191,11 @@ void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
 {
     MPI_Comm &comm = platform->comm.mpiComm;
 #if defined(NEKRS_ENABLE_ADIOS)
-    dlong num_dim = mesh->dim;
-    hlong field_offset = graph->fieldOffset;
+    dlong num_dim = 3; //mesh->dim;
+    hlong field_offset = 530752; //graph->fieldOffset;
     bool store_inputs = false;
     bool send_data = false;
+    unsigned long long _rank = rank;
 
     if (skip == 0) {
         if (tstep % dt_factor == 0) {
@@ -221,33 +219,23 @@ void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
         U = new dfloat[num_dim * field_offset]();
 
 #if defined(NEKRS_ENABLE_ADIOS)
-        /*  
-        // Get global size of data
-        hlong global = field_offset;
-        MPI_Allreduce(MPI_IN_PLACE, &global, 1, MPI_HLONG, MPI_SUM, comm);
-        client->_field_offset = field_offset;
-        client->_global_field_offset = global;
-        std::cout << "[RANK " << rank << "] -- field_offset: " << field_offset << " global_field_offset: " << global << std::endl;
-
-        // Gather size of data
-        hlong* gathered = new hlong[size];
-        hlong offset = 0;
-        MPI_Allgather(&field_offset, 1, MPI_HLONG, gathered, 1, MPI_HLONG, MPI_COMM_WORLD);
-        for (hlong i=0; i<rank; i++) {
-            offset += gathered[i];
-        }
-        client->_offset_field_offset = offset;
-        */
-
         // Define ADIOS variables
+        //client->uIn = client->_stream_io.DefineVariable<dfloat>("in_u", 
+        //                                                {client->_global_field_offset * client->_num_dim}, // global dim
+        //                                                {client->_offset_field_offset * client->_num_dim}, // starting offset in global dim
+        //                                                {client->_field_offset * client->_num_dim}); // local size
+        //client->uOut = client->_stream_io.DefineVariable<dfloat>("out_u", 
+        //                                                {client->_global_field_offset * client->_num_dim}, // global dim
+        //                                                {client->_offset_field_offset * client->_num_dim}, // starting offset in global dim
+        //                                                {client->_field_offset * client->_num_dim}); // local size
         client->uIn = client->_stream_io.DefineVariable<dfloat>("in_u", 
-                                                        {client->_global_field_offset * client->_num_dim}, // global dim
-                                                        {client->_offset_field_offset * client->_num_dim}, // starting offset in global dim
-                                                        {client->_field_offset * client->_num_dim}); // local size
+                                                        {50952192 * 3}, // global dim
+                                                        {530752 * _rank * 3}, // starting offset in global dim
+                                                        {530752 * 3}); // local size
         client->uOut = client->_stream_io.DefineVariable<dfloat>("out_u", 
-                                                        {client->_global_field_offset * client->_num_dim}, // global dim
-                                                        {client->_offset_field_offset * client->_num_dim}, // starting offset in global dim
-                                                        {client->_field_offset * client->_num_dim}); // local size
+                                                            {50952192 * 3}, // global dim
+                                                            {530752 * _rank * 3}, // starting offset in global dim
+                                                            {530752 * 3}); // local size
 
         // Open the stream for transfering the solution data
         client->openStream();
@@ -256,7 +244,11 @@ void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
 
     if (send_data) {
         if (field_name == "velocity") {
-            graph->interpolateField(nrs, nrs->o_U, U, num_dim);
+            //graph->interpolateField(nrs, nrs->o_U, U, num_dim);
+            // temporarily fill U with the value of the rank
+            for (int i = 0; i < num_dim * field_offset; i++) {
+                U[i] = (dfloat) rank;
+            }
         }
 
 #if defined(NEKRS_ENABLE_ADIOS)
@@ -281,7 +273,11 @@ void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
     }
 
     if (store_inputs) {
-        graph->interpolateField(nrs, nrs->o_U, previous_U, num_dim);
+        // graph->interpolateField(nrs, nrs->o_U, previous_U, num_dim);
+        // temporarily fill previous_U with the value of the rank
+        for (int i = 0; i < num_dim * field_offset; i++) {
+            previous_U[i] = (dfloat) rank;
+        }
     }
 #else
     if (rank == 0) printf("[RANK %d] -- Error: Adios is not enabled!\n", rank);

@@ -224,24 +224,32 @@ class OnlineClient:
                 self.solutionStream = Stream(self.client, "solutionStream", "r", self.comm)
                          
             self.solutionStream.begin_step()
+            self.comm.Barrier()
+            if self.rank == 0: log.info('Opened ADIOS2 solutionStream')
 
-            arr = self.solutionStream.inquire_variable('out_u')
-            count = self.field_offset_list[self.rank] * 3
-            start = sum(self.field_offset_list[:self.rank]) * 3
+            arr = self.solutionStream.inquire_variable('in_u')
+            count = 530752 * 3 #self.field_offset_list[self.rank] * 3
+            start = 530752 * self.rank * 3 #sum(self.field_offset_list[:self.rank]) * 3
+            self.comm.Barrier()
+            if self.rank == 0: log.info('Got count and start')
             # stream.read() gets data now, Mode.Sync is default 
             # see 
             #   - https://github.com/ornladios/ADIOS2/blob/67f771b7a2f88ce59b6808cc4356159d86255f1d/python/adios2/stream.py#L331
             #   - https://github.com/ornladios/ADIOS2/blob/67f771b7a2f88ce59b6808cc4356159d86255f1d/python/adios2/engine.py#L123)
             ticc = perf_counter()
-            outputs = self.solutionStream.read('out_u', [start], [count])
-            transfer_time = perf_counter() - ticc
-            outputs = outputs.reshape((-1,3),order='F')
-
-            arr = self.solutionStream.inquire_variable('in_u')
-            ticc = perf_counter()
             inputs = self.solutionStream.read('in_u', [start], [count])
-            transfer_time += perf_counter() - ticc
+            transfer_time = perf_counter() - ticc
             inputs = inputs.reshape((-1,3),order='F')
+            # temporariuly check if the outputs are filled with the value of the rank
+            assert np.all(inputs == self.rank), "Inputs are not filled with the value of the rank"
+
+            arr = self.solutionStream.inquire_variable('out_u')
+            ticc = perf_counter()
+            outputs = self.solutionStream.read('out_u', [start], [count])
+            transfer_time += perf_counter() - ticc
+            outputs = outputs.reshape((-1,3),order='F')
+            # temporariuly check if the inputs are filled with the value of the rank
+            assert np.all(outputs == self.rank), "Outputs are not filled with the value of the rank"
 
             self.solutionStream.end_step()
         self.timers['data'].append(perf_counter()-tic)

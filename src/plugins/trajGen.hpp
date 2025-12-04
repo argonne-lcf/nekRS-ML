@@ -16,7 +16,8 @@ void deleteDirectoryContents(const std::filesystem::path& dir);
 class trajGen_t 
 {
 public:
-    trajGen_t(gnn_t *graph_, int dt_factor_, int skip_, dfloat time_init_);
+    //trajGen_t(gnn_t *graph_, int dt_factor_, int skip_, dfloat time_init_);
+    trajGen_t(int dt_factor_, int skip_, dfloat time_init_);
     ~trajGen_t(); 
 
     // public variables
@@ -40,7 +41,8 @@ public:
                         int tstep, 
                         const std::string& field_name);
 #endif
-    void trajGenWriteADIOS(nrs_t *nrs,
+    //void trajGenWriteADIOS(nrs_t *nrs,
+    void trajGenWriteADIOS(
                            adios_client_t* client,
                            dfloat time, 
                            int tstep, 

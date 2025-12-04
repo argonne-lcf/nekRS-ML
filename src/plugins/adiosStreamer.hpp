@@ -20,11 +20,11 @@ public:
   adios2::Engine _solWriter;
 
   // solution variables and array sizes
-  unsigned long _num_dim;
-  unsigned long _N, _num_edges;
-  unsigned long _global_N, _global_num_edges;
-  unsigned long _offset_N, _offset_num_edges;
-  unsigned long _field_offset, _global_field_offset, _offset_field_offset;
+  unsigned long long _num_dim;
+  unsigned long long _N, _num_edges;
+  unsigned long long _global_N, _global_num_edges;
+  unsigned long long _offset_N, _offset_num_edges;
+  unsigned long long _field_offset, _global_field_offset, _offset_field_offset;
   // adios objects
   adios2::Variable<dfloat> uIn, uOut;
 
