@@ -159,7 +159,7 @@ class OnlineClient:
         if self.backend == 'adios':
             while True:
                 if os.path.exists('./graph.bp'):
-                    sleep(1)
+                    sleep(5)
                     break
                 else:
                     sleep(2)
@@ -225,7 +225,7 @@ class OnlineClient:
                          
             self.solutionStream.begin_step()
 
-            arr = self.solutionStream.inquire_variable('out_u')
+            arr = self.solutionStream.inquire_variable('in_u')
             count = self.field_offset_list[self.rank] * 3
             start = sum(self.field_offset_list[:self.rank]) * 3
             # stream.read() gets data now, Mode.Sync is default 
@@ -233,15 +233,15 @@ class OnlineClient:
             #   - https://github.com/ornladios/ADIOS2/blob/67f771b7a2f88ce59b6808cc4356159d86255f1d/python/adios2/stream.py#L331
             #   - https://github.com/ornladios/ADIOS2/blob/67f771b7a2f88ce59b6808cc4356159d86255f1d/python/adios2/engine.py#L123)
             ticc = perf_counter()
-            outputs = self.solutionStream.read('out_u', [start], [count])
-            transfer_time = perf_counter() - ticc
-            outputs = outputs.reshape((-1,3),order='F')
-
-            arr = self.solutionStream.inquire_variable('in_u')
-            ticc = perf_counter()
             inputs = self.solutionStream.read('in_u', [start], [count])
-            transfer_time += perf_counter() - ticc
+            transfer_time = perf_counter() - ticc
             inputs = inputs.reshape((-1,3),order='F')
+
+            arr = self.solutionStream.inquire_variable('out_u')
+            ticc = perf_counter()
+            outputs = self.solutionStream.read('out_u', [start], [count])
+            transfer_time += perf_counter() - ticc
+            outputs = outputs.reshape((-1,3),order='F')
 
             self.solutionStream.end_step()
         self.timers['data'].append(perf_counter()-tic)

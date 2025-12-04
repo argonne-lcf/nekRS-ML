@@ -18,14 +18,6 @@ except ModuleNotFoundError as e:
     sys.exit('MPI is required! Please install MPI and try again.')
 
 import torch
-#try:
-#    import intel_extension_for_pytorch as ipex
-#except Exception as e:
-#    pass
-#try:
-#    import oneccl_bindings_for_pytorch as ccl
-#except Exception as e:
-#    pass
 
 # Local imports
 import utils

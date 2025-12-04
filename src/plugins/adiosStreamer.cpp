@@ -4,12 +4,11 @@
 #include "adiosStreamer.hpp"
 
 // Initialize the ADIOS2 client
-adios_client_t::adios_client_t(MPI_Comm& comm, nrs_t *nrs)
-                               : _comm(comm)
+adios_client_t::adios_client_t(MPI_Comm& comm) : _comm(comm)
 {
 #if defined(NEKRS_ENABLE_ADIOS)
     // Set nekrs object
-    _nrs = nrs;
+    //_nrs = nrs;
 
     // Set MPI comm, rank and size 
     //_comm = platform->comm.mpiComm;
@@ -152,24 +151,21 @@ void adios_client_t::closeStream()
 }
 
 // write checkpoint file
-void adios_client_t::checkpoint()
+void adios_client_t::checkpoint(dfloat *field, int num_dim)
 {
     if (_rank == 0)
         printf("\nWriting checkpoint for GNN inference ...\n");
     std::string fname = "checkpoint.bp";
-    unsigned long num_dim = _nrs->mesh->dim;
-    unsigned long field_offset = _nrs->fieldOffset;
-    dfloat *U = new dfloat[num_dim * field_offset]();
-    _nrs->o_U.copyTo(U, num_dim * field_offset);
+    unsigned long field_num_dim = num_dim;
 
-    adios2::Variable<dfloat> varU = _write_io.DefineVariable<dfloat>(
+    adios2::Variable<dfloat> varField = _write_io.DefineVariable<dfloat>(
         "checkpoint", 
-        {_size * num_dim * field_offset}, 
-        {_rank * num_dim * field_offset}, 
-        {num_dim * field_offset});
+        {_global_field_offset * field_num_dim}, 
+        {_offset_field_offset * field_num_dim}, 
+        {_field_offset * field_num_dim});
     adios2::Engine writer = _write_io.Open(fname, adios2::Mode::Write);
     writer.BeginStep();
-    writer.Put<dfloat>(varU, U);
+    writer.Put<dfloat>(varField, field);
     writer.EndStep();
     writer.Close();
 }

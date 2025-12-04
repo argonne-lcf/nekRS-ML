@@ -84,13 +84,16 @@ gnn_t::gnn_t(nrs_t *nrs_, int poly_order, bool log_verbose)
     if (gnnMeshPOrder == nekMeshPOrder){
         mesh = nrs_->mesh;
     } else if (gnnMeshPOrder < nekMeshPOrder) {
-        if (rank == 0) std::cout << "Generating GNN mesh with polynomial degree ..." << gnnMeshPOrder << std::endl;
+        if (rank == 0) std::cout << "Generating GNN mesh with polynomial degree " << gnnMeshPOrder << std::endl;
+        mesh = createMeshMG(nrs_->mesh, gnnMeshPOrder);
+        /*
         mesh = new mesh_t();
         mesh->Nelements = nrs_->mesh->Nelements;
         mesh->dim = nrs_->mesh->dim;
         mesh->Nverts = nrs_->mesh->Nverts;
         mesh->Nfaces = nrs_->mesh->Nfaces;
         mesh->NfaceVertices = nrs_->mesh->NfaceVertices;
+        mesh->cht = nrs_->mesh->cht;
         meshLoadReferenceNodesHex3D(mesh, gnnMeshPOrder, 0);
         mesh->o_x = platform->device.malloc<dfloat>(mesh->Nlocal);
         mesh->o_y = platform->device.malloc<dfloat>(mesh->Nlocal);
@@ -105,6 +108,7 @@ gnn_t::gnn_t(nrs_t *nrs_, int poly_order, bool log_verbose)
                                  comm,
                                  OOGS_AUTO,
                                  0);
+        */
     } else {
         if (rank == 0) std::cout << "\nError: GNN polynimial degree must be <= nekRS degree\n" << std::endl;
         MPI_Abort(comm, 1);
@@ -128,6 +132,7 @@ gnn_t::gnn_t(nrs_t *nrs_, int poly_order, bool log_verbose)
         printf("[RANK %d] -- The polynomial degree of the GNN mesh is %d \n", rank, gnnMeshPOrder);
         printf("[RANK %d] -- The number of elements of the GNN mesh is %d \n", rank, mesh->Nelements);
         printf("[RANK %d] -- The number of nodes of the GNN mesh is %d \n", rank, N);
+        printf("[RANK %d] -- The field offset is %d \n", rank, fieldOffset);
         fflush(stdout);
     }
 }
@@ -135,7 +140,7 @@ gnn_t::gnn_t(nrs_t *nrs_, int poly_order, bool log_verbose)
 gnn_t::~gnn_t()
 {
     if (verbose) std::cout << "[RANK " << rank << "] -- gnn_t destructor\n" << std::endl;
-    if (gnnMeshPOrder < nekMeshPOrder) delete mesh;
+    //if (gnnMeshPOrder < nekMeshPOrder) delete mesh;
     delete[] pos_node;
     delete[] node_element_ids;
     delete[] local_unique_mask;
@@ -271,7 +276,6 @@ void gnn_t::gnnWriteADIOS(adios_client_t* client)
     client->_global_num_edges = global_num_edges;
     client->_field_offset = _field_offset;
     client->_global_field_offset = global_field_offset;
-    std::cout << "[RANK " << rank << "] -- N: " << _N << " global_N: " << global_N << std::endl;
 
     // Gather size of data
     hlong* gathered_N = new hlong[size];
@@ -280,9 +284,9 @@ void gnn_t::gnnWriteADIOS(adios_client_t* client)
     hlong offset_N = 0;
     hlong offset_num_edges = 0;
     hlong offset_field_offset = 0;
-    MPI_Allgather(&_N, 1, MPI_HLONG, gathered_N, 1, MPI_HLONG, MPI_COMM_WORLD);
-    MPI_Allgather(&_num_edges, 1, MPI_HLONG, gathered_num_edges, 1, MPI_HLONG, MPI_COMM_WORLD);
-    MPI_Allgather(&_field_offset, 1, MPI_HLONG, gathered_field_offset, 1, MPI_HLONG, MPI_COMM_WORLD);
+    MPI_Allgather(&_N, 1, MPI_HLONG, gathered_N, 1, MPI_HLONG, comm);
+    MPI_Allgather(&_num_edges, 1, MPI_HLONG, gathered_num_edges, 1, MPI_HLONG, comm);
+    MPI_Allgather(&_field_offset, 1, MPI_HLONG, gathered_field_offset, 1, MPI_HLONG, comm);
     for (int i=0; i<rank; i++) {
         offset_N += gathered_N[i];
         offset_num_edges += gathered_num_edges[i];
