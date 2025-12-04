@@ -9,7 +9,7 @@
 class adios_client_t
 {
 public:
-  adios_client_t(MPI_Comm& comm, nrs_t *nrs);
+  adios_client_t(MPI_Comm& comm);
   ~adios_client_t();
 
 #if defined(NEKRS_ENABLE_ADIOS)
@@ -30,7 +30,7 @@ public:
 
   // member functions
   int check_run();
-  void checkpoint();
+  void checkpoint(dfloat *field, int num_dim);
   void openStream();
   void closeStream();
 
@@ -44,7 +44,7 @@ private:
   adios2::Params _params;
 
   // nekrs objects 
-  nrs_t *_nrs;
+  //nrs_t *_nrs;
 #endif
 
   // MPI stuff

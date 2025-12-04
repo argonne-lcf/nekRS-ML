@@ -100,6 +100,7 @@ else()
   set(NEKRS_COMPILER_DEFAULT_FLAGS "-O2 -g")
 endif()
 
+#set(NEKRS_CXX_FLAGS "${NEKRS_COMPILER_DEFAULT_FLAGS} -Xarch_host -fsanitize=address" CACHE STRING "C++ compiler flags")
 set(NEKRS_CXX_FLAGS "${NEKRS_COMPILER_DEFAULT_FLAGS}" CACHE STRING "C++ compiler flags")
 set(NEKRS_C_FLAGS "${NEKRS_COMPILER_DEFAULT_FLAGS}" CACHE STRING "C compiler flags")
 set(NEKRS_Fortran_FLAGS "${NEKRS_COMPILER_DEFAULT_FLAGS}" CACHE STRING "Fortran compiler flags")

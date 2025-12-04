@@ -18,14 +18,6 @@ except ModuleNotFoundError as e:
     sys.exit('MPI is required! Please install MPI and try again.')
 
 import torch
-#try:
-#    import intel_extension_for_pytorch as ipex
-#except Exception as e:
-#    pass
-#try:
-#    import oneccl_bindings_for_pytorch as ccl
-#except Exception as e:
-#    pass
 
 # Local imports
 import utils
@@ -88,7 +80,7 @@ def train(cfg: DictConfig,
             t_step = time.time()
             #loss = trainer.train_step(data)
             time.sleep(1)
-            loss = torch.tensor([0.1])
+            loss = torch.tensor(0.1)
             t_step = time.time() - t_step 
             if trainer.iteration > 0:
                 local_time.append(t_step)

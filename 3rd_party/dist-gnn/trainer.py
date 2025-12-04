@@ -137,6 +137,14 @@ class Trainer:
         if self.size > 1:
             self.model = DDP(self.model, broadcast_buffers=False, gradient_as_bucket_view=True)
 
+        # ~~~~ Set model and checkpoint savepaths 
+        try:
+            self.ckpt_path = cfg.ckpt_dir + '/' + self.model.get_save_header() + '.tar'
+            self.model_path = cfg.model_dir + '/' + self.model.get_save_header() + '.tar'
+        except (AttributeError) as e:
+            self.ckpt_path = cfg.ckpt_dir + 'checkpoint.tar'
+            self.model_path = cfg.model_dir + 'model.tar'
+        
         # ~~~~ Load model parameters if we are restarting from checkpoint
         self.iteration = 0
         if self.cfg.restart:
@@ -191,14 +199,6 @@ class Trainer:
         # ~~~~ Init training and validation loss history 
         self.loss_hist_train = np.zeros(self.total_iterations)
         self.loss_hist_val = np.zeros(self.total_iterations)
-
-        # ~~~~ Set model and checkpoint savepaths 
-        try:
-            self.ckpt_path = cfg.ckpt_dir + '/' + self.model.get_save_header() + '.tar'
-            self.model_path = cfg.model_dir + '/' + self.model.get_save_header() + '.tar'
-        except (AttributeError) as e:
-            self.ckpt_path = cfg.ckpt_dir + 'checkpoint.tar'
-            self.model_path = cfg.model_dir + 'model.tar'
 
         # ~~~~ Setup training data 
         self.data_list = []

@@ -159,7 +159,7 @@ class OnlineClient:
         if self.backend == 'adios':
             while True:
                 if os.path.exists('./graph.bp'):
-                    sleep(1)
+                    sleep(5)
                     break
                 else:
                     sleep(2)
@@ -217,6 +217,7 @@ class OnlineClient:
         """Get the solution from a stream
         """
         self.comm.Barrier()
+        if self.rank == 0: log.info('Getting train data from ADIOS2 solutionStream')
         tic = perf_counter()
         if self.backend == 'adios':
             if self.solutionStream is None:
@@ -225,7 +226,7 @@ class OnlineClient:
                          
             self.solutionStream.begin_step()
             self.comm.Barrier()
-            if self.rank == 0: log.info('Opened ADIOS2 solutionStream')
+            if self.rank == 0: log.info('Begun ADIOS2 solutionStream step')
 
             arr = self.solutionStream.inquire_variable('in_u')
             count = 530752 * 3 #self.field_offset_list[self.rank] * 3
