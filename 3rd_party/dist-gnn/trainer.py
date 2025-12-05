@@ -133,10 +133,6 @@ class Trainer:
         self.model.to(self.torch_dtype)
         if self.rank == 0: log.info('Done with build_model')
 
-        # ~~~~ Wrap model in DDP
-        if self.size > 1:
-            self.model = DDP(self.model, broadcast_buffers=False, gradient_as_bucket_view=True)
-
         # ~~~~ Set model and checkpoint savepaths 
         try:
             self.ckpt_path = cfg.ckpt_dir + '/' + self.model.get_save_header() + '.tar'
@@ -168,6 +164,10 @@ class Trainer:
             if self.rank == 0: log.info(f'Loading model checkpoint from {self.model_path}')
             ckpt = torch.load(self.model_path, weights_only=False)
             self.model.load_state_dict(ckpt['state_dict'])
+
+        # ~~~~ Wrap model in DDP
+        if self.size > 1:
+            self.model = DDP(self.model, broadcast_buffers=False, gradient_as_bucket_view=True)
 
         # ~~~~ Set loss function
         self.loss_fn = nn.MSELoss()

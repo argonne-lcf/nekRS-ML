@@ -85,8 +85,20 @@ gnn_t::gnn_t(nrs_t *nrs_, int poly_order, bool log_verbose)
         mesh = nrs_->mesh;
     } else if (gnnMeshPOrder < nekMeshPOrder) {
         if (rank == 0) std::cout << "Generating GNN mesh with polynomial degree " << gnnMeshPOrder << std::endl;
+        /* This one works but not yet for even p orders */
+        if (false) { //if (gnnMeshPOrder % 2 == 0) {
+            auto kernelInfo = platform->kernelInfo + meshKernelProperties(gnnMeshPOrder);
+            std::string oklpath = getenv("NEKRS_KERNEL_DIR");
+            occa::properties meshKernelInfo = kernelInfo;
+            const std::string meshPrefix = "pMGmesh-";
+            const std::string orderSuffix = "_" + std::to_string(gnnMeshPOrder);
+            std::string kernelName = "geometricFactorsHex3D";
+            std::string fileName = oklpath + "/mesh/" + kernelName + ".okl";
+            platform->kernelRequests.add(meshPrefix + kernelName + orderSuffix, fileName, meshKernelInfo);
+        }
         mesh = createMeshMG(nrs_->mesh, gnnMeshPOrder);
-        /*
+       /**/
+        /* This one gives strange segfaults and other errors/crashes in ADIOS2 send at scale
         mesh = new mesh_t();
         mesh->Nelements = nrs_->mesh->Nelements;
         mesh->dim = nrs_->mesh->dim;
@@ -108,6 +120,62 @@ gnn_t::gnn_t(nrs_t *nrs_, int poly_order, bool log_verbose)
                                  comm,
                                  OOGS_AUTO,
                                  0);
+        */
+        /* This is what is inside createMeshMG(), but setting all kernels to nullptr
+        mesh = new mesh_t();
+        memcpy(mesh, nrs_->mesh, sizeof(mesh_t));
+        const int cubN = 0;
+        meshLoadReferenceNodesHex3D(mesh, gnnMeshPOrder, cubN);
+        mesh->geometricFactorsKernel = nullptr;
+        mesh->velocityDirichletKernel = nullptr;
+        mesh->surfaceGeometricFactorsKernel = nullptr;
+        mesh->cubatureGeometricFactorsKernel = nullptr;
+        mesh->nStagesSumVectorKernel = nullptr;
+        mesh->o_D = platform->device.malloc<dfloat>(mesh->Nq * mesh->Nq, mesh->D);
+        dfloat *DT = (dfloat *)calloc(mesh->Nq * mesh->Nq, sizeof(dfloat));
+        for (int j = 0; j < mesh->Nq; j++) {
+            for (int i = 0; i < mesh->Nq; i++) {
+            DT[j * mesh->Nq + i] = mesh->D[i * mesh->Nq + j];
+            }
+        }
+        mesh->o_DT = platform->device.malloc<dfloat>(mesh->Nq * mesh->Nq, DT);
+        free(DT);
+        mesh->o_gllw = platform->device.malloc<dfloat>(mesh->Nq, mesh->gllw);
+        mesh->o_faceNodes = platform->device.malloc<int>(mesh->Nfaces * mesh->Nfp, mesh->faceNodes);
+        mesh->o_LMM = platform->device.malloc<dfloat>(mesh->Nlocal);
+        mesh->o_vgeo = platform->device.malloc<dfloat>(mesh->Nlocal * mesh->Nvgeo);
+        mesh->o_ggeo = platform->device.malloc<dfloat>(mesh->Nlocal * mesh->Nggeo);
+        meshPhysicalNodesHex3D(mesh);
+        meshConnectFaceNodes3D(mesh);
+        meshGlobalIds(mesh);
+        meshParallelGatherScatterSetup(mesh, mesh->Nlocal, mesh->globalIds, platform->comm.mpiComm, OOGS_AUTO, 0);
+        //mesh->geometricFactors();
+        mesh->o_vgeo.free(); // dfloat version not required
+        mesh->o_LMM.free();  // dfloat version not required
+        {
+            const auto length = mesh->o_ggeo.length();
+            auto o_tmp = platform->device.malloc<dfloat>(length);
+            mesh->o_ggeo.copyTo(o_tmp);
+            mesh->o_ggeo.free();
+            mesh->o_ggeo = platform->device.malloc<pfloat>(length);
+            platform->copyDfloatToPfloatKernel(length, o_tmp, mesh->o_ggeo);
+        }
+        {
+            const auto length = mesh->o_D.length();
+            auto o_tmp = platform->device.malloc<dfloat>(length);
+            mesh->o_D.copyTo(o_tmp);
+            mesh->o_D.free();
+            mesh->o_D = platform->device.malloc<pfloat>(length);
+            platform->copyDfloatToPfloatKernel(length, o_tmp, mesh->o_D);
+        }
+        {
+            const auto length = mesh->o_DT.length();
+            auto o_tmp = platform->device.malloc<dfloat>(length);
+            mesh->o_DT.copyTo(o_tmp);
+            mesh->o_DT.free();
+            mesh->o_DT = platform->device.malloc<pfloat>(length);
+            platform->copyDfloatToPfloatKernel(length, o_tmp, mesh->o_DT);
+        }
         */
     } else {
         if (rank == 0) std::cout << "\nError: GNN polynimial degree must be <= nekRS degree\n" << std::endl;

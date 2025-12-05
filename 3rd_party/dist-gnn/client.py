@@ -172,7 +172,6 @@ class OnlineClient:
 
                 arr = stream.inquire_variable('N')
                 N = stream.read('N', [self.rank], [1])
-                print(f'[RANK {self.rank}] -- N: {N}',flush=True)
                 self.N_list = self.comm.allgather(N)
 
                 arr = stream.inquire_variable('num_edges')
@@ -181,7 +180,6 @@ class OnlineClient:
 
                 arr = stream.inquire_variable('field_offset')
                 field_offset = stream.read('field_offset', [self.rank], [1])
-                print(f'[RANK {self.rank}] -- field_offset: {field_offset}',flush=True)
                 self.field_offset_list = self.comm.allgather(field_offset)
 
                 arr = stream.inquire_variable('pos_node')
