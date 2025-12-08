@@ -3,10 +3,8 @@
 ## Organization
 
 The ReFrame configuration is in `sites.py`. Currently, the `sites.py` only contains
-configuration for ALCF Aurora. We define two partitions for Aurora: `aurora:compute`
-and `aurora:login`. You can pass this configuration file into reframe using the `-C`
-flag and use the `--system` flag to select the partition you like. You can edit the
-`sites.py` if you would like to make changes to the existing Aurora parameters.
+site configurations for ALCF Aurora and ALCF Polaris. You can edit the `sites.py` if
+you would like to make changes to the existing site parameters.
 
 The `core.py` contains thin wrappers over `reframe.CompileOnlyRegressionTest` and
 `reframe.RunOnlyRegressionTest` which are named `CompileOnlyTest` and `RunOnlyTest`
@@ -26,12 +24,11 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 More installation instructions can be found [here](https://docs.astral.sh/uv/getting-started/installation/).
 
-## How to run the tests
+## Running Tests
 
-From a login node on the target system (currently only Aurora is supported), we
-provide the `run.sh` script to launch the tests.
+From a login/compute node on the target system, use the `run.sh` script to launch the
+tests. To see the full list of parameters accepted by the script, execute:
 
-For the full list of parameters accepted by the script, execute
 ```sh
 >./run.sh -h
 Usage: run.sh [options]
@@ -53,20 +50,49 @@ Examples:
 ```
   To run all the tests:
     ./run.sh -b -prj <PROJECT>
-  or
-    ./run.sh -b -t all
-  To run only the ml tests (which include online, offline, etc.):
-    ./run.sh -t ml -b
-  To run the all the offline tests:
+  To run all the offline tests:
     ./run.sh -t offline -b
+  To run all the online tests:
+    ./run.sh -t online -b
   To run all the tests based on tgv:
     ./run.sh -t tgv -b
-  Please note that the "-b (--build)" parameter is only required in the first run of each tag.
+  Please note that "-b" parameter is only required in the first run of each tag.
   You can pass --list-tags or -l to list all the test tags:
     ./run.sh -l
 ```
 
-## Output artifacts
+Default parameters in the `run.sh` are set for ALCF Aurora. You can use the options
+provided by `run.sh` to customize the tests for a given platform. For example, you
+can use `--system/-s` to select the site, `--project/-prj` to select the correct
+project, and `--queue/-q` to set the correct queue, etc.
+
+You can use regex in the tag to filter the tests you would like to run. For example,
+if you only want to run `tgv_offline` (without also running `tgv_offline_traj`,
+etc.), you can use the following tag:
+
+```sh
+./run.sh -b -t tgv_offline$
+```
+
+### Aurora
+
+We define two partitions for Aurora: `aurora:compute` and `aurora:login`. Below is
+an example which runs the `offline` tests on Aurora:
+
+```sh
+./run.sh -b -t offline
+```
+
+### Polaris
+
+We define two partitions for Polaris: `polaris:compute` and `polaris:login`. Below is
+an example which runs the `offline` tests on Polaris:
+
+```sh
+./run.sh -b -t offline -s polaris:compute -q debug
+```
+
+## Output Artifacts
 
 A successful run will show that all tests passed and produce test artifacts in
 `${PWD}/test_data` directory. For example, if you ran the `tgv_offline` test with the
@@ -133,7 +159,7 @@ tests themselves will be under `${PWD}/test_data/output/<timestamp>/<system>/<Pr
 The test reports are in`${PWD}/test_data/reports/report_<session_id>.json`. The
 staging files of the tests can be found under `${PWD}/test_data/stage/<timestamp>`.
 
-## Common issues
+## Common Issues
 
 * Make sure the correct project and system parameters are being passed to the test
   run script.
