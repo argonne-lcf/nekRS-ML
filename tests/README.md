@@ -50,10 +50,10 @@ Examples:
 ```
   To run all the tests:
     ./run.sh -b -prj <PROJECT>
-  To run the all the offline tests:
+  To run all the offline tests:
     ./run.sh -t offline -b
-  To run the all the online tests:
-    ./run.sh -t offline -b
+  To run all the online tests:
+    ./run.sh -t online -b
   To run all the tests based on tgv:
     ./run.sh -t tgv -b
   Please note that "-b" parameter is only required in the first run of each tag.
