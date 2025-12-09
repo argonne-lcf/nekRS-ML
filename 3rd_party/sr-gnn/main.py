@@ -280,7 +280,7 @@ class Trainer:
         try:
             train_dataset = torch.load(self.cfg.data_dir + f"/train_dataset.pt", weights_only=False)
             test_dataset = torch.load(self.cfg.data_dir + f"/valid_dataset.pt", weights_only=False)
-        except UnpicklingError as e:
+        except UnpicklingError as e: # for backward compatibility
             if RANK == 0: logger.warning(f'{e}')
             torch.serialization.add_safe_globals([dataprep.nekrs_graph_setup.DataLoHi])
             torch.serialization.add_safe_globals([torch_geometric.data.data.DataEdgeAttr])
