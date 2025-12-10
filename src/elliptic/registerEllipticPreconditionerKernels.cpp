@@ -95,6 +95,24 @@ void registerJacobiKernels(const std::string &section, int N, int poissonEquatio
   }
 }
 
+void registerGNNKernels(int pGNN)
+{
+  int p;
+  platform->options.getArgs("POLYNOMIAL DEGREE", p);
+
+  if (pGNN != p){
+    const std::string orderSuffix = std::string("_") + std::to_string(pGNN);
+    const std::string oklpath = getenv("NEKRS_KERNEL_DIR");
+
+    auto meshKernelInfo = platform->kernelInfo + meshKernelProperties(pGNN);
+
+    std::string kernelName = "geometricFactorsHex3D";
+    std::string fileName = oklpath + "/mesh/" + kernelName + ".okl";
+    const std::string meshPrefix = "pMGmesh-";
+    platform->kernelRequests.add(meshPrefix + kernelName + orderSuffix, fileName, meshKernelInfo, orderSuffix);
+  }
+}
+
 void registerCommonMGPreconditionerKernels(int N, occa::properties kernelInfo, int poissonEquation)
 {
   const std::string prefix = "Hex3D";
@@ -310,6 +328,11 @@ void registerMultiGridKernels(const std::string &section, int poissonEquation)
         platform->kernelRequests.add(kernelName, fileName, platform->kernelInfo);
       }
     }
+  }
+
+  int pGNN;
+  if (platform->options.getArgs("GNN POLY ORDER", pGNN)) {
+    registerGNNKernels(pGNN);
   }
 }
 void registerSEMFEMKernels(const std::string &section, int N, int poissonEquation)
