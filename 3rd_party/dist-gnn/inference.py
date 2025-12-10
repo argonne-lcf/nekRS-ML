@@ -237,7 +237,7 @@ def inference_rollout(cfg: DictConfig,
                 summary = ' '.join([
                     f'[STEP {trainer.iteration}]',
                     f't_step={t_step:.4g}sec',
-                    f'throughput={n_nodes_local/t_step/1.0e6:.4g}nodes/sec'
+                    f'throughput={n_nodes_local/t_step:.4g}nodes/sec'
                 ])
                 log.info(summary)
 

@@ -170,6 +170,8 @@ echo "export MPICH_GPU_SUPPORT_ENABLED=0" >> $RFILE
 echo "export MPICH_OFI_NIC_POLICY=NUMA" >> $RFILE
 echo "export MPIR_CVAR_CH4_OFI_ENABLE_RMA=0" >> $RFILE
 
+echo -e "\nulimit -c unlimited" >> $RFILE
+
 py_version=`python --version`
 parsed_version=$(echo ${py_version#Python } | awk -F. '{print $1"."$2}')
 echo -e "\nexport PYTHONPATH=\$PYTHONPATH:${NEKRS_HOME}/lib/python${parsed_version}/site-packages" >> $RFILE

@@ -85,17 +85,6 @@ gnn_t::gnn_t(nrs_t *nrs_, int poly_order, bool log_verbose)
         mesh = nrs_->mesh;
     } else if (gnnMeshPOrder < nekMeshPOrder) {
         if (rank == 0) std::cout << "Generating GNN mesh with polynomial degree " << gnnMeshPOrder << std::endl;
-        /* This one works but not yet for even p orders */
-        if (false) { //if (gnnMeshPOrder % 2 == 0) {
-            auto kernelInfo = platform->kernelInfo + meshKernelProperties(gnnMeshPOrder);
-            std::string oklpath = getenv("NEKRS_KERNEL_DIR");
-            occa::properties meshKernelInfo = kernelInfo;
-            const std::string meshPrefix = "pMGmesh-";
-            const std::string orderSuffix = "_" + std::to_string(gnnMeshPOrder);
-            std::string kernelName = "geometricFactorsHex3D";
-            std::string fileName = oklpath + "/mesh/" + kernelName + ".okl";
-            platform->kernelRequests.add(meshPrefix + kernelName + orderSuffix, fileName, meshKernelInfo);
-        }
         mesh = createMeshMG(nrs_->mesh, gnnMeshPOrder);
     } else {
         if (rank == 0) std::cout << "\nError: GNN polynimial degree must be <= nekRS degree\n" << std::endl;
@@ -312,7 +301,7 @@ void gnn_t::gnnWriteADIOS(adios_client_t* client)
 
     // Write the graph data
     //adios2::Engine graphWriter = client->_stream_io.Open("graphStream", adios2::Mode::Write);
-    adios2::Engine graphWriter = client->_write_io.Open("graph.bp", adios2::Mode::Write);
+    adios2::Engine graphWriter = client->_write_io.Open("graph_tmp.bp", adios2::Mode::Write);
     graphWriter.BeginStep();
 
     graphWriter.Put<hlong>(NInts, _N);
@@ -330,6 +319,9 @@ void gnn_t::gnnWriteADIOS(adios_client_t* client)
     graphWriter.EndStep();
     graphWriter.Close();
     MPI_Barrier(comm);
+    if (rank == 0) {
+        std::rename("graph_tmp.bp", "graph.bp");
+    }
     if (verbose and rank == 0) printf("[RANK %d] -- done sending graph data \n", rank);
 #else
     if (verbose and rank == 0) printf("[RANK %d] -- ADIOS is not enabled!, Falling back to binary write.\n", rank);

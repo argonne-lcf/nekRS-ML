@@ -157,12 +157,10 @@ class OnlineClient:
         tic = perf_counter()
         graph_data = {}
         if self.backend == 'adios':
-            while True:
-                if os.path.exists('./graph.bp'):
-                    sleep(5)
-                    break
-                else:
+            if self.rank == 0:
+                while not os.path.exists('./graph.bp'):
                     sleep(2)
+            self.comm.Barrier()
 
             #with Stream(self.client, 'graphStream', 'r', self.comm) as stream:
             with Stream('graph.bp', 'r', self.comm) as stream:
@@ -262,14 +260,14 @@ class OnlineClient:
                                     np.int32(np.array([MLrun]))
                     )
         elif self.backend == 'adios':
-            # Close solution stream
-            if self.solutionStream is not None:
-                self.solutionStream.close()
-            
             # Communicate to nekRS to stop
             with Stream('check-run.bp', 'w', self.comm) as stream:
                 if self.rank == 0:
                     stream.write("check-run", np.int32([MLrun]))
+            
+            # Close solution stream
+            if self.solutionStream is not None:
+                self.solutionStream.close()
         self.timers['meta_data'].append(perf_counter()-tic)
             
 

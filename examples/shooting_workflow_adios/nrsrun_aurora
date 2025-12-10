@@ -205,6 +205,8 @@ echo "export CCL_ALLTOALLV=naive" >> $RFILE
 echo "export CCL_ALLTOALLV_SCALEOUT=naive" >> $RFILE
 echo "export CCL_ALLTOALLV_MONOLITHIC_KERNEL=0" >> $RFILE
 
+echo -e "\nulimit -c unlimited" >> $RFILE
+
 py_version=`python --version`
 parsed_version=$(echo ${py_version#Python } | awk -F. '{print $1"."$2}')
 echo -e "\nexport PYTHONPATH=\$PYTHONPATH:${NEKRS_HOME}/lib/python${parsed_version}/site-packages" >> $RFILE
