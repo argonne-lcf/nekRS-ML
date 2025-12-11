@@ -113,7 +113,9 @@ chmod u+x $SAFF_FILE $TAFF_FILE
 CFILE=config.yaml
 echo "# Workflow config" > $CFILE
 echo "scheduler: pbs" >> $CFILE
+echo "system: aurora" >> $CFILE
 echo "deployment: \"${DEPLOYMENT}\"" >> $CFILE
+echo "debug: false" >> $CFILE
 echo "" >> $CFILE
 echo "# Run config" >> $CFILE
 echo "run_args:" >> $CFILE
