@@ -50,7 +50,7 @@ adios_client_t::adios_client_t(MPI_Comm& comm) : _comm(comm)
         }
         _params["DataTransport"] = _transport;
         _params["OpenTimeoutSecs"] = "600";
-        _params["verbose"] = 5;
+        _params["verbose"] = "5";
         _stream_io.SetParameters(_params);
 
         _write_io = _adios->DeclareIO("writeIO");
