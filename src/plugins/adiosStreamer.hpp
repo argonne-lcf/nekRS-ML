@@ -43,7 +43,7 @@ private:
   // adios objects
   adios2::Params _params;
 
-  // nekrs objects 
+  // nekrs objects
   //nrs_t *_nrs;
 #endif
 

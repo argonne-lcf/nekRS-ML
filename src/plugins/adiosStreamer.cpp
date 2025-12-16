@@ -10,7 +10,7 @@ adios_client_t::adios_client_t(MPI_Comm& comm) : _comm(comm)
     // Set nekrs object
     //_nrs = nrs;
 
-    // Set MPI comm, rank and size 
+    // Set MPI comm, rank and size
     //_comm = platform->comm.mpiComm;
     MPI_Comm_rank(_comm, &_rank);
     MPI_Comm_size(_comm, &_size);
@@ -38,7 +38,7 @@ adios_client_t::adios_client_t(MPI_Comm& comm) : _comm(comm)
             _params["QueueLimit"] = "1";
         } else if (_stream == "async") {
             // block if reader is not ready, sync sim and trainer here
-            _params["RendezvousReaderCount"] = "1"; 
+            _params["RendezvousReaderCount"] = "1";
             // "Block" or "Discard" when queue is full
             _params["QueueFullPolicy"] = "Discard";
             // number of steps writer allows to be queued before taking action (0 means no limit to queued steps)
@@ -50,10 +50,11 @@ adios_client_t::adios_client_t(MPI_Comm& comm) : _comm(comm)
         }
         _params["DataTransport"] = _transport;
         _params["OpenTimeoutSecs"] = "600";
+        _params["verbose"] = 5;
         _stream_io.SetParameters(_params);
 
         _write_io = _adios->DeclareIO("writeIO");
-    } 
+    }
     catch (std::exception &e)
     {
         printf("Exception, STOPPING PROGRAM from rank %d\n", _rank);
@@ -96,18 +97,31 @@ int adios_client_t::check_run()
     }
     MPI_Bcast(&exists, 1, MPI_INT, 0, _comm);
 
-    // Read check-run file if exists
-    if (exists) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        adios2::Engine reader = _write_io.Open(fname, adios2::Mode::Read);
-        reader.BeginStep();
-        adios2::Variable<dlong> var = _write_io.InquireVariable<dlong>("check-run");
-        if (_rank == 0 and var) {
-            reader.Get(var, &exit_val);
-        }
-        reader.EndStep();
-        reader.Close();
-        MPI_Bcast(&exit_val, 1, MPI_INT, 0, _comm);
+    try
+    {
+      // Read check-run file if exists
+      if (exists) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(500));
+          adios2::Engine reader = _write_io.Open(fname, adios2::Mode::Read);
+          reader.BeginStep();
+          adios2::Variable<dlong> var = _write_io.InquireVariable<dlong>("check-run");
+          if (_rank == 0 and var) {
+              reader.Get(var, &exit_val);
+          }
+          reader.EndStep();
+          reader.Close();
+          MPI_Bcast(&exit_val, 1, MPI_INT, 0, _comm);
+      }
+    } catch (std::invalid_argument &e) {
+        std::cout << "[Sim] Invalid argument exception, STOPPING PROGRAM from rank " << _rank << "\n";
+        std::cout << e.what() << "\n";
+    } catch (std::ios_base::failure &e) {
+        std::cout << "IO System base failure exception, STOPPING PROGRAM from rank " << _rank
+                  << "\n";
+        std::cout << e.what() << "\n";
+    } catch (std::exception &e) {
+        std::cout << "Exception, STOPPING PROGRAM from rank " << _rank << "\n";
+        std::cout << e.what() << "\n";
     }
 
     if (exit_val == 0 && _rank == 0) {
@@ -158,16 +172,28 @@ void adios_client_t::checkpoint(dfloat *field, int num_dim)
     std::string fname = "checkpoint.bp";
     unsigned long field_num_dim = num_dim;
 
-    adios2::Variable<dfloat> varField = _write_io.DefineVariable<dfloat>(
-        "checkpoint", 
-        {_global_field_offset * field_num_dim}, 
-        {_offset_field_offset * field_num_dim}, 
-        {_field_offset * field_num_dim});
-    adios2::Engine writer = _write_io.Open(fname, adios2::Mode::Write);
-    writer.BeginStep();
-    writer.Put<dfloat>(varField, field);
-    writer.EndStep();
-    writer.Close();
+    try
+    {
+      adios2::Variable<dfloat> varField = _write_io.DefineVariable<dfloat>(
+          "checkpoint",
+          {_global_field_offset * field_num_dim},
+          {_offset_field_offset * field_num_dim},
+          {_field_offset * field_num_dim});
+      adios2::Engine writer = _write_io.Open(fname, adios2::Mode::Write);
+      writer.BeginStep();
+      writer.Put<dfloat>(varField, field);
+      writer.EndStep();
+      writer.Close();
+    } catch (std::invalid_argument &e) {
+        std::cout << "[Sim] Invalid argument exception, STOPPING PROGRAM from rank " << _rank << "\n";
+        std::cout << e.what() << "\n";
+    } catch (std::ios_base::failure &e) {
+        std::cout << "IO System base failure exception, STOPPING PROGRAM from rank " << _rank << "\n";
+        std::cout << e.what() << "\n";
+    } catch (std::exception &e) {
+        std::cout << "Exception, STOPPING PROGRAM from rank " << _rank << "\n";
+        std::cout << e.what() << "\n";
+    }
 }
 
 #endif // NEKRS_ENABLE_ADIOS
