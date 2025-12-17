@@ -1,10 +1,12 @@
 function(add_adios)
 
 if(NOT "${ADIOS2_INSTALL_DIR}" STREQUAL "")
+  message(STATUS "ADIOS2_INSTALL_DIR is set, looking for installation in ${ADIOS2_INSTALL_DIR}")
   find_package(adios2 PATHS ${ADIOS2_INSTALL_DIR} NO_DEFAULT_PATH)
 endif()
 
 if (NOT ADIOS2_FOUND) 
+  message(STATUS "Could not find ADIOS2, building from source")
   set(BUILD_SHARED_LIBS ON)
   set(ADIOS2_USE_MPI "TRUE")
   set(ADIOS2_HAVE_MPI_CLIENT_SERVER "TRUE")

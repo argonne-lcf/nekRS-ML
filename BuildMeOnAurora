@@ -57,10 +57,13 @@ fi
 #... build nekRS
 echo ""
 if [ ${ENABLE_SMARTREDIS} == "ON" ]; then
-  echo -e "\033[35mBuilding nekRS WITH SmartRedis ...\033[m"
+  echo -e "\033[35mBuilding nekRS with SmartRedis ...\033[m"
   ./build.sh -DENABLE_SMARTREDIS=ON -DSMARTREDIS_INSTALL_DIR=$NEKRS_HOME/SmartRedis/install
+elif [ -n ${ADIOS2_INSTALL_DIR} ]; then
+  echo -e "\033[35mBuilding nekRS with ADIOS2 from ${ADIOS2_INSTALL_DIR} ...\033[m"
+  ./build.sh -DADIOS2_INSTALL_DIR=$ADIOS2_INSTALL_DIR
 else
-  echo -e "\033[35mBuilding nekRS WITHOUT SmartRedis ...\033[m"
+  echo -e "\033[35mBuilding nekRS WITHOUT external dependencies ...\033[m"
   ./build.sh
 fi
 #...
