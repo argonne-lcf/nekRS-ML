@@ -90,6 +90,9 @@ if(NOT MSVC)
     CACHE STRING "" FORCE
   )
 endif()
+set(CMAKE_BUILD_TYPE Debug)
+#set(CMAKE_CXX_FLAGS "-g -Rno-debug-disables-optimization")
+#set(CMAKE_C_FLAGS "-g -Rno-debug-disables-optimization")
 
 #------------------------------------------------------------------------------#
 # Deal with any pre-installation cleanup tasks
