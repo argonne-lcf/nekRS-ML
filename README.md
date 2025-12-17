@@ -77,6 +77,12 @@ If istead the SmartRedis client is desired, execute
 ENABLE_SMARTREDIS=ON ./BuildMeOnAurora
 ```
 
+The build scripts can also take the path to a specific installation of ADIOS2, such as
+
+```sh
+ADIOS2_INSTALL_DIR=/path/to/adios2/lib64/cmake ./BuildMeOnAurora
+```
+
 If a build script for a specific HPC system is not available, please submit an issue or feel free to contribute a PR (see below for details on both).
 
 
