@@ -1,0 +1,99 @@
+c-----------------------------------------------------------------------
+      subroutine uservp(i,j,k,eg) ! set variable properties
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      integer i,j,k,e,eg
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userf(i,j,k,eg) ! set acceleration term
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      integer i,j,k,e,eg
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userq(i,j,k,eg) ! set source term
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      integer i,j,k,e,eg
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userbc(i,j,k,f,eg) ! set up boundary conditions
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      integer i,j,k,f,e,eg
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine useric (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+      ux = 1.0
+      uy = 0.0
+      uz = 0.0
+      temp = 0.0
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat   ! This routine to modify element vertices
+      include 'SIZE'
+      include 'TOTAL'
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat3
+      include 'SIZE'
+      include 'TOTAL'
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat2
+      include 'SIZE'
+      include 'TOTAL'
+      integer i, e,f,n,iel,ifc,id_face,ifld_wd
+      real xx, yy, zz
+      real ifld
+
+      n = lx1*ly1*lz1*nelv
+
+      do iel=1,nelt
+      do ifc=1,2*ndim
+        id_face = bc(5,ifc,iel,1)
+        if (id_face.eq.1) then        ! surface 1 for inlet
+             cbc(ifc,iel,1) = 'v  '
+
+         elseif (id_face.eq.2) then    ! surface 2 for outlet
+             cbc(ifc,iel,1) = 'O  '
+
+         elseif (id_face.eq.3) then    ! surface 3 for rod wall
+             cbc(ifc,iel,1) = 'W  '
+        endif
+      enddo
+      enddo
+      do iel=1,nelt
+      do ifc=1,2*ndim
+         boundaryID(ifc,iel) = 0
+         if (cbc(ifc,iel,1) .eq. 'v  ') boundaryID(ifc,iel) = 1
+         if (cbc(ifc,iel,1) .eq. 'O  ') boundaryID(ifc,iel) = 2
+         if (cbc(ifc,iel,1) .eq. 'W  ') boundaryID(ifc,iel) = 3
+      enddo
+      enddo
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userchk
+      include 'SIZE'
+      include 'TOTAL'
+      return
+      end
+c-----------------------------------------------------------------------

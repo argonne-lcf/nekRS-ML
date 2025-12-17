@@ -135,7 +135,7 @@ def infer(cfg: DictConfig,
     input_node_features = 3
     for i in range(cfg.num_gen_samples):
         # Initialize new random field and generate sample prediction
-        field_r = torch.randn(pos.shape(0), pos.shape(1), dtype=trainer.torch_dtype)
+        field_r = torch.randn(pos.size(0), pos.size(1), dtype=trainer.torch_dtype)
         pred = trainer.sample(field_r)
 
         # Undo scaling

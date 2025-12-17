@@ -113,7 +113,7 @@ def train(cfg: DictConfig,
             trainer.iteration += 1 
             
             # Calculate gradients  
-            if cfg.postprocess: postproc_out = trainer.postprocess()
+            if cfg.statistics: grad_norm = trainer.grad_norm()
 
             # Logging 
             if RANK == 0:
@@ -140,8 +140,8 @@ def train(cfg: DictConfig,
                     log.info(f"t_loss: {t_loss:.4g} sec [{n_nodes_local/t_loss:.4e} nodes/sec]")
                     log.info(f"t_backwardPass: {t_backwardPass:.4g} sec [{n_nodes_local/t_backwardPass:.4e} nodes/sec]")
                     log.info(f"t_optimizerStep: {t_optimizerStep:.4g} sec")
-                if cfg.postprocess:
-                    log.info(f"grad norm: {postproc_out[0]:.6g}")
+                if cfg.statistics:
+                    log.info(f"grad norm: {grad_norm[0]:.6g}")
 
             # Checkpoint  
             if trainer.iteration % cfg.ckptfreq == 0:

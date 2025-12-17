@@ -44,6 +44,7 @@ from client import OnlineClient
 import create_halo_info_par
 from step_sampler import UniformStepSampler
 from diffusion_process import DiffusionProcess
+import postprocess
 
 log = logging.getLogger(__name__)
 Tensor = torch.Tensor
@@ -116,10 +117,10 @@ class DGNTrainer:
                 "For inconsistent model, set halo_swap_mode=none"
         if self.cfg.online:
             log.warning('Online backends not implemented for this model yet')
-            MPI.Abort(COMM, 1)
+            COMM.Abort(1)
         if self.cfg.batch_size > 1 or self.cfg.val_batch_size > 1:
             log.error('Only batch size 1 is currently supported')
-            MPI.Abort(COMM, 1)
+            COMM.Abort(1)
 
         # ~~~ Initialize DDP
         if WITH_DDP:
@@ -161,10 +162,15 @@ class DGNTrainer:
         self.setup_halo()
 
         # ~~~~ Setup data 
-        self.data_list = []
         self.data = {}
-        self.setup_data()
-        if RANK == 0: log.info('Done with setup_data')
+        self.data_list = []
+        self.setup_graph_data()
+        if RANK == 0: log.info('Done with setup_graph_data')
+        if self.cfg.model_task == 'train':
+            self.setup_train_data()
+            if RANK == 0: log.info('Done with setup_train_data')
+        elif self.cfg.model_task == 'inference':
+            self.load_stats()
 
         # ~~~~ Setup halo exchange masks
         self.mask_send, self.mask_recv = self.build_masks()
@@ -254,7 +260,7 @@ class DGNTrainer:
 
         # ~~~~ Wrap model in DDP
         if WITH_DDP and SIZE > 1:
-            self.model = DDP(self.model, broadcast_buffers=False, gradient_as_bucket_view=True)
+            self.model = DDP(self.model, broadcast_buffers=False, gradient_as_bucket_view=True, device_ids=[DEVICE_ID + self.cfg.device_skip])
 
     def checkpoint(self):
         if RANK == 0:
@@ -313,7 +319,7 @@ class DGNTrainer:
         if RANK == 0:
             log.info('In build_model...')
 
-        sample = self.data['train']['example']
+        #sample = self.data['train']['example']
         graph = self.data['graph']
 
         # Get the polynomial order -- for naming the model
@@ -325,7 +331,7 @@ class DGNTrainer:
 
         # Model architecture
         arch = {
-            'input_node_features': sample['x'].shape[1],
+            'input_node_features': self.cfg.input_node_features,
             'input_edge_features': graph.edge_attr.shape[1],
             'mlp_hidden_channels': self.cfg.mlp_hidden_channels,
             'n_mlp_hidden_layers': self.cfg.n_mlp_hidden_layers,
@@ -774,11 +780,11 @@ class DGNTrainer:
         if not self.cfg.online:
             file_list = os.listdir(data_dir)
             files = [item for item in file_list \
-                            if (f'fld_{field_name}' in item) and (f'rank_{RANK}' in item)]
+                            if (f'fld_{field_name}' in item) and (f'rank_{RANK}_' in item)]
             files.sort(key=lambda x:int(x.split('.')[0].split('_')[-1]))
         else:
             log.warning('Online backends not implemented for this model yet')
-            MPI.Abort(COMM, 1)
+            COMM.Abort(1)
 
         # populate dataset
         if not self.cfg.online:
@@ -842,17 +848,14 @@ class DGNTrainer:
                 if RANK == 0: log.info(f"Computed training data statistics for each node feature")
         return data, stats
  
-    def setup_data(self):
+    def setup_graph_data(self):
         """
         Generate the PyTorch Geometric Dataset 
         """
         if RANK == 0:
-            log.info('In setup_data...')
+            log.info('In setup_graph_data...')
 
         device_for_loading = 'cpu'
-
-        data_dir = self.cfg.gnn_outputs_path
-        data, stats = self.load_field_data(data_dir)
         
         # Get dictionary 
         reduced_graph_dict = self.data_reduced.to_dict()
@@ -886,11 +889,25 @@ class DGNTrainer:
         distance_max = distnn.all_reduce(distance_max_, op=distnn.ReduceOp.MAX).to(device_for_loading)
         data_graph.edge_attr = (data_graph.edge_attr/distance_max).to(self.torch_dtype)
 
+        if (RANK == 0):
+            log.info(f"{data_graph}")
+
+        self.data['graph'] =  data_graph
+    
+    def setup_train_data(self):
+        """
+        Load the training data and prepare the data loader
+        """
+        if RANK == 0:
+            log.info('In setup_train_data...')
+
+        data_dir = self.cfg.gnn_outputs_path
+        data, stats = self.load_field_data(data_dir)
+
         # ~~~~ Populate the data loader
         # No need for distributed sampler -- create standard dataset loader  
         # We can use the standard pytorch dataloader on (x,y) 
         if (RANK == 0):
-            log.info(f"{data_graph}")
             log.info(f"shape of x: {data['train'][0]['x'].shape}")
         train_data_scaled = []
         for item in  data['train']:
@@ -911,20 +928,37 @@ class DGNTrainer:
                                   batch_size=self.cfg.val_batch_size,
                                   shuffle=False)
 
-        self.data =  {
-            'train': {
-                'loader': train_loader,
-                'example': data['train'][0],
-            },
-            'validation': {
-                'loader': valid_loader,
-                'example': data['validation'][0],
-            },
-            'stats': {
-                'x_mean': stats['x'][0],
-                'x_std': stats['x'][1],
-            },
-            'graph': data_graph
+        self.data['train'] =  {
+            'loader': train_loader,
+            'example': data['train'][0],
+        }
+        self.data['validation'] =  {
+            'loader': valid_loader,
+            'example': data['validation'][0],
+        }
+        self.data['stats'] =  {
+            'x_mean': stats['x'][0],
+            'x_std': stats['x'][1],
+        }
+
+    def load_stats(self):
+        """
+        Load the normalizationstatistics for the training data
+        """
+        data_dir = self.cfg.gnn_outputs_path
+        stats = {'x': []}
+        if os.path.exists(data_dir + f"/data_stats.npz"):
+            if RANK == 0:
+                npzfile = np.load(data_dir + f"/data_stats.npz")
+                stats_arr_x = np.stack([npzfile['x_mean'][0], npzfile['x_std'][0]])
+            else:
+                n_features = self.cfg.input_node_features
+                stats_arr_x = np.zeros((2,n_features), dtype=np.float32)
+            COMM.Bcast(stats_arr_x, root=0)
+            stats['x'] = [stats_arr_x[0], stats_arr_x[1]]
+        self.data['stats'] =  {
+            'x_mean': stats['x'][0],
+            'x_std': stats['x'][1],
         }
 
     def setup_timers(self, n_record: int) -> dict:
@@ -1049,7 +1083,11 @@ class DGNTrainer:
 
         # Diffuse the solution/target field
         BC_mask = None # no BCs for now
-        field_r, noise = self.diffusion_process.forward(data['x'], r, BC_mask)
+        field_r, noise = self.diffusion_process.forward(data['x'][:,:self.cfg.input_node_features], r, BC_mask)
+        if self.cfg.postprocess and self.iteration%100 == 0:
+            postprocess.plot_2d_field(COMM, graph.pos, field_r.cpu().numpy(), f'field_r_r{r.item()}.png')
+            postprocess.plot_2d_field(COMM, graph.pos, data['x'][:,:self.cfg.input_node_features].cpu().numpy(), f'data_x_r{r.item()}.png')
+            COMM.Barrier()
         if self.cfg.verbose:
             if RANK == 0: log.info(f"Performed forward diffusion process on {self.cfg.batch_size} solution fields")
             if RANK == 0: 
@@ -1073,6 +1111,10 @@ class DGNTrainer:
                              SIZE = SIZE,
                              cond_node_features = None, # TODO: Add conditional node features
                              batch = graph.batch)
+        if self.cfg.postprocess and self.iteration%100 == 0:
+            postprocess.plot_2d_field(COMM, graph.pos, model_noise.detach().cpu().numpy(), f'model_noise_r{r.item()}.png')
+            postprocess.plot_2d_field(COMM, graph.pos, noise.cpu().numpy(), f'noise_r{r.item()}.png')
+            COMM.Barrier()
         if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
 
         # Accumulate loss
@@ -1081,22 +1123,9 @@ class DGNTrainer:
         if SIZE == 1 or not self.cfg.consistency:
             loss = self.loss_fn(model_noise[:n_nodes_local], noise[:n_nodes_local])
             # TODO: Look at DGN4cfd hybrid loss for full loss function
-            effective_nodes = n_nodes_local 
         else: # custom 
-            if RANK == 0: log.error('Custom loss function not implemented for SIZE > 1')
-            MPI.Abort(COMM, 1)
-            """
-            n_output_features = pred.shape[1]
-            squared_errors_local = torch.pow(pred[:n_nodes_local] - target[:n_nodes_local], 2)
-            squared_errors_local = squared_errors_local/graph.node_degree[:n_nodes_local].unsqueeze(-1)
-
-            sum_squared_errors_local = squared_errors_local.sum()
-            effective_nodes_local = torch.sum(1.0/graph.node_degree[:n_nodes_local])
-
-            effective_nodes = distnn.all_reduce(effective_nodes_local)
-            sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
-            loss = (1.0/(effective_nodes*n_output_features)) * sum_squared_errors
-            """
+            loss = self.loss_fn(model_noise[:n_nodes_local], noise[:n_nodes_local])
+            # TODO:Custom parallel and consistent loss function to be implemented here
         if self.cfg.timers: self.update_timer('loss', self.timer_step, time.time() - tic)
 
         tic = time.time()
@@ -1123,7 +1152,7 @@ class DGNTrainer:
         # Assert step list is all integers and is sorted
         if steps is not None:
             if RANK == 0: log.error('Passing a subset of steps is not supported yet')
-            MPI.Abort(COMM, 1)
+            COMM.Abort(1)
         else:
             steps = list(range(self.cfg.num_diffusion_steps))
 
@@ -1159,10 +1188,11 @@ class DGNTrainer:
         
         # Prediction (de-noise step by step)
         for r in diff_process.steps[::-1]:
+            if RANK == 0: log.info(f"Performing de-noise step {r}")
             tic = time.time()
             model_noise, model_var = self.model(
                                 field_r = field_r,
-                                r = r,
+                                r = torch.tensor([r], device=self.device),
                                 edge_index = graph.edge_index,
                                 edge_attr = graph.edge_attr,
                                 edge_weight = graph.edge_weight,
@@ -1176,6 +1206,8 @@ class DGNTrainer:
                                 cond_node_features = None, # TODO: Add conditional node features
                                 batch = graph.batch)
             if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
+            COMM.Barrier()
+            if RANK == 0: log.info(f"Done with forward pass")
 
             # Get the posterior mean and variance from the model output
             betas_r = diff_process.get_index_from_list(diff_process.betas, graph.batch, graph.r)
@@ -1184,10 +1216,14 @@ class DGNTrainer:
             variance = diff_process.get_index_from_list(diff_process.posterior_variance, graph.batch, graph.r)
             mean =  sqrt_recip_alphas_r * (graph.field_r - betas_r * model_noise/sqrt_one_minus_alphas_cumprod_r)
             #mean, variance = self.get_posterior_mean_and_variance_from_output(model_noise, graph, diff_process)
-            
+            COMM.Barrier()
+            if RANK == 0: log.info(f"Done with posterior mean and variance")
+
             # Update field_r
             gaussian_noise = torch.randn_like(mean)
             field_r = mean + torch.sqrt(variance) * gaussian_noise
+            COMM.Barrier()
+            if RANK == 0: log.info(f"Done with update to field_r")
 
         # Update timers
         self.synchronize()
@@ -1233,8 +1269,8 @@ class DGNTrainer:
         a['n_edges'] = n_edges
         torch.save(a, savepath + '/%s.tar' %(model.get_save_header())) 
 
-    def postprocess(self):
-        """ Do some postprocessing.""" 
+    def grad_norm(self):
+        """ Do some analytics on the gradients""" 
         # Get gradient norm 
         grads = [
             param.grad.detach().flatten()

@@ -2,6 +2,7 @@
 verbose: False
 timers: False
 postprocess: False
+statistics: False
 seed: 12
 backend: nccl
 num_threads: 1
@@ -20,6 +21,7 @@ device_skip: 0 # temporary workaround to skip GPU on a node
 num_diffusion_steps: 100
 diffusion_step_sampler: "uniform"
 num_gen_samples: 1
+input_node_features: 3
 
 # Modeling task
 model_task: "train"
