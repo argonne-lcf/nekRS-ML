@@ -14,7 +14,7 @@ except ModuleNotFoundError:
 
 # Import ADIOS2
 try:
-    from adios2 import Stream, Adios
+    from adios2 import Stream, Adios, bindings
 except ModuleNotFoundError:
     pass
 
@@ -218,7 +218,10 @@ class OnlineClient:
             if self.solutionStream is None:
                 if self.rank == 0: log.info('Opening ADIOS2 solutionStream ...')
                 self.solutionStream = Stream(self.client, "solutionStream", "r", self.comm)
-                         
+
+            # Status options are: bindings.StepStatus.OtherError, bindings.StepStatus.NotReady, bindings.StepStatus.EndOfStream, bindings.StepStatus.OK           
+            #status = self.solutionStream.step_status()
+            
             self.solutionStream.begin_step()
 
             arr = self.solutionStream.inquire_variable('in_u')

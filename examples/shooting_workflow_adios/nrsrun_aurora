@@ -224,6 +224,8 @@ if [ ${ADIOS2_BUILD} == "NEKRS" ]; then
   echo "export PYTHONPATH=\$PYTHONPATH:${NEKRS_HOME}/lib/python${parsed_version}/site-packages" >> $RFILE
 else
   echo "export PYTHONPATH=/opt/aurora/25.190.0/frameworks/aurora_frameworks-2025.2.0/lib/python3.10/site-packages:\$PYTHONPATH" >> $RFILE
+  echo "export FABRIC_PROVIDER=cxi" >> $RFILE
+  echo "export FABRIC_IFACE=cxi0" >> $RFILE
 fi
 echo "export SstVerbose=1" >> $RFILE
 echo "export OMP_PROC_BIND=spread" >> $RFILE

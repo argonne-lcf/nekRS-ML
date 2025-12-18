@@ -241,6 +241,7 @@ include(cmake/adios.cmake)
 if (ENABLE_ADIOS)
   add_adios()
 endif()
+set(CMAKE_BUILD_TYPE RelWithDebInfo)
 
 if (ENABLE_SMARTREDIS)
   find_library(SR_LIB smartredis PATHS ${SMARTREDIS_INSTALL_DIR}/lib NO_DEFAULT_PATH REQUIRED)
