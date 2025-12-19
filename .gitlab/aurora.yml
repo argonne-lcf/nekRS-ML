@@ -1,5 +1,5 @@
 variables:
-  PROJ: "Performance"
+  PROJ: "datascience"
   QUEUE: "prod"
   TIME: "2:00:00"
   WRK_DIR: "/lus/flare/projects/${PROJ}/nekRS-ML"
