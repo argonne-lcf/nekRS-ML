@@ -1,0 +1,50 @@
+//#include "udf.hpp"
+//#include "tavg.hpp"
+#include "gnn.hpp"
+
+#ifdef __okl__
+#include "ext_cyl_3d.oudf"
+#endif
+
+gnn_t* graph = nullptr;
+
+void UDF_LoadKernels(occa::properties& kernelInfo)
+{
+}
+
+void UDF_Setup()
+{
+  // gnn plugin
+  graph = new gnn_t(nrs);
+  graph->gnnSetup();
+  graph->gnnWrite();
+}
+
+void UDF_ExecuteStep(double time, int tstep)
+{
+  // Write flow field
+  if (tstep%200==0 && tstep>7000) {
+    int rank, size;
+    MPI_Comm_rank(platform->comm.mpiComm, &rank);
+    MPI_Comm_size(platform->comm.mpiComm, &size);
+    dlong n_nodes = graph->mesh->Np * graph->mesh->Nelements;
+    std::string irank = "_rank_" + std::to_string(rank);
+    std::string nranks = "_size_" + std::to_string(size);
+    std::cout << "n_nodes: " << n_nodes << "\t fieldOffset: " << graph->fieldOffset << std::endl;
+
+    dfloat time_rounded = std::round(time * 10.0) / 10.0;
+    std::ostringstream outStream;
+    outStream << std::fixed << std::setprecision(1) << time_rounded;
+    std::string time_rounded_string = outStream.str();
+
+    dfloat *U = new dfloat[graph->mesh->dim * graph->fieldOffset]();
+    graph->interpolateField(nrs, nrs->o_U, U, graph->mesh->dim);
+    writeToFileBinaryF(graph->writePath + "/fld_u_time_" + time_rounded_string + irank + nranks + ".bin",
+                U, graph->fieldOffset, 3);
+  }
+
+  if (nrs->lastStep)
+  {
+    delete graph;
+  }
+}

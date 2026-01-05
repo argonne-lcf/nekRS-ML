@@ -1,0 +1,5 @@
+#!/bin/bash
+
+rm -r gnn_outputs_poly*
+rm -r saved_models outputs ckpt
+rm run.sh train.log nekrs.log

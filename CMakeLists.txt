@@ -384,6 +384,7 @@ install(FILES src/udf/CMakeLists.txt DESTINATION udf)
 install(DIRECTORY src/nekInterface/ DESTINATION nekInterface REGEX "\.hpp$|\.cpp$" EXCLUDE)
 install(DIRECTORY 3rd_party/dist-gnn DESTINATION 3rd_party)
 install(DIRECTORY 3rd_party/sr-gnn DESTINATION 3rd_party)
+install(DIRECTORY 3rd_party/dgn DESTINATION 3rd_party)
 install(DIRECTORY doc/ DESTINATION doc)
 
 if (ENABLE_SMARTREDIS)
