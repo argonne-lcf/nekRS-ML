@@ -27,6 +27,7 @@ import torch
 import utils
 from trainer import DGNTrainer
 from client import OnlineClient
+import postprocess
 
 log = logging.getLogger(__name__)
 
@@ -131,32 +132,19 @@ def infer(cfg: DictConfig,
     # Sampling loop
     local_time = []
     local_throughput = []
-    stats = trainer.data['stats']
-    input_node_features = 3
+    n_features = cfg.input_node_features
     for i in range(cfg.num_gen_samples):
         # Initialize new random field and generate sample prediction
-        field_r = torch.randn(pos.size(0), pos.size(1), dtype=trainer.torch_dtype)
+        field_r = torch.randn(pos.size(0), n_features, dtype=trainer.torch_dtype)
         pred = trainer.sample(field_r)
-
+        pred = pred.cpu().numpy()
+        
         # Undo scaling
-        pred = pred * stats['std'] + stats['mean']
+        pred = pred * stats['x_std'] + stats['x_mean']
 
-        # Gather the prediction and graph position
-        if RANK == 0: log.info("Gathering data...")
-        pred = pred[:n_nodes_local]
-        pos = pos[:n_nodes_local]
-        if SIZE > 1:
-            pred_gathered = gather_wrapper(pred.cpu().numpy())
-            pos_gathered = gather_wrapper(pos.cpu().numpy())
-        else:
-            pred_gathered = pred.cpu().numpy()
-            pos_gathered = pos.cpu().numpy()
-
-        # Write the data
-        if RANK == 0:
-            log.info("Writing...")
-            np.save(cfg.inference_dir + f"/pred_{i}", pred_gathered)
-            np.save(cfg.inference_dir + f"/pos_{i}", pos_gathered)
+        # Postprocess the data
+        if cfg.postprocess:
+            postprocess.plot_2d_field(COMM, pos, pred, f"pred_{i}.png")
 
 
 @hydra.main(version_base=None, config_path='./conf', config_name='config')

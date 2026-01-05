@@ -829,11 +829,11 @@ class DGNTrainer:
         stats = {'x': []}
         if 'stats' not in self.data.keys():
             if os.path.exists(data_dir + f"/data_stats.npz"):
+                n_features = self.cfg.input_node_features
                 if RANK == 0:
                     npzfile = np.load(data_dir + f"/data_stats.npz")
-                    stats_arr_x = np.stack([npzfile['x_mean'][0], npzfile['x_std'][0]])
+                    stats_arr_x = np.stack([npzfile['x_mean'][0,:n_features], npzfile['x_std'][0,:n_features]])
                 else:
-                    n_features = self.data_list[0]['x'].shape[1]
                     stats_arr_x = np.zeros((2,n_features), dtype=np.float32)
                 COMM.Bcast(stats_arr_x, root=0)
                 stats['x'] = [stats_arr_x[0], stats_arr_x[1]]
@@ -911,9 +911,7 @@ class DGNTrainer:
             log.info(f"shape of x: {data['train'][0]['x'].shape}")
         train_data_scaled = []
         for item in  data['train']:
-            #tdict = {}
-            #data = ((item['x'] - stats['x'][0])/(stats['x'][1] + SMALL)).to(self.torch_dtype)
-            train_data_scaled.append(Data(x=((item['x'] - stats['x'][0])/(stats['x'][1] + SMALL)).to(self.torch_dtype)))
+            train_data_scaled.append(Data(x=((item['x'][:,:self.cfg.input_node_features] - stats['x'][0])/(stats['x'][1] + SMALL)).to(self.torch_dtype)))
         train_loader = DataLoader(train_data_scaled,
                                   batch_size=self.cfg.batch_size,
                                   shuffle=True)
@@ -921,8 +919,6 @@ class DGNTrainer:
         val_data_scaled = data['validation'].copy()
         if val_data_scaled[0]:
             for item in  val_data_scaled:
-                #tdict = {}
-                #tdict['x'] = ((item['x'] - stats['x'][0])/(stats['x'][1] + SMALL)).to(self.torch_dtype)
                 val_data_scaled.append(Data(x=((item['x'] - stats['x'][0])/(stats['x'][1] + SMALL)).to(self.torch_dtype)))
         valid_loader = DataLoader(val_data_scaled,
                                   batch_size=self.cfg.val_batch_size,
@@ -948,11 +944,11 @@ class DGNTrainer:
         data_dir = self.cfg.gnn_outputs_path
         stats = {'x': []}
         if os.path.exists(data_dir + f"/data_stats.npz"):
+            n_features = self.cfg.input_node_features
             if RANK == 0:
                 npzfile = np.load(data_dir + f"/data_stats.npz")
-                stats_arr_x = np.stack([npzfile['x_mean'][0], npzfile['x_std'][0]])
+                stats_arr_x = np.stack([npzfile['x_mean'][0,:n_features], npzfile['x_std'][0,:n_features]])
             else:
-                n_features = self.cfg.input_node_features
                 stats_arr_x = np.zeros((2,n_features), dtype=np.float32)
             COMM.Bcast(stats_arr_x, root=0)
             stats['x'] = [stats_arr_x[0], stats_arr_x[1]]
@@ -1151,7 +1147,7 @@ class DGNTrainer:
 
         # Assert step list is all integers and is sorted
         if steps is not None:
-            if RANK == 0: log.error('Passing a subset of steps is not supported yet')
+            if RANK == 0: log.error('Passing a list of steps is not supported yet')
             COMM.Abort(1)
         else:
             steps = list(range(self.cfg.num_diffusion_steps))
@@ -1187,12 +1183,13 @@ class DGNTrainer:
         if self.cfg.timers: self.update_timer('bufferInit', self.timer_step, time.time() - tic)
         
         # Prediction (de-noise step by step)
-        for r in diff_process.steps[::-1]:
-            if RANK == 0: log.info(f"Performing de-noise step {r}")
+        for step in diff_process.steps[::-1]:
+            if RANK == 0: log.info(f"Performing de-noise step {step}")
+            r = torch.tensor([step], device=self.device)
             tic = time.time()
             model_noise, model_var = self.model(
                                 field_r = field_r,
-                                r = torch.tensor([r], device=self.device),
+                                r = r,
                                 edge_index = graph.edge_index,
                                 edge_attr = graph.edge_attr,
                                 edge_weight = graph.edge_weight,
@@ -1206,24 +1203,18 @@ class DGNTrainer:
                                 cond_node_features = None, # TODO: Add conditional node features
                                 batch = graph.batch)
             if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
-            COMM.Barrier()
-            if RANK == 0: log.info(f"Done with forward pass")
 
             # Get the posterior mean and variance from the model output
-            betas_r = diff_process.get_index_from_list(diff_process.betas, graph.batch, graph.r)
-            sqrt_one_minus_alphas_cumprod_r = diff_process.get_index_from_list(diff_process.sqrt_one_minus_alphas_cumprod, graph.batch, graph.r)
-            sqrt_recip_alphas_r = diff_process.get_index_from_list(diff_process.sqrt_recip_alphas, graph.batch, graph.r)
-            variance = diff_process.get_index_from_list(diff_process.posterior_variance, graph.batch, graph.r)
-            mean =  sqrt_recip_alphas_r * (graph.field_r - betas_r * model_noise/sqrt_one_minus_alphas_cumprod_r)
+            betas_r = diff_process.get_index_from_list(diff_process.betas, graph.batch, r)
+            sqrt_one_minus_alphas_cumprod_r = diff_process.get_index_from_list(diff_process.sqrt_one_minus_alphas_cumprod, graph.batch, r)
+            sqrt_recip_alphas_r = diff_process.get_index_from_list(diff_process.sqrt_recip_alphas, graph.batch, r)
+            variance = diff_process.get_index_from_list(diff_process.posterior_variance, graph.batch, r)
+            mean =  sqrt_recip_alphas_r * (field_r - betas_r * model_noise/sqrt_one_minus_alphas_cumprod_r)
             #mean, variance = self.get_posterior_mean_and_variance_from_output(model_noise, graph, diff_process)
-            COMM.Barrier()
-            if RANK == 0: log.info(f"Done with posterior mean and variance")
 
             # Update field_r
             gaussian_noise = torch.randn_like(mean)
             field_r = mean + torch.sqrt(variance) * gaussian_noise
-            COMM.Barrier()
-            if RANK == 0: log.info(f"Done with update to field_r")
 
         # Update timers
         self.synchronize()
