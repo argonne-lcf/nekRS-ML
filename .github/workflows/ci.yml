@@ -1,12 +1,10 @@
 name: CI
 
 on:
-  # allows us to run workflows manually
-  workflow_dispatch:
-
   push:
+  pull_request:
     branches:
-      - master 
+      - main
 
 env:
   GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
@@ -22,8 +20,8 @@ defaults:
     shell: bash
 
 jobs:
-
   install:
+    name: install
     runs-on: ubuntu-latest
     steps:
 
@@ -38,7 +36,9 @@ jobs:
 
     - name: config and build
       run: |
-        CC=mpicc CXX=mpic++ FC=mpif77 ./build.sh -DENABLE_CVODE=OFF -DNEKRS_CXX_FLAGS=${{ env.NEKRS_COMPILER_FLAGS }} -DNEKRS_C_FLAGS=${{ env.NEKRS_COMPILER_FLAGS }} -DNEKRS_Fortran_FLAGS=${{ env.NEKRS_COMPILER_FLAGS }} -DCMAKE_INSTALL_PREFIX=${{ env.NEKRS_HOME }} -DOCCA_CXXFLAGS=${{ env.NEKRS_COMPILER_FLAGS }}
+        CC=mpicc CXX=mpic++ FC=mpif77 ./build.sh -DENABLE_CVODE=OFF -DNEKRS_CXX_FLAGS=${{ env.NEKRS_COMPILER_FLAGS }} \
+        -DNEKRS_C_FLAGS=${{ env.NEKRS_COMPILER_FLAGS }} -DNEKRS_Fortran_FLAGS=${{ env.NEKRS_COMPILER_FLAGS }} \
+        -DCMAKE_INSTALL_PREFIX=${{ env.NEKRS_HOME }} -DOCCA_CXXFLAGS=${{ env.NEKRS_COMPILER_FLAGS }}
         cmake --build build --target install -j 4
 
     - name: config tests 
@@ -52,11 +52,6 @@ jobs:
         retention-days: 2 
         path: ${{ env.NEKRS_HOME }}
         if-no-files-found: error
-
-#    - name: Setup tmate session
-#      uses: mxschmitt/action-tmate@v3
-#      timeout-minutes: 3 
-#      if: ${{ github.event_name == 'workflow_dispatch' }}
 
   ethier:
     needs: install
