@@ -91,7 +91,7 @@ echo "    affinity: \"./${SAFF_FILE}\"" >> $CFILE
 echo "" >> $CFILE
 echo "# Trainer config" >> $CFILE
 echo "train:" >> $CFILE
-echo "    executable: \"${NEKRS_HOME}/3rd_party/dist-gnn/main.py\"" >> $CFILE
+echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/dist/main.py\"" >> $CFILE
 #echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
 echo "    affinity: \"\"" >> $CFILE
 if [ ${DEPLOYMENT} == "colocated"  ]; then
