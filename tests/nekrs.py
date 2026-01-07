@@ -186,6 +186,9 @@ class NekRSTest(RunOnlyTest):
         self.executable = f"{self.nekrs_binary}"
         self.executable_opts = self.get_nekrs_executable_options()
 
+    def get_gnn_dist_dir(self):
+        return os.path.join(self.nekrs_home, "3rd_party", "gnn", "dist")
+
     @run_before("run")
     def setup_run(self):
         self.set_environment()
@@ -223,6 +226,7 @@ class NekRSMLTest(NekRSTest):
         # Initialize missing arguments with default values from setup_case script.
         self.ml_args = init_missing_args(kwargs)
         self.descr = f"NekRS-ML {self.ml_args['test_type']} test"
+        self.tags = {"all"}
 
     @cache
     def get_mpiexec(self):
@@ -255,10 +259,8 @@ class NekRSMLTest(NekRSTest):
         return os.path.join(self.stagedir, self.get_traj_root())
 
     @cache
-    def get_check_input_files(self):
-        return os.path.join(
-            self.nekrs_home, "3rd_party", "dist-gnn", "check_input_files.py"
-        )
+    def get_check_input_files_path(self):
+        return os.path.join(self.get_gnn_dist_dir(), "check_input_files.py")
 
     @cache
     def get_max_ranks(self):
@@ -300,12 +302,7 @@ class NekRSMLTest(NekRSTest):
     def check_halo_info_cmd(self):
         halo_info = [
             "python",
-            os.path.join(
-                self.nekrs_home,
-                "3rd_party",
-                "dist-gnn",
-                "create_halo_info_par.py",
-            ),
+            os.path.join(self.get_gnn_dist_dir(), "create_halo_info_par.py"),
             "--POLY",
             str(self.get_order()),
             "--PATH",
@@ -316,7 +313,7 @@ class NekRSMLTest(NekRSTest):
     def check_input_files_cmd(self):
         return list_to_cmd([
             "python",
-            self.get_check_input_files(),
+            self.get_check_input_files_path(),
             "--REF",
             os.path.join(self.sourcesdir, "ref"),
             "--PATH",
@@ -334,7 +331,7 @@ class NekRSMLTest(NekRSTest):
             suffix = f"data_rank_{rank}_size_{ranks}"
             cmd = list_to_cmd([
                 "python",
-                self.get_check_input_files(),
+                self.get_check_input_files_path(),
                 "--REF",
                 os.path.join(
                     self.sourcesdir, "ref", self.get_traj_root(), suffix
@@ -360,7 +357,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
     def set_executable_options(self):
         self.executable = list_to_cmd([
             "python",
-            os.path.join(self.nekrs_home, "3rd_party", "dist-gnn", "main.py"),
+            os.path.join(self.get_gnn_dist_dir(), "main.py"),
         ])
 
         # FIXME: master_addr=$head_node
@@ -481,7 +478,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write("# Trainer config\n")
             f.write("train:\n")
             f.write(
-                f'    executable: "{os.path.join(self.nekrs_home, "3rd_party", "dist-gnn", "main.py")}"\n'
+                f'    executable: "{os.path.join(self.get_gnn_dist_dir(), "main.py")}"\n'
             )
             f.write('    affinity: ""\n')
             f.write(

@@ -1,6 +1,6 @@
 [project]
 version = "0.0.1"
-name = "nekrs_ml"
+name = "nekrs_ml_tests"
 description = "ReFrame implementation of nekRS-ML examples"
 dependencies = [
     "reframe-hpc>=4.8.4",
