@@ -1,0 +1,45 @@
+[project]
+version = "0.0.1"
+name = "nekrs_ml_python"
+description = "Python implementations of nekRS-ML"
+license = "MIT"
+authors = [
+    { name = "Riccardo Balin", email = "rbalin@anl.gov" },
+    { name = "Shivam Barwey"},
+    { name = "Thilina Ratnayaka", email = "tratnayaka@anl.gov" },
+]
+requires-python = "==3.13.*"
+
+[tool.ruff]
+preview = true
+line-length = 80
+
+[tool.ruff.lint]
+extend-select = [
+    "B",   # flake8-bugbear
+    "C",   # flake8-comprehensions
+    "E",   # pycodestyle
+    "F",   # pyflakes
+
+    "I",   # flake8-isort
+
+    "N",   # pep8-naming
+    "Q",   # flake8-quotes
+    "W",   # pycodestyle
+
+    "UP",  # pyupgrade
+    "RUF",  # ruff
+]
+
+[tool.ruff.lint.flake8-quotes]
+docstring-quotes = "double"
+inline-quotes = "double"
+multiline-quotes = "double"
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
+[dependency-groups]
+dev = [
+    "ruff>=0.13.2",
+]
