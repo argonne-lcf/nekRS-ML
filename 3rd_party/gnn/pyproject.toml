@@ -1,12 +1,11 @@
 [project]
 version = "0.0.1"
-name = "nekrs_ml_tests"
-description = "ReFrame implementation of nekRS-ML examples"
-dependencies = [
-    "reframe-hpc>=4.8.4",
-]
+name = "nekrs_ml_python"
+description = "Python implementations of nekRS-ML"
 license = "MIT"
 authors = [
+    { name = "Riccardo Balin", email = "rbalin@anl.gov" },
+    { name = "Shivam Barwey"},
     { name = "Thilina Ratnayaka", email = "tratnayaka@anl.gov" },
 ]
 requires-python = "==3.13.*"

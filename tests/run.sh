@@ -29,7 +29,7 @@ print_help() {
   echo ""
   echo "Examples:"
   echo "  To run all the tests:"
-  echo "    ./$(basename "$0") -b"
+  echo "    ./$(basename "$0") -t all -b"
   echo "  To run all the offline tests:"
   echo "    ./$(basename "$0") -t offline -b"
   echo "  To run all the online tests:"

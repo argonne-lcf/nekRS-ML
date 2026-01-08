@@ -26,14 +26,15 @@ def topk(x, ratio, batch, min_score=None, tol=1e-7):
         batch_size, max_num_nodes = num_nodes.size(0), num_nodes.max().item()
 
         cum_num_nodes = torch.cat(
-            [num_nodes.new_zeros(1),
-             num_nodes.cumsum(dim=0)[:-1]], dim=0)
+            [num_nodes.new_zeros(1), num_nodes.cumsum(dim=0)[:-1]], dim=0
+        )
 
         index = torch.arange(batch.size(0), dtype=torch.long, device=x.device)
         index = (index - cum_num_nodes[batch]) + (batch * max_num_nodes)
 
-        dense_x = x.new_full((batch_size * max_num_nodes, ),
-                             torch.finfo(x.dtype).min)
+        dense_x = x.new_full(
+            (batch_size * max_num_nodes,), torch.finfo(x.dtype).min
+        )
         dense_x[index] = x
         dense_x = dense_x.view(batch_size, max_num_nodes)
 
@@ -43,14 +44,15 @@ def topk(x, ratio, batch, min_score=None, tol=1e-7):
         perm = perm.view(-1)
 
         if isinstance(ratio, int):
-            k = num_nodes.new_full((num_nodes.size(0), ), ratio)
+            k = num_nodes.new_full((num_nodes.size(0),), ratio)
             k = torch.min(k, num_nodes)
         else:
             k = (ratio * num_nodes.to(torch.float)).ceil().to(torch.long)
 
         mask = [
-            torch.arange(k[i], dtype=torch.long, device=x.device) +
-            i * max_num_nodes for i in range(batch_size)
+            torch.arange(k[i], dtype=torch.long, device=x.device)
+            + i * max_num_nodes
+            for i in range(batch_size)
         ]
         mask = torch.cat(mask, dim=0)
 
@@ -62,7 +64,7 @@ def topk(x, ratio, batch, min_score=None, tol=1e-7):
 def filter_adj(edge_index, edge_attr, perm, num_nodes=None):
     num_nodes = maybe_num_nodes(edge_index, num_nodes)
 
-    mask = perm.new_full((num_nodes, ), -1)
+    mask = perm.new_full((num_nodes,), -1)
     i = torch.arange(perm.size(0), dtype=torch.long, device=perm.device)
     mask[perm] = i
 
@@ -129,9 +131,15 @@ class TopKPooling_Mod(torch.nn.Module):
         nonlinearity (torch.nn.functional, optional): The nonlinearity to use.
             (default: :obj:`torch.tanh`)
     """
-    def __init__(self, in_channels: int, ratio: Union[int, float] = 0.5,
-                 min_score: Optional[float] = None, multiplier: float = 1.,
-                 nonlinearity: Callable = torch.tanh):
+
+    def __init__(
+        self,
+        in_channels: int,
+        ratio: Union[int, float] = 0.5,
+        min_score: Optional[float] = None,
+        multiplier: float = 1.0,
+        nonlinearity: Callable = torch.tanh,
+    ):
         super().__init__()
 
         self.in_channels = in_channels
@@ -168,77 +176,88 @@ class TopKPooling_Mod(torch.nn.Module):
         x = self.multiplier * x if self.multiplier != 1 else x
 
         batch = batch[perm]
-        edge_index, edge_attr, edge_mask = filter_adj(edge_index, edge_attr, perm,
-                                           num_nodes=score.size(0))
+        edge_index, edge_attr, edge_mask = filter_adj(
+            edge_index, edge_attr, perm, num_nodes=score.size(0)
+        )
 
         return x, edge_index, edge_attr, batch, perm, edge_mask, score[perm]
 
     def __repr__(self) -> str:
         if self.min_score is None:
-            ratio = f'ratio={self.ratio}'
+            ratio = f"ratio={self.ratio}"
         else:
-            ratio = f'min_score={self.min_score}'
+            ratio = f"min_score={self.min_score}"
 
-        return (f'{self.__class__.__name__}({self.in_channels}, {ratio}, '
-                f'multiplier={self.multiplier})')
-
+        return (
+            f"{self.__class__.__name__}({self.in_channels}, {ratio}, "
+            f"multiplier={self.multiplier})"
+        )
 
 
 # Edge pooling
-def pool_edge_mean(cluster, edge_index, edge_attr: Optional[torch.Tensor] = None):
+def pool_edge_mean(
+    cluster, edge_index, edge_attr: Optional[torch.Tensor] = None
+):
     num_nodes = cluster.size(0)
-    edge_index = cluster[edge_index.view(-1)].view(2, -1) 
+    edge_index = cluster[edge_index.view(-1)].view(2, -1)
     edge_index, edge_attr = remove_self_loops(edge_index, edge_attr)
     if edge_index.numel() > 0:
-        edge_index, edge_attr = coalesce(edge_index, edge_attr, reduce='mean')
+        edge_index, edge_attr = coalesce(edge_index, edge_attr, reduce="mean")
     return edge_index, edge_attr
 
 
-
-
-# avg pooling 
+# avg pooling
 def avg_pool_mod(cluster, x, edge_index, edge_attr, batch, pos):
-    # Makes cluster indices consecutive, to allow for scatter operations 
+    # Makes cluster indices consecutive, to allow for scatter operations
     # -- cluster = [0, 0, 4, 3, 3, 4]
     # -- cons_cluster = [0, 0, 2, 1, 1, 2]
     cluster, perm = consecutive_cluster(cluster)
 
-    # Pool node attributes 
+    # Pool node attributes
     # x_pool = None if x is None else _avg_pool_x(cluster, x)
-    x_pool = None if x is None else scatter(x, cluster, dim=0, dim_size=None, reduce='mean')
+    x_pool = (
+        None
+        if x is None
+        else scatter(x, cluster, dim=0, dim_size=None, reduce="mean")
+    )
 
-    # Pool edge attributes 
-    edge_index_pool, edge_attr_pool = pool_edge_mean(cluster, edge_index, edge_attr)
+    # Pool edge attributes
+    edge_index_pool, edge_attr_pool = pool_edge_mean(
+        cluster, edge_index, edge_attr
+    )
 
-    # Pool batch 
+    # Pool batch
     batch_pool = None if batch is None else batch[perm]
 
-    # Pool node positions 
+    # Pool node positions
     pos_pool = None if pos is None else scatter_mean(pos, cluster, dim=0)
 
-    return x_pool, edge_index_pool, edge_attr_pool, batch_pool, pos_pool, cluster, perm
-
-
+    return (
+        x_pool,
+        edge_index_pool,
+        edge_attr_pool,
+        batch_pool,
+        pos_pool,
+        cluster,
+        perm,
+    )
 
 
 def avg_pool_mod_no_x(cluster, edge_index, edge_attr, batch, pos):
-    # Makes cluster indices consecutive, to allow for scatter operations 
+    # Makes cluster indices consecutive, to allow for scatter operations
     # -- cluster = [0, 0, 4, 3, 3, 4]
     # -- cons_cluster = [0, 0, 2, 1, 1, 2]
     cluster, perm = consecutive_cluster(cluster)
 
-    # Pool edge attributes 
-    edge_index_pool, edge_attr_pool = pool_edge_mean(cluster, edge_index, edge_attr)
+    # Pool edge attributes
+    edge_index_pool, edge_attr_pool = pool_edge_mean(
+        cluster, edge_index, edge_attr
+    )
 
-    # Pool batch 
+    # Pool batch
     batch_pool = None if batch is None else batch[perm]
 
-    # Pool node positions 
+    # Pool node positions
     pos_pool = None if pos is None else scatter_mean(pos, cluster, dim=0)
 
     return edge_index_pool, edge_attr_pool, batch_pool, pos_pool, cluster, perm
-
-
-
-
-

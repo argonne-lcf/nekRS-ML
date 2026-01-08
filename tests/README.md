@@ -49,7 +49,7 @@ Options:
 Examples:
 ```
   To run all the tests:
-    ./run.sh -b -prj <PROJECT>
+    ./run.sh -t all -b
   To run all the offline tests:
     ./run.sh -t offline -b
   To run all the online tests:

@@ -180,7 +180,7 @@ wheels = [
 ]
 
 [[package]]
-name = "nekrs-ml"
+name = "nekrs-ml-tests"
 version = "0.0.1"
 source = { virtual = "." }
 dependencies = [
