@@ -126,7 +126,8 @@ class DiffusionProcess:
         sqrt_alphas_cumprod_t = self.get_index_from_list(self.sqrt_alphas_cumprod, batch, r) # Dimensions: (num_nodes, 1)
         sqrt_one_minus_alphas_cumprod_t = self.get_index_from_list(self.sqrt_one_minus_alphas_cumprod, batch, r) # Dimensions: (num_nodes, 1)
         # Apply the diffusion process. The coefficients are shared across the field dimension.
-        return sqrt_alphas_cumprod_t * field_start + sqrt_one_minus_alphas_cumprod_t * noise, noise # Dimensions: (num_nodes, num_fields), (num_nodes, num_fields)
+        field_r = sqrt_alphas_cumprod_t * field_start + sqrt_one_minus_alphas_cumprod_t * noise
+        return field_r, noise # Dimensions: (num_nodes, num_fields), (num_nodes, num_fields)
 
     def sample_r(
         self,

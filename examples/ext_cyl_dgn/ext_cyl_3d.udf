@@ -37,10 +37,11 @@ void UDF_ExecuteStep(double time, int tstep)
     outStream << std::fixed << std::setprecision(1) << time_rounded;
     std::string time_rounded_string = outStream.str();
 
-    dfloat *U = new dfloat[graph->mesh->dim * graph->fieldOffset]();
-    graph->interpolateField(nrs, nrs->o_U, U, graph->mesh->dim);
+    int num_dim = 2;
+    dfloat *U = new dfloat[num_dim * graph->fieldOffset]();
+    graph->interpolateField(nrs, nrs->o_U, U, num_dim);
     writeToFileBinaryF(graph->writePath + "/fld_u_time_" + time_rounded_string + irank + nranks + ".bin",
-                U, graph->fieldOffset, 3);
+                U, graph->fieldOffset, num_dim);
   }
 
   if (nrs->lastStep)

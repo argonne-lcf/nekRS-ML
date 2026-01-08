@@ -2,6 +2,8 @@
 Postprocessing utilities for the DGN model.
 """
 
+import argparse
+import re
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -43,3 +45,48 @@ def plot_2d_field(comm, pos: np.ndarray, field: np.ndarray, filename: str):
             fig.colorbar(sc, ax=ax)
         plt.savefig(filename)
         plt.close()
+
+def plot_training_loss(log_file: str):
+    """
+    Plot the training loss from a log file
+    """
+    steps = []
+    losses = []
+    running_losses = []
+    with open(log_file, 'r') as f:
+        for line in f:
+            # Extract step number and loss value
+            step_match = re.search(r'\[STEP (\d+)\]', line)
+            loss_match = re.search(r'loss=([\d.e+-]+)', line)
+            running_loss_match = re.search(r'r_loss=([\d.e+-]+)', line)
+
+            if step_match and loss_match and running_loss_match:
+                step = int(step_match.group(1))
+                loss = float(loss_match.group(1))
+                running_loss = float(running_loss_match.group(1))
+                steps.append(step)
+                running_losses.append(running_loss)
+                losses.append(loss)
+
+    # Plot
+    plt.figure(figsize=(8, 6))
+    plt.plot(steps, losses, label='Loss', linewidth=1)
+    plt.plot(steps, running_losses, label='Running Loss', linewidth=1)
+    plt.xlabel('Steps')
+    plt.ylabel('Loss')
+    plt.title('Training Loss vs Steps')
+    plt.grid(True, alpha=0.3)
+    plt.legend(loc='upper right')
+    plt.tight_layout()
+    plt.savefig('loss_plot.png', dpi=150)
+
+
+if __name__ == '__main__':
+    # use argparse to get the log file
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--task', type=str, required=True, choices=['loss'], help='Task to perform')
+    parser.add_argument('--log_file', type=str, default='log.txt', help='Log file to plot')
+    args = parser.parse_args()
+
+    if args.task == 'loss':
+        plot_training_loss(args.log_file)

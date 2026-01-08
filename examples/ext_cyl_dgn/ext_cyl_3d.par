@@ -2,7 +2,7 @@
 polynomialOrder = 3
 #startFrom = "restart.fld"+time=0
 stopAt = numSteps
-numSteps = 10000
+numSteps = 15000
 
 timeStepper = tombo2
 dt = targetCFL=2.0 + max=2e-2 + initial=1e-5

@@ -118,9 +118,6 @@ class DGNTrainer:
         if self.cfg.online:
             log.warning('Online backends not implemented for this model yet')
             COMM.Abort(1)
-        if self.cfg.batch_size > 1 or self.cfg.val_batch_size > 1:
-            log.error('Only batch size 1 is currently supported')
-            COMM.Abort(1)
 
         # ~~~ Initialize DDP
         if WITH_DDP:
@@ -340,6 +337,7 @@ class DGNTrainer:
             'layer_norm': self.cfg.layer_norm,
             'dropout_rate': self.cfg.dropout_rate,
             'emb_width': self.cfg.emb_width,
+            #'learnable_variance': self.cfg.learnable_variance,
             'name': 'POLY_%d_SIZE_%d_SEED_%d' %(poly,SIZE,self.cfg.seed)
         }
         # TODO: this is where things like Re, num_pins, distance to wall, etc. would go
@@ -793,7 +791,7 @@ class DGNTrainer:
         log.info(f'[RANK {RANK}]: Found {len(files)} field files to load')
         for i in range(len(files)):
             tic = time.time()
-            data_x = self.load_data(files[i], dtype=np.float64).reshape((-1,3))
+            data_x = self.load_data(files[i], dtype=np.float64).reshape((-1,self.cfg.input_node_features))
             toc = time.time()
             if self.cfg.online:
                 self.online_timers['trainDataTime'].append(toc-tic)
@@ -1073,22 +1071,24 @@ class DGNTrainer:
         if self.cfg.timers: self.update_timer('bufferInit', self.timer_step, time.time() - tic)
         
         # Sample a batch of random diffusion steps
-        r, weights = self.step_sampler.sample(batch_size=self.cfg.batch_size)
+        batch_size = torch.max(data.batch) + 1
+        r, weights = self.step_sampler.sample(batch_size=batch_size)
         if self.cfg.verbose:
-            if RANK == 0: log.info(f"Sampled diffusion steps: {r.cpu().numpy().tolist()} for batch size {self.cfg.batch_size}")
+            if RANK == 0: log.info(f"Sampled diffusion steps: {r.cpu().numpy().tolist()} for batch size {batch_size}")
 
         # Diffuse the solution/target field
         BC_mask = None # no BCs for now
-        field_r, noise = self.diffusion_process.forward(data['x'][:,:self.cfg.input_node_features], r, BC_mask)
+        field_r, noise = self.diffusion_process.forward(data.x[:,:self.cfg.input_node_features],
+                                                        r, 
+                                                        batch=data.batch, 
+                                                        dirichlet_mask=BC_mask)
         if self.cfg.postprocess and self.iteration%100 == 0:
-            postprocess.plot_2d_field(COMM, graph.pos, field_r.cpu().numpy(), f'field_r_r{r.item()}.png')
-            postprocess.plot_2d_field(COMM, graph.pos, data['x'][:,:self.cfg.input_node_features].cpu().numpy(), f'data_x_r{r.item()}.png')
+            postprocess.plot_2d_field(COMM, graph.pos, field_r[data.batch==0].cpu().numpy(), f'field_r_r{r[0]}.png')
+            postprocess.plot_2d_field(COMM, graph.pos, data.x[data.batch==0,:self.cfg.input_node_features].cpu().numpy(), f'data_x_r{r[0]}.png')
             COMM.Barrier()
         if self.cfg.verbose:
-            if RANK == 0: log.info(f"Performed forward diffusion process on {self.cfg.batch_size} solution fields")
             if RANK == 0: 
-                log.info(f"Shape of field_r: {field_r.shape}, shape of x: {data['x'].shape}, shape of r: {r.shape}")
-                log.info(f"graph.batch: {graph.batch}")
+                log.info(f"Shape of field_r: {field_r.shape}, shape of x: {data.x.shape}, shape of r: {r.shape}")
         
         # Prediction
         tic = time.time()
@@ -1106,10 +1106,10 @@ class DGNTrainer:
                              neighboring_procs = self.neighboring_procs,
                              SIZE = SIZE,
                              cond_node_features = None, # TODO: Add conditional node features
-                             batch = graph.batch)
+                             batch = data.batch)
         if self.cfg.postprocess and self.iteration%100 == 0:
-            postprocess.plot_2d_field(COMM, graph.pos, model_noise.detach().cpu().numpy(), f'model_noise_r{r.item()}.png')
-            postprocess.plot_2d_field(COMM, graph.pos, noise.cpu().numpy(), f'noise_r{r.item()}.png')
+            postprocess.plot_2d_field(COMM, graph.pos, model_noise[data.batch==0].detach().cpu().numpy(), f'model_noise_r{r[0]}.png')
+            postprocess.plot_2d_field(COMM, graph.pos, noise[data.batch==0].cpu().numpy(), f'noise_r{r[0]}.png')
             COMM.Barrier()
         if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
 

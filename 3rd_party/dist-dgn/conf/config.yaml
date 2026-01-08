@@ -22,6 +22,7 @@ num_diffusion_steps: 100
 diffusion_step_sampler: "uniform"
 num_gen_samples: 1
 input_node_features: 3
+learnable_variance: False
 
 # Modeling task
 model_task: "train"
