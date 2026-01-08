@@ -187,7 +187,7 @@ class NekRSTest(RunOnlyTest):
         self.executable_opts = self.get_nekrs_executable_options()
 
     def get_gnn_dist_dir(self):
-        return os.path.join(self.nekrs_home, "3rd_party", "gnn", "dist")
+        return os.path.join(self.nekrs_home, "3rd_party", "gnn", "dist-gnn")
 
     @run_before("run")
     def setup_run(self):

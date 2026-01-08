@@ -135,14 +135,14 @@ echo "    affinity: \"./${SAFF_FILE}\"" >> $CFILE
 echo "" >> $CFILE
 echo "# Trainer config" >> $CFILE
 echo "train:" >> $CFILE
-echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/dist/main.py\"" >> $CFILE
+echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/dist-gnn/main.py\"" >> $CFILE
 #echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
 echo "    affinity: \"\"" >> $CFILE
 echo "    arguments: \"device_skip=${DEVICE_SKIP} precision=bf16 phase1_steps=200 hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=xccl halo_swap_mode=all_to_all_opt online=True client.backend=adios client.adios_transport=RDMA online_update_freq=20 time_dependency=time_dependent verbose=True\"" >> $CFILE
 echo "" >> $CFILE
 echo "# Inference config" >> $CFILE
 echo "inference:" >> $CFILE
-echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/dist/inference.py\"" >> $CFILE
+echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/dist-gnn/inference.py\"" >> $CFILE
 #echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
 echo "    affinity: \"\"" >> $CFILE
 echo "    arguments: \"model_task=inference rollout_steps=100 hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=xccl halo_swap_mode=all_to_all_opt online=True client.backend=adios time_dependency=time_dependent verbose=True\"" >> $CFILE
