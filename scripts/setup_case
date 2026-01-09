@@ -337,3 +337,4 @@ setup_case
 load_modules
 setup_venv
 generate_script
+echo -e "\033[35mExecute \"run.sh\" script from a compute node to run the example.\033[m"
