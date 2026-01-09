@@ -253,12 +253,7 @@ function build_smartsim() {
   cwd=$PWD
 
   cd ${VENV_PATH}
-  if [ ! -d SmartSim ]; then
-    git clone https://github.com/rickybalin/SmartSim.git
-  fi
-  cd SmartSim
-  git checkout rollback_aurora
-  pip install -e .
+  pip install -e git+https://github.com/rickybalin/SmartSim.git@rollback_aurora
 
   if [ ${SYSTEM} == "aurora" ]; then
     DEVICE="cpu"
