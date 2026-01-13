@@ -253,7 +253,7 @@ function install_smartsim() {
   cwd=$PWD
 
   cd ${VENV_PATH}
-  pip install -e git+https://github.com/rickybalin/SmartSim.git@rollback_aurora
+  pip install git+https://github.com/rickybalin/SmartSim.git@rollback_aurora
 
   if [ ${SYSTEM} == "aurora" ]; then
     DEVICE="cpu"
@@ -279,18 +279,14 @@ function install_parrsb() {
   git clone https://github.com/thilinarmtb/parRSB.git -b general_graph
   cd parRSB
   cmake -B build -S . -DCMAKE_INSTALL_PREFIX=${VENV_PATH}
-  cd build
-  make install
-  cd ${VENV_PATH}
+  cmake --build build
+  cmake --install build
 
   # Build parRSB.py
-  git clone https://github.com/thilinarmtb/parRSB.py.git
-  cd parRSB.py
-  CMAKE_MODULE_PATH=${VENV_PATH} uv pip install -e .
-  cd ${VENV_PATH}
+  CMAKE_MODULE_PATH=${VENV_PATH} uv pip install git+https://github.com/thilinarmtb/parRSB.py.git
 
   # Cleanup
-  rm -rf parRSB parRSB.py
+  rm -rf ${VENV_PATH}/parRSB
 
   cd ${cwd}
 }
