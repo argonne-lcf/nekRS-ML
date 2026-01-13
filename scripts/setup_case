@@ -240,7 +240,7 @@ function load_modules() {
   fi
 }
 
-function build_smartsim() {
+function install_smartsim() {
   if [ "${SYSTEM}" == "polaris" ]; then
     export CC=cc
     export CXX=CC
@@ -302,17 +302,14 @@ function setup_venv() {
     
     pip install pymech
 
-    if [ "${CLIENT}" == "smartredis" ]; then
-      build_smartsim
-    fi
   else
     echo -e "\033[35mPython venv \"${VENV_PATH}\" already exists, reusing it ... \033[m"
     source ${VENV_PATH}/bin/activate
-    if [ "${CLIENT}" == "smartredis" ]; then
-      if ! pip show smartsim > /dev/null 2>&1; then
-        echo -e "\033[35mRequested the smartredis backend, but SmartSim is not installed \033[m"
-        build_smartsim
-      fi
+  fi
+
+  if [ "${CLIENT}" == "smartredis" ]; then
+    if ! pip show smartsim > /dev/null 2>&1; then
+      install_smartsim
     fi
   fi
 }
