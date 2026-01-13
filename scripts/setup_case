@@ -270,6 +270,31 @@ function install_smartsim() {
   cd ${cwd}
 }
 
+function install_parrsb() {
+  cwd=$PWD
+
+  cd ${VENV_PATH}
+
+  # Build parRSB
+  git clone https://github.com/thilinarmtb/parRSB.git -b general_graph
+  cd parRSB
+  cmake -B build -S . -DCMAKE_INSTALL_PREFIX=${VENV_PATH}
+  cd build
+  make install
+  cd ${VENV_PATH}
+
+  # Build parRSB.py
+  git clone https://github.com/thilinarmtb/parRSB.py.git
+  cd parRSB.py
+  CMAKE_MODULE_PATH=${VENV_PATH} env uv pip install -e .
+  cd ${VENV_PATH}
+
+  # Cleanup
+  rm -rf parRSB parRSB.py
+
+  cd ${cwd}
+}
+
 function setup_venv() {
   if [ ! -d ${VENV_PATH} ]; then
     echo -e "\033[35mPython venv \"${VENV_PATH}\" doesn't exist, building one now ...\033[m"
@@ -302,6 +327,7 @@ function setup_venv() {
     
     pip install pymech
 
+    install_parrsb
   else
     echo -e "\033[35mPython venv \"${VENV_PATH}\" already exists, reusing it ... \033[m"
     source ${VENV_PATH}/bin/activate
