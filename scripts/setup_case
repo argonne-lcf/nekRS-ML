@@ -286,7 +286,7 @@ function install_parrsb() {
   # Build parRSB.py
   git clone https://github.com/thilinarmtb/parRSB.py.git
   cd parRSB.py
-  CMAKE_MODULE_PATH=${VENV_PATH} env uv pip install -e .
+  CMAKE_MODULE_PATH=${VENV_PATH} uv pip install -e .
   cd ${VENV_PATH}
 
   # Cleanup
