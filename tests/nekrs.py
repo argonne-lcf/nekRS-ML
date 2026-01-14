@@ -85,7 +85,6 @@ class SmartRedisBuild(CompileOnlyTest):
 
 
 class NekRSBuild(CompileOnlyTest):
-    version = variable(str, value="2024-11-22")
     smartredis_build = fixture(SmartRedisBuild, scope="environment")
 
     def __init__(self):
