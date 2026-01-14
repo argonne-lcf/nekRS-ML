@@ -275,14 +275,13 @@ function install_parrsb() {
 
   cd ${VENV_PATH}
 
-  # Build parRSB
+  # Install parRSB
   git clone https://github.com/thilinarmtb/parRSB.git -b general_graph
   cd parRSB
   cmake -B build -S . -DCMAKE_INSTALL_PREFIX=${VENV_PATH}
-  cmake --build build
-  cmake --install build
+  cmake --build build --target install
 
-  # Build parRSB.py
+  # Install parRSB.py
   CMAKE_MODULE_PATH=${VENV_PATH} uv pip install git+https://github.com/thilinarmtb/parRSB.py.git
 
   # Cleanup
