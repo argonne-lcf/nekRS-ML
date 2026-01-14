@@ -50,42 +50,95 @@ def plot_training_loss(log_file: str):
     """
     Plot the training loss from a log file
     """
-    steps = []
+    iterations = []
     losses = []
     running_losses = []
+    mse_losses = []
+    mse_steps = []  # Training steps corresponding to MSE losses
+    vlb_losses = []
+    per_step_mse_losses = {i: [] for i in range(100)}
+    current_training_step = None
+    last_diffusion_steps = None
+    
     with open(log_file, 'r') as f:
         for line in f:
             # Extract step number and loss value
-            step_match = re.search(r'\[STEP (\d+)\]', line)
+            iter_match = re.search(r'\[STEP (\d+)\]', line)
             loss_match = re.search(r'loss=([\d.e+-]+)', line)
-            running_loss_match = re.search(r'r_loss=([\d.e+-]+)', line)
-
-            if step_match and loss_match and running_loss_match:
-                step = int(step_match.group(1))
+            running_loss_match = re.search(r'r_loss=([\d.e+-]+)', line)            
+            mse_loss_match = re.search(r'MSE loss term: \[([\d.,\s.e+-]+)\], mean = ([\d.e+-]+)', line)
+            #mse_loss_match_old = re.search(r'MSE loss term: ([\d.e+-]+)$', line)
+            vlb_loss_match = re.search(r'VLB loss term: ([\d.e+-]+)', line)            
+            diffusion_steps_match = re.search(r'Sampled diffusion steps: \[([\d,\s]+)\]', line)
+                
+            if iter_match and loss_match:
+                iteration = int(iter_match.group(1))
                 loss = float(loss_match.group(1))
-                running_loss = float(running_loss_match.group(1))
-                steps.append(step)
-                running_losses.append(running_loss)
+                iterations.append(iteration)
                 losses.append(loss)
+            if iter_match and running_loss_match:
+                running_loss = float(running_loss_match.group(1))
+                running_losses.append(running_loss)
 
-    # Plot
+            if diffusion_steps_match:
+                steps_str = diffusion_steps_match.group(1)
+                steps = [int(x.strip()) for x in steps_str.split(',')]
+            
+            if mse_loss_match:
+                # Extract the mean
+                mse_loss_mean = float(mse_loss_match.group(2))
+                mse_losses.append(mse_loss_mean)
+                # Extract the list of loss values
+                loss_list_str = mse_loss_match.group(1)
+                loss_values = [float(x.strip()) for x in loss_list_str.split(',')]
+                for step, loss_val in zip(steps, loss_values):
+                    per_step_mse_losses[step].append(loss_val)
+            if vlb_loss_match:
+                vlb_loss = float(vlb_loss_match.group(1))
+                vlb_losses.append(vlb_loss)
+                
+
+    # Plot loss vs iterations
     plt.figure(figsize=(8, 6))
-    plt.plot(steps, losses, label='Loss', linewidth=1)
-    plt.plot(steps, running_losses, label='Running Loss', linewidth=1)
-    plt.xlabel('Steps')
+    plt.plot(iterations, losses, label='Loss', linewidth=1)
+    if len(mse_losses) > 0:
+        plt.plot(iterations, mse_losses, label='MSE Loss', linewidth=1)
+    if len(vlb_losses) > 0:
+        plt.plot(iterations, vlb_losses, label='VLB Loss', linewidth=1)
+    if len(running_losses) > 0:
+        plt.plot(iterations, running_losses, label='Running Loss', linewidth=1)
+    plt.xlabel('Iterations')
     plt.ylabel('Loss')
     plt.title('Training Loss vs Steps')
     plt.grid(True, alpha=0.3)
+    #plt.yscale('log')
+    plt.xlim(-100,2600)
     plt.legend(loc='upper right')
     plt.tight_layout()
     plt.savefig('loss_plot.png', dpi=150)
+
+    # Plot loss vs diffusion steps
+    plt.figure(figsize=(8, 6))
+    steps = sorted([s for s in per_step_mse_losses.keys() if len(per_step_mse_losses[s]) > 0])
+    # Filter to plot only every step_interval steps
+    steps_to_plot = steps[::10]
+    for step in steps_to_plot:
+        plt.plot([i for i in range(len(per_step_mse_losses[step]))], per_step_mse_losses[step], label=f'{step}', linewidth=1)
+    plt.xlabel('Instances in training')
+    plt.ylabel('Loss')
+    plt.title('Training Loss for Diffusion Steps')
+    plt.grid(True, alpha=0.3)
+    plt.legend(loc='upper right')
+    plt.yscale('log')
+    plt.tight_layout()
+    plt.savefig('loss_plot_diffusion_steps.png', dpi=150)
 
 
 if __name__ == '__main__':
     # use argparse to get the log file
     parser = argparse.ArgumentParser()
     parser.add_argument('--task', type=str, required=True, choices=['loss'], help='Task to perform')
-    parser.add_argument('--log_file', type=str, default='log.txt', help='Log file to plot')
+    parser.add_argument('--log_file', type=str, default='train.log', help='Log file to plot')
     args = parser.parse_args()
 
     if args.task == 'loss':

@@ -4,7 +4,7 @@ Trainer for distributed, consistent graph neural network
 import sys
 import os
 import socket
-from typing import Optional, Union, Callable
+from typing import Optional, Union, Tuple
 import logging
 import numpy as np
 import time
@@ -44,6 +44,7 @@ from client import OnlineClient
 import create_halo_info_par
 from step_sampler import UniformStepSampler
 from diffusion_process import DiffusionProcess
+from losses import batch_wise_mean, vlb_loss
 import postprocess
 
 log = logging.getLogger(__name__)
@@ -223,11 +224,6 @@ class DGNTrainer:
             ckpt = torch.load(self.model_path, weights_only=False)
             self.model.load_state_dict(ckpt['state_dict'])
 
-        # ~~~~ Set loss function
-        self.loss_fn = nn.MSELoss()
-        if WITH_CUDA or WITH_XPU:
-            self.loss_fn.to(self.device)
-
         # ~~~~ Set optimizer
         self.optimizer = self.build_optimizer(self.model)
 
@@ -337,7 +333,7 @@ class DGNTrainer:
             'layer_norm': self.cfg.layer_norm,
             'dropout_rate': self.cfg.dropout_rate,
             'emb_width': self.cfg.emb_width,
-            #'learnable_variance': self.cfg.learnable_variance,
+            'learnable_variance': self.cfg.learnable_variance,
             'name': 'POLY_%d_SIZE_%d_SEED_%d' %(poly,SIZE,self.cfg.seed)
         }
         # TODO: this is where things like Re, num_pins, distance to wall, etc. would go
@@ -1038,6 +1034,42 @@ class DGNTrainer:
         if WITH_XPU:
             torch.xpu.synchronize()
 
+    def get_posterior_mean_and_variance_from_output(
+        self,
+        model_output:      Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+        field_r:           torch.Tensor,
+        batch:             torch.Tensor,
+        r:                 torch.Tensor,
+        diffusion_process: DiffusionProcess = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Compute the posterior mean and variance from the model output.
+
+            Adapthed from https://github.com/tum-pbs/dgn4cfd/blob/main/dgn4cfd/nn/diffusion/diffusion_model.py
+        """
+        dp = self.diffusion_process if diffusion_process is None else diffusion_process
+        if isinstance(model_output, tuple):
+            assert self.cfg.learnable_variance, 'The model output is a tuple, but learnable_variance=False'
+        else:
+            assert not self.cfg.learnable_variance, 'The model output is not a tuple, but learnable_variance=True'
+        
+        # Pre-compute needed coefficients
+        betas_r = dp.get_index_from_list(dp.betas, batch, r)
+        sqrt_one_minus_alphas_cumprod_r = dp.get_index_from_list(dp.sqrt_one_minus_alphas_cumprod, batch, r)
+        sqrt_recip_alphas_r = dp.get_index_from_list(dp.sqrt_recip_alphas, batch, r)
+        if self.cfg.learnable_variance:
+            eps, v = model_output
+            v = (v + 1) / 2
+            # For min_log we use the clipped posterior variance to avoid nan values in the backward pass
+            min_log = dp.get_index_from_list(dp.posterior_log_variance_clipped, batch, r)
+            max_log = torch.log(dp.get_index_from_list(dp.betas, batch, r))
+            log_variance = v * max_log + (1 - v) * min_log
+            variance = torch.exp(log_variance)
+        else:
+            eps = model_output
+            variance = dp.get_index_from_list(dp.posterior_variance, batch, r)
+        mean =  sqrt_recip_alphas_r * (field_r - betas_r * eps/sqrt_one_minus_alphas_cumprod_r)
+        return mean, variance
+
     def train_step(self, data: Data) -> Tensor:
         loss = torch.tensor([0.0])
         graph = self.data['graph']
@@ -1074,7 +1106,7 @@ class DGNTrainer:
         batch_size = torch.max(data.batch) + 1
         r, weights = self.step_sampler.sample(batch_size=batch_size)
         if self.cfg.verbose:
-            if RANK == 0: log.info(f"Sampled diffusion steps: {r.cpu().numpy().tolist()} for batch size {batch_size}")
+            if RANK == 0: log.info(f"Sampled diffusion steps: {r.cpu().numpy().tolist()} with weights {weights.cpu().numpy().tolist()} for batch size {batch_size}")
 
         # Diffuse the solution/target field
         BC_mask = None # no BCs for now
@@ -1086,9 +1118,6 @@ class DGNTrainer:
             postprocess.plot_2d_field(COMM, graph.pos, field_r[data.batch==0].cpu().numpy(), f'field_r_r{r[0]}.png')
             postprocess.plot_2d_field(COMM, graph.pos, data.x[data.batch==0,:self.cfg.input_node_features].cpu().numpy(), f'data_x_r{r[0]}.png')
             COMM.Barrier()
-        if self.cfg.verbose:
-            if RANK == 0: 
-                log.info(f"Shape of field_r: {field_r.shape}, shape of x: {data.x.shape}, shape of r: {r.shape}")
         
         # Prediction
         tic = time.time()
@@ -1117,11 +1146,37 @@ class DGNTrainer:
         tic = time.time()
         n_nodes_local = graph.n_nodes_local
         if SIZE == 1 or not self.cfg.consistency:
-            loss = self.loss_fn(model_noise[:n_nodes_local], noise[:n_nodes_local])
-            # TODO: Look at DGN4cfd hybrid loss for full loss function
-        else: # custom 
-            loss = self.loss_fn(model_noise[:n_nodes_local], noise[:n_nodes_local])
-            # TODO:Custom parallel and consistent loss function to be implemented here
+            mse_term = batch_wise_mean((model_noise - noise)**2, data.batch) # Dimension (batch_size)
+            loss = mse_term
+            if self.cfg.learnable_variance:
+                # Hybrid loss function for diffusion models from the paper 
+                # Improved Denoising Diffusion Probabilistic Models (https://arxiv.org/abs/2102.09672).
+                # Adapted from https://github.com/tum-pbs/dgn4cfd/blob/main/dgn4cfd/nn/losses.py
+                lambda_vlb = 0.1
+                true_posterior_mean, true_posterior_variance = \
+                        self.diffusion_process.get_posterior_mean_and_variance(
+                                                        data.x[:,:self.cfg.input_node_features], 
+                                                        field_r, 
+                                                        data.batch, 
+                                                        r)
+                model_posterior_mean, model_posterior_variance = \
+                        self.get_posterior_mean_and_variance_from_output((model_noise.detach(), model_var), field_r, data.batch, r)
+                vlb_term = vlb_loss(
+                    data.x[:,:self.cfg.input_node_features], 
+                    (true_posterior_mean, true_posterior_variance), 
+                    (model_posterior_mean, model_posterior_variance), 
+                    data.batch, 
+                    r)
+                loss += lambda_vlb * vlb_term # Dimension (batch_size)
+                if self.cfg.verbose: 
+                    if RANK == 0:
+                        log.info(f"MSE loss term: {mse_term.detach().cpu().numpy().tolist()}, mean = {mse_term.detach().cpu().mean().numpy().tolist()}")
+                        log.info(f"VLB loss term: {vlb_term.detach().cpu().numpy().tolist()}, mean = {vlb_term.detach().cpu().mean().numpy().tolist()}")
+            loss = (loss * weights).mean()
+        else: # custom consistent loss
+            # TODO: Custom parallel and consistent loss function to be implemented here
+            if RANK == 0: log.error('Custom parallel and consistent loss not yet implemented')
+            COMM.Abort(1)
         if self.cfg.timers: self.update_timer('loss', self.timer_step, time.time() - tic)
 
         tic = time.time()

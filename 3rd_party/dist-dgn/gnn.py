@@ -1,5 +1,5 @@
 import math
-from typing import Optional, Union, Callable, List, Dict, Any
+from typing import Optional, Union, Callable, List, Dict, Any, Tuple
 import torch
 from torch import Tensor
 import torch.nn as nn
@@ -9,6 +9,7 @@ from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.typing import Adj, OptTensor, PairTensor
 import torch.distributed as dist
 import torch.distributed.nn as distnn
+from diffusion_process import DiffusionProcess
 
 class DistributedDGN(torch.nn.Module):
     r"""Distributed Diffusion Graph Neural Network (DGN)
@@ -158,7 +159,6 @@ class DistributedDGN(torch.nn.Module):
             return torch.chunk(x, 2, dim=1)
         else:
             return x, torch.zeros_like(x)
-
 
     def reset_parameters(self):
         self.node_encoder.reset_parameters()
