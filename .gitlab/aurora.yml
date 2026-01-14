@@ -21,6 +21,6 @@ setup:
     - cd ./nekRS-ML/tests
     - git checkout ${CI_COMMIT_SHA}
     # Run offline tests
-    - ./run.sh -b -t offline
+    - ./run.sh -b -t offline -cm ${CI_COMMIT_SHA}
     # Run online tests
-    - ./run.sh -b -t online
+    - ./run.sh -b -t online -cm ${CI_COMMIT_SHA}

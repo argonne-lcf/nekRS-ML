@@ -85,6 +85,7 @@ class SmartRedisBuild(CompileOnlyTest):
 
 
 class NekRSBuild(CompileOnlyTest):
+    commit = variable(str, value="main")
     smartredis_build = fixture(SmartRedisBuild, scope="environment")
 
     def __init__(self):
@@ -115,6 +116,8 @@ class NekRSBuild(CompileOnlyTest):
         ]
 
         self.prebuild_cmds += [
+            "git fetch",
+            f"git checkout {self.commit}",
             f"export CC={self.build_system.cc}",
             f"export CXX={self.build_system.cxx}",
             f"export FC={self.build_system.ftn}",

@@ -2,6 +2,7 @@
 
 : ${SYSTEM:="aurora:compute"}
 : ${PREFIX:="`pwd`/test_data"}
+: ${COMMIT="main"}
 : ${QUEUE:="prod"}
 : ${PROJECT:="datascience"}
 : ${FS:="home"}
@@ -18,6 +19,7 @@ print_help() {
   echo "Options:"
   echo "  --system,      -s   <SYSTEM>         Set the system name (Default: $SYSTEM)"
   echo "  --prefix,      -p   <PREFIX>         Set the installation prefix (Default: $PREFIX)"
+  echo "  --commit,      -cm  <COMMIT>         Set the git commit to checkout (Default: $COMMIT)"
   echo "  --queue,       -q   <QUEUE>          Set the job queue (Default: $QUEUE)"
   echo "  --project,     -prj <PROJECT>        Set the project name (Default: $PROJECT)"
   echo "  --filesystems, -f   <FS>             Set the filesystems (Default: $FS)"
@@ -55,6 +57,10 @@ while [ $# -gt 0 ]; do
     --prefix| -p)
       PREFIX="$2"
       shift; shift
+      ;;
+    --commit| -cm)
+      COMMIT=$2
+      shift; shift;
       ;;
     --queue| -q)
       QUEUE="$2"
@@ -112,7 +118,7 @@ export PATH=$HOME/.local/bin/:$PATH
 # --tag: https://reframe-hpc.readthedocs.io/en/stable/manpage.html#cmdoption-t
 # --run: https://reframe-hpc.readthedocs.io/en/stable/manpage.html#cmdoption-r
 CMD="uv run reframe --save-log-files --config-file sites.py --system ${SYSTEM}"
-CMD="${CMD} -S queue=${QUEUE} -S project=${PROJECT} -S filesystems=${FS}"
+CMD="${CMD} -S queue=${QUEUE} -S project=${PROJECT} -S filesystems=${FS} -S commit=${COMMIT}"
 CMD="${CMD} --keep-stage-files --timestamp --prefix=${PREFIX} --checkpath tests.py"
 if [ "${LIST_TAGS}" -eq 1 ]; then
   CMD="${CMD} --list-tags"
