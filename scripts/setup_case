@@ -253,7 +253,7 @@ function install_smartsim() {
   cwd=$PWD
 
   cd ${VENV_PATH}
-  pip install git+https://github.com/rickybalin/SmartSim.git@rollback_aurora
+  uv pip install git+https://github.com/rickybalin/SmartSim.git@rollback_aurora
 
   if [ ${SYSTEM} == "aurora" ]; then
     DEVICE="cpu"
@@ -291,48 +291,39 @@ function install_parrsb() {
 }
 
 function setup_venv() {
-  if [ ! -d ${VENV_PATH} ]; then
-    echo -e "\033[35mPython venv \"${VENV_PATH}\" doesn't exist, building one now ...\033[m"
-    python -m venv --clear ${VENV_PATH} --system-site-packages
-    source ${VENV_PATH}/bin/activate
-  
-    if [ ${SYSTEM} == "crux" ]; then
-      pip install numpy
-      pip install torch --index-url https://download.pytorch.org/whl/cpu
-      MPICC="cc -shared" pip install --force-reinstall --no-cache-dir --no-binary=mpi4py mpi4py
-    fi
+  uv venv --clear --system-site-packages ${VENV_PATH}
+  source ${VENV_PATH}/bin/activate
 
-    export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
-    export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
+  uv pip install pymech
+
+  if [ ${SYSTEM} == "crux" ]; then
+    uv pip install numpy
+    uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+    MPICC="cc -shared" uv pip install --force-reinstall --no-cache-dir --no-binary=mpi4py mpi4py
+  fi
+
+  export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
+  export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
+  if [ ${SYSTEM} == "aurora" ]; then
+    uv pip install torch_geometric==2.5.3
+  fi
+
+  if [ ${MODEL} == "sr-gnn" ]; then
     if [ ${SYSTEM} == "aurora" ]; then
-      pip install torch_geometric==2.5.3
-    fi  
-
-    if [ ${MODEL} == "sr-gnn" ]; then
-      if [ ${SYSTEM} == "aurora" ]; then
-        cwd=${PWD}
-        git clone https://github.com/rusty1s/pytorch_cluster.git ${VENV_PATH}/pytorch_cluster
-        cd ${VENV_PATH}/pytorch_cluster
-        # Need to force the install to not link with OpenMP, change lines 53-54 to if False:
-        sed -i 's/fopenmp/lgomp/' setup.py
-        CXX=$(which dpcpp) python setup.py install
-        cd ${cwd}
-      fi
+      cwd=${PWD}
+      git clone https://github.com/rusty1s/pytorch_cluster.git ${VENV_PATH}/pytorch_cluster
+      cd ${VENV_PATH}/pytorch_cluster
+      # Need to force the install to not link with OpenMP, change lines 53-54 to if False:
+      sed -i 's/fopenmp/lgomp/' setup.py
+      CXX=$(which dpcpp) python setup.py install
+      cd ${cwd}
     fi
-    
-    pip install pymech
-
-    install_parrsb
-  else
-    echo -e "\033[35mPython venv \"${VENV_PATH}\" already exists, reusing it ... \033[m"
-    source ${VENV_PATH}/bin/activate
   fi
 
   if [ "${CLIENT}" == "smartredis" ]; then
-    if ! pip show smartsim > /dev/null 2>&1; then
-      install_smartsim
-    fi
+    install_smartsim
   fi
+  install_parrsb
 }
 
 function generate_script() {
