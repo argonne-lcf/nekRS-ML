@@ -1,7 +1,7 @@
 variables:
   PROJ: "datascience"
-  QUEUE: "prod"
-  TIME: "2:00:00"
+  QUEUE: "debug"
+  TIME: "1:00:00"
   WRK_DIR: "/lus/flare/projects/${PROJ}/nekRS-ML/${CI_COMMIT_SHA}"
   ANL_AURORA_SCHEDULER_PARAMETERS: "-q ${QUEUE} -l select=1,walltime=${TIME},filesystems=home -A ${PROJ}"
 
