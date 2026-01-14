@@ -7,7 +7,7 @@
 : ${PROJECT:="datascience"}
 : ${FS:="home"}
 : ${REUSE:=1}
-: ${TAG:="ml"}
+: ${TAG:="all"}
 : ${LIST_TAGS:=0}
 
 # Parse command line args
