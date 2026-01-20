@@ -57,6 +57,7 @@ def plot_training_loss(log_file: str):
     mse_steps = []  # Training steps corresponding to MSE losses
     vlb_losses = []
     per_step_mse_losses = {i: [] for i in range(100)}
+    per_step_vlb_losses = {i: [] for i in range(100)}
     current_training_step = None
     last_diffusion_steps = None
     
@@ -65,10 +66,11 @@ def plot_training_loss(log_file: str):
             # Extract step number and loss value
             iter_match = re.search(r'\[STEP (\d+)\]', line)
             loss_match = re.search(r'loss=([\d.e+-]+)', line)
-            running_loss_match = re.search(r'r_loss=([\d.e+-]+)', line)            
-            mse_loss_match = re.search(r'MSE loss term: \[([\d.,\s.e+-]+)\], mean = ([\d.e+-]+)', line)
+            running_loss_match = re.search(r'r_loss=([\d.e+-]+)', line)
             #mse_loss_match_old = re.search(r'MSE loss term: ([\d.e+-]+)$', line)
-            vlb_loss_match = re.search(r'VLB loss term: ([\d.e+-]+)', line)            
+            #vlb_loss_match_old = re.search(r'VLB loss term: ([\d.e+-]+)', line)        
+            mse_loss_match = re.search(r'MSE loss term: \[([\d.,\s.e+-]+)\], mean = ([\d.e+-]+)', line) 
+            vlb_loss_match = re.search(r'VLB loss term: \[([\d.,\s.e+-]+)\], mean = ([\d.e+-]+)', line)         
             diffusion_steps_match = re.search(r'Sampled diffusion steps: \[([\d,\s]+)\]', line)
                 
             if iter_match and loss_match:
@@ -94,9 +96,14 @@ def plot_training_loss(log_file: str):
                 for step, loss_val in zip(steps, loss_values):
                     per_step_mse_losses[step].append(loss_val)
             if vlb_loss_match:
-                vlb_loss = float(vlb_loss_match.group(1))
-                vlb_losses.append(vlb_loss)
-                
+                # Extract the mean
+                vlb_loss_mean = float(vlb_loss_match.group(2))
+                vlb_losses.append(vlb_loss_mean)
+                # Extract the list of loss values
+                loss_list_str = vlb_loss_match.group(1)
+                loss_values = [float(x.strip()) for x in loss_list_str.split(',')]
+                for step, loss_val in zip(steps, loss_values):
+                    per_step_vlb_losses[step].append(loss_val)
 
     # Plot loss vs iterations
     plt.figure(figsize=(8, 6))
@@ -109,7 +116,7 @@ def plot_training_loss(log_file: str):
         plt.plot(iterations, running_losses, label='Running Loss', linewidth=1)
     plt.xlabel('Iterations')
     plt.ylabel('Loss')
-    plt.title('Training Loss vs Steps')
+    plt.title('Training Loss vs Iterations')
     plt.grid(True, alpha=0.3)
     #plt.yscale('log')
     plt.xlim(-100,2600)
@@ -117,19 +124,34 @@ def plot_training_loss(log_file: str):
     plt.tight_layout()
     plt.savefig('loss_plot.png', dpi=150)
 
-    # Plot loss vs diffusion steps
-    plt.figure(figsize=(8, 6))
-    steps = sorted([s for s in per_step_mse_losses.keys() if len(per_step_mse_losses[s]) > 0])
-    # Filter to plot only every step_interval steps
-    steps_to_plot = steps[::10]
-    for step in steps_to_plot:
+    # Plot loss vs diffusion steps 
+    # Make subplots for MSE and VLB losses
+    plt.figure(figsize=(12, 6))
+    plt.subplot(1, 2, 1)
+    mse_steps = sorted([s for s in per_step_mse_losses.keys() if len(per_step_mse_losses[s]) > 0])
+    # Filter to plot only every 10th step
+    mse_steps_to_plot = mse_steps[::10]
+    for step in mse_steps_to_plot:
         plt.plot([i for i in range(len(per_step_mse_losses[step]))], per_step_mse_losses[step], label=f'{step}', linewidth=1)
     plt.xlabel('Instances in training')
-    plt.ylabel('Loss')
-    plt.title('Training Loss for Diffusion Steps')
+    plt.ylabel('MSE Loss')
+    plt.title('MSE Loss for Diffusion Steps')
     plt.grid(True, alpha=0.3)
     plt.legend(loc='upper right')
     plt.yscale('log')
+    plt.subplot(1, 2, 2)
+    vlb_steps = sorted([s for s in per_step_vlb_losses.keys() if len(per_step_vlb_losses[s]) > 0])
+    # Filter to plot only every 10th step
+    vlb_steps_to_plot = vlb_steps[::10]
+    for step in vlb_steps_to_plot:
+        plt.plot([i for i in range(len(per_step_vlb_losses[step]))], per_step_vlb_losses[step], label=f'{step}', linewidth=1)
+    plt.xlabel('Instances in training')
+    plt.ylabel('VLB Loss')
+    plt.title('VLB Loss for Diffusion Steps')
+    plt.grid(True, alpha=0.3)
+    plt.legend(loc='upper right')
+    plt.yscale('log')
+    
     plt.tight_layout()
     plt.savefig('loss_plot_diffusion_steps.png', dpi=150)
 

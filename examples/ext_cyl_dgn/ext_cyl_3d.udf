@@ -23,7 +23,7 @@ void UDF_Setup()
 void UDF_ExecuteStep(double time, int tstep)
 {
   // Write flow field
-  if (tstep%200==0 && tstep>7000) {
+  if (tstep%100==0 && tstep>7000) {
     int rank, size;
     MPI_Comm_rank(platform->comm.mpiComm, &rank);
     MPI_Comm_size(platform->comm.mpiComm, &size);
