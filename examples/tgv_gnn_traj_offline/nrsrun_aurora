@@ -71,20 +71,20 @@ echo -e "\n# Run nekRS" >>$RFILE
 echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND}" >> $RFILE
 
 echo -e "\n# Generate the halo_info, edge_weights and node_degree files" >>$RFILE
-echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/create_halo_info_par.py --POLY 7 --PATH ./gnn_outputs_poly_7" >> $RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/dist-gnn/create_halo_info_par.py --POLY 7 --PATH ./gnn_outputs_poly_7" >> $RFILE
 
 echo -e "\n# Check the GNN input files" >>$RFILE
 echo "echo \"Checking GNN graph input files ...\"" >>$RFILE
-echo "python ${NEKRS_HOME}/3rd_party/gnn/check_input_files.py --REF ./ref/gnn_outputs_poly_7 --PATH ./gnn_outputs_poly_7" >>$RFILE
+echo "python ${NEKRS_HOME}/3rd_party/dist-gnn/check_input_files.py --REF ./ref/gnn_outputs_poly_7 --PATH ./gnn_outputs_poly_7" >>$RFILE
 
 echo -e "\n# Check the GNN trajectory files" >>$RFILE
 echo "echo \"Checking GNN trajectory files ...\"" >>$RFILE
 echo "for RANK in {0..$(( TOTAL_RANKS - 1 ))}; do" >>$RFILE
-echo "  python ${NEKRS_HOME}/3rd_party/gnn/check_input_files.py --REF ./ref/traj_poly_7/tinit_0.000000_dtfactor_10/data_rank_\${RANK}_size_${TOTAL_RANKS} --PATH ./traj_poly_7/tinit_0.000000_dtfactor_10/data_rank_\${RANK}_size_${TOTAL_RANKS}" >>$RFILE
+echo "  python ${NEKRS_HOME}/3rd_party/dist-gnn/check_input_files.py --REF ./ref/traj_poly_7/tinit_0.000000_dtfactor_10/data_rank_\${RANK}_size_${TOTAL_RANKS} --PATH ./traj_poly_7/tinit_0.000000_dtfactor_10/data_rank_\${RANK}_size_${TOTAL_RANKS}" >>$RFILE
 echo "done" >>$RFILE
 
 echo -e "\n# Train the GNN" >>$RFILE
 echo "head_node=\`head -1 \$PBS_NODEFILE | cut -d'.' -f1\`" >>$RFILE
-echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/main.py master_addr=\$head_node backend=xccl halo_swap_mode=all_to_all_opt layer_norm=True gnn_outputs_path=${PWD}/gnn_outputs_poly_7 traj_data_path=${PWD}/traj_poly_7/tinit_0.000000_dtfactor_10 time_dependency=time_dependent target_loss=6.9076e-01" >> $RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/dist-gnn/main.py master_addr=\$head_node backend=xccl halo_swap_mode=all_to_all_opt layer_norm=True gnn_outputs_path=${PWD}/gnn_outputs_poly_7 traj_data_path=${PWD}/traj_poly_7/tinit_0.000000_dtfactor_10 time_dependency=time_dependent target_loss=6.9076e-01" >> $RFILE
 chmod u+x $RFILE
 

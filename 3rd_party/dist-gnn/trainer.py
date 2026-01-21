@@ -703,18 +703,25 @@ class Trainer:
                 log.info(f'[RANK {self.rank}]: Found {len(self.neighboring_procs)} neighboring processes: {self.neighboring_procs}')
             else:
                 if self.rank == 0: log.info(f'[RANK {self.rank}]: Found {len(self.neighboring_procs)} neighboring processes: {self.neighboring_procs}')
+            
+            effective_nodes_local = torch.sum(1.0/node_degree[:n_nodes_local])
+            effective_nodes = self.comm.allreduce(effective_nodes_local)
         else:
             halo_info = torch.zeros(1, dtype=self.torch_dtype)
             n_nodes_local = self.data_reduced.pos.shape[0]
             n_nodes_halo = 0
             edge_weight = torch.zeros(1, dtype=self.torch_dtype)
             node_degree = torch.zeros(1, dtype=self.torch_dtype)
+            effective_nodes_local = torch.zeros(1, dtype=self.torch_dtype)
+            effective_nodes = n_nodes_local
 
         self.data_reduced.n_nodes_local = torch.tensor(n_nodes_local, dtype=torch.int64)
         self.data_reduced.n_nodes_halo = torch.tensor(n_nodes_halo, dtype=torch.int64)
         self.data_reduced.halo_info = halo_info
         self.data_reduced.edge_weight = edge_weight
         self.data_reduced.node_degree = node_degree
+        self.data_reduced.effective_nodes_local = effective_nodes_local
+        self.data_reduced.effective_nodes = effective_nodes
         return 
 
     def prepare_snapshot_data(self, data_x: np.ndarray):
@@ -1359,22 +1366,15 @@ class Trainer:
 
         # Accumulate loss
         tic = time.time()
-        target = data['y'][0]
-        n_nodes_local = graph.n_nodes_local
         if self.size == 1 or not self.cfg.consistency:
-            loss = self.loss_fn(pred[:n_nodes_local], target[:n_nodes_local])
-            effective_nodes = n_nodes_local 
+            loss = self.loss_fn(pred[:graph.n_nodes_local], data['y'][0][:graph.n_nodes_local])
         else: # custom 
             n_output_features = pred.shape[1]
-            squared_errors_local = torch.pow(pred[:n_nodes_local] - target[:n_nodes_local], 2)
-            squared_errors_local = squared_errors_local/graph.node_degree[:n_nodes_local].unsqueeze(-1)
-
+            squared_errors_local = torch.pow(pred[:graph.n_nodes_local] - data['y'][0][:graph.n_nodes_local], 2)
+            squared_errors_local = squared_errors_local/graph.node_degree[:graph.n_nodes_local].unsqueeze(-1)
             sum_squared_errors_local = squared_errors_local.sum()
-            effective_nodes_local = torch.sum(1.0/graph.node_degree[:n_nodes_local])
-
-            effective_nodes = distnn.all_reduce(effective_nodes_local)
             sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
-            loss = (1.0/(effective_nodes*n_output_features)) * sum_squared_errors
+            loss = (1.0/(graph.effective_nodes*n_output_features)) * sum_squared_errors
         if self.cfg.timers: self.update_timer('loss', self.timer_step, time.time() - tic)
 
         tic = time.time()
