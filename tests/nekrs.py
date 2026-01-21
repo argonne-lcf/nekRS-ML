@@ -292,6 +292,8 @@ class NekRSMLTest(NekRSTest):
             self.get_venv_path(),
             "--nodes",
             str(self.ml_args["nn"]),
+            "--model",
+            str(self.ml_args["model"]),
             *extra_args,
         ])
 
