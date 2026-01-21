@@ -1,5 +1,5 @@
 variables:
-  PROJ: "Performance"
+  PROJ: "datascience"
   QUEUE: "debug"
   TIME: "1:00:00"
   WRK_DIR: "/lus/flare/projects/${PROJ}/nekRS-ML/${CI_COMMIT_SHA}"
