@@ -119,17 +119,17 @@ class MLPReprod():
         compute_time = sum(times) / len(times)
         mlp_flops = 2 * self.cfg.hidden_channels**2 * N * (self.cfg.n_mlp_hidden_layers + 2)
         flops_per_step = 3 * mlp_flops # backward pass is approx. 2x forward pass flops
-        ai = (N * self.cfg.hidden_channels**2) \
-                / (2 * N * self.cfg.hidden_channels + self.cfg.hidden_channels**2)
         sizeof_dtype = torch.tensor([], dtype=self.torch_dtype).element_size() # in bytes
+        ai = (2 * N * self.cfg.hidden_channels**2) \
+                / (sizeof_dtype * (2 *N * self.cfg.hidden_channels + self.cfg.hidden_channels**2))
 
         log.info(f"Training performance metrics (per step) with N={N}:")
         log.info(f"\tCompute time: {compute_time:.4f} seconds")
         log.info(f"\tFLOPS: {flops_per_step/1e9:.4f} GFLOPS")
         log.info(f"\tAI: {ai:.4f}")
-        log.info(f"\tMemory traffic: {flops_per_step / ai * sizeof_dtype / 1e9:.4f} GB")
+        log.info(f"\tMemory traffic: {flops_per_step / ai / 1e9:.4f} GB")
         log.info(f"\tFLOPS/s: {flops_per_step / compute_time / 1e12:.4f} TFLOPS/s")
-        log.info(f"\tMemory bandwidth: {flops_per_step / ai * sizeof_dtype / 1e9 / compute_time:.4f} GB/s")
+        log.info(f"\tMemory bandwidth: {flops_per_step / ai / 1e9 / compute_time:.4f} GB/s")
         log.info("\n")
 
     @torch.no_grad()
@@ -163,17 +163,17 @@ class MLPReprod():
 
         compute_time = sum(times) / len(times)
         flops_per_step = 2 * self.cfg.hidden_channels**2 * N * (self.cfg.n_mlp_hidden_layers + 2)
-        ai = (N * self.cfg.hidden_channels**2) \
-                / (2 * N * self.cfg.hidden_channels + self.cfg.hidden_channels**2)
         sizeof_dtype = torch.tensor([], dtype=self.torch_dtype).element_size() # in bytes
+        ai = (2 * N * self.cfg.hidden_channels**2) \
+                / (sizeof_dtype * (2 *N * self.cfg.hidden_channels + self.cfg.hidden_channels**2))
 
         log.info(f"Inference performance metrics (per step) with N={N}:")
         log.info(f"\tCompute time: {compute_time:.4f} seconds")
         log.info(f"\tFLOPS: {flops_per_step/1e9:.4f} GFLOPS")
         log.info(f"\tAI: {ai:.4f}")
-        log.info(f"\tMemory traffic: {flops_per_step / ai * sizeof_dtype / 1e9:.4f} GB")
+        log.info(f"\tMemory traffic: {flops_per_step / ai / 1e9:.4f} GB")
         log.info(f"\tFLOPS/s: {flops_per_step / compute_time / 1e12:.4f} TFLOPS/s")
-        log.info(f"\tMemory bandwidth: {flops_per_step / ai * sizeof_dtype / 1e9 / compute_time:.4f} GB/s")
+        log.info(f"\tMemory bandwidth: {flops_per_step / ai / 1e9 / compute_time:.4f} GB/s")
         log.info("\n")
 
 
