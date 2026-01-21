@@ -14,7 +14,7 @@ except ModuleNotFoundError:
 
 # Import ADIOS2
 try:
-    from adios2 import Stream, Adios
+    from adios2 import Stream, Adios, bindings
 except ModuleNotFoundError:
     pass
 
@@ -157,12 +157,10 @@ class OnlineClient:
         tic = perf_counter()
         graph_data = {}
         if self.backend == 'adios':
-            while True:
-                if os.path.exists('./graph.bp'):
-                    sleep(1)
-                    break
-                else:
+            if self.rank == 0:
+                while not os.path.exists('./graph.bp'):
                     sleep(2)
+            self.comm.Barrier()
 
             #with Stream(self.client, 'graphStream', 'r', self.comm) as stream:
             with Stream('graph.bp', 'r', self.comm) as stream:
@@ -172,7 +170,6 @@ class OnlineClient:
 
                 arr = stream.inquire_variable('N')
                 N = stream.read('N', [self.rank], [1])
-                print(f'[RANK {self.rank}] -- N: {N}',flush=True)
                 self.N_list = self.comm.allgather(N)
 
                 arr = stream.inquire_variable('num_edges')
@@ -181,7 +178,6 @@ class OnlineClient:
 
                 arr = stream.inquire_variable('field_offset')
                 field_offset = stream.read('field_offset', [self.rank], [1])
-                print(f'[RANK {self.rank}] -- field_offset: {field_offset}',flush=True)
                 self.field_offset_list = self.comm.allgather(field_offset)
 
                 arr = stream.inquire_variable('pos_node')
@@ -222,10 +218,13 @@ class OnlineClient:
             if self.solutionStream is None:
                 if self.rank == 0: log.info('Opening ADIOS2 solutionStream ...')
                 self.solutionStream = Stream(self.client, "solutionStream", "r", self.comm)
-                         
+
+            # Status options are: bindings.StepStatus.OtherError, bindings.StepStatus.NotReady, bindings.StepStatus.EndOfStream, bindings.StepStatus.OK           
+            #status = self.solutionStream.step_status()
+            
             self.solutionStream.begin_step()
 
-            arr = self.solutionStream.inquire_variable('out_u')
+            arr = self.solutionStream.inquire_variable('in_u')
             count = self.field_offset_list[self.rank] * 3
             start = sum(self.field_offset_list[:self.rank]) * 3
             # stream.read() gets data now, Mode.Sync is default 
@@ -233,15 +232,15 @@ class OnlineClient:
             #   - https://github.com/ornladios/ADIOS2/blob/67f771b7a2f88ce59b6808cc4356159d86255f1d/python/adios2/stream.py#L331
             #   - https://github.com/ornladios/ADIOS2/blob/67f771b7a2f88ce59b6808cc4356159d86255f1d/python/adios2/engine.py#L123)
             ticc = perf_counter()
-            outputs = self.solutionStream.read('out_u', [start], [count])
-            transfer_time = perf_counter() - ticc
-            outputs = outputs.reshape((-1,3),order='F')
-
-            arr = self.solutionStream.inquire_variable('in_u')
-            ticc = perf_counter()
             inputs = self.solutionStream.read('in_u', [start], [count])
-            transfer_time += perf_counter() - ticc
+            transfer_time = perf_counter() - ticc
             inputs = inputs.reshape((-1,3),order='F')
+
+            arr = self.solutionStream.inquire_variable('out_u')
+            ticc = perf_counter()
+            outputs = self.solutionStream.read('out_u', [start], [count])
+            transfer_time += perf_counter() - ticc
+            outputs = outputs.reshape((-1,3),order='F')
 
             self.solutionStream.end_step()
         self.timers['data'].append(perf_counter()-tic)
@@ -264,14 +263,14 @@ class OnlineClient:
                                     np.int32(np.array([MLrun]))
                     )
         elif self.backend == 'adios':
-            # Close solution stream
-            if self.solutionStream is not None:
-                self.solutionStream.close()
-            
             # Communicate to nekRS to stop
             with Stream('check-run.bp', 'w', self.comm) as stream:
                 if self.rank == 0:
                     stream.write("check-run", np.int32([MLrun]))
+            
+            # Close solution stream
+            if self.solutionStream is not None:
+                self.solutionStream.close()
         self.timers['meta_data'].append(perf_counter()-tic)
             
 

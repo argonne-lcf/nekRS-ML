@@ -115,7 +115,7 @@ class ShootingWorkflow():
         if self.cfg.train.affinity:
             cmd += f"{self.cfg.train.affinity} {self.cfg.run_args.simprocs_pn} {skip} "
         cmd += f"python {self.cfg.train.executable} {self.cfg.train.arguments}"
-        cmd += f" master_addr={socket.gethostname()}"
+        cmd += f" master_addr={self.train_nodes.split(',')[0]}"
         print("Launching GNN training ...")
         self.train_proc['process'] = subprocess.Popen(cmd,
                                 executable="/bin/bash",
@@ -142,7 +142,7 @@ class ShootingWorkflow():
             cmd += f"{self.cfg.train.affinity} {self.cfg.run_args.simprocs_pn} {skip} "
         cmd += f"python {self.cfg.inference.executable} " + \
                f"{self.cfg.inference.arguments} model_dir={self.run_dir}/saved_models/" + \
-               f" master_addr={socket.gethostname()}"
+               f" master_addr={self.train_nodes.split(',')[0]}"
         print("\nLaunching GNN inference ...")
         self.infer_proc['process'] = subprocess.Popen(cmd,
                                 executable="/bin/bash",

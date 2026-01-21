@@ -89,7 +89,9 @@ chmod u+x $SAFF_FILE $TAFF_FILE
 CFILE=config.yaml
 echo "# Workflow config" > $CFILE
 echo "scheduler: pbs" >> $CFILE
+echo "system: polaris" >> $CFILE
 echo "deployment: \"${DEPLOYMENT}\"" >> $CFILE
+echo "debug: false" >> $CFILE
 echo "" >> $CFILE
 echo "# Run config" >> $CFILE
 echo "run_args:" >> $CFILE
@@ -154,10 +156,19 @@ echo -e "\necho Jobid: \$PBS_JOBID" >>$RFILE
 echo "echo Running on host \`hostname\`" >>$RFILE
 echo "echo Running on nodes \`cat \$PBS_NODEFILE\`" >>$RFILE
 
+if ls $NEKRS_HOME/lib/libadios2*.so* 1> /dev/null 2>&1; then
+  ADIOS2_BUILD=NEKRS
+else
+  ADIOS2_BUILD=SYSTEM
+fi
 echo "module use /soft/modulefiles/" >> $RFILE
 echo "module load conda" >> $RFILE
 echo "conda activate" >> $RFILE
 echo "source ${VENV_PATH}" >> $RFILE
+if [ ${ADIOS2_BUILD} == "SYSTEM" ]; then
+  module load spack-pe-gnu
+  module load adios2/2.10.0-cuda
+fi
 echo "module list" >> $RFILE
 
 echo -e "\nexport NEKRS_HOME=$NEKRS_HOME" >>$RFILE
@@ -170,9 +181,14 @@ echo "export MPICH_GPU_SUPPORT_ENABLED=0" >> $RFILE
 echo "export MPICH_OFI_NIC_POLICY=NUMA" >> $RFILE
 echo "export MPIR_CVAR_CH4_OFI_ENABLE_RMA=0" >> $RFILE
 
-py_version=`python --version`
-parsed_version=$(echo ${py_version#Python } | awk -F. '{print $1"."$2}')
-echo -e "\nexport PYTHONPATH=\$PYTHONPATH:${NEKRS_HOME}/lib/python${parsed_version}/site-packages" >> $RFILE
+echo -e "\nulimit -c unlimited" >> $RFILE
+
+echo -e "\n# ADIOS2 setup" >> $RFILE
+if [ ${ADIOS2_BUILD} == "NEKRS" ]; then
+  py_version=`python --version`
+  parsed_version=$(echo ${py_version#Python } | awk -F. '{print $1"."$2}')
+  echo "export PYTHONPATH=\$PYTHONPATH:${NEKRS_HOME}/lib/python${parsed_version}/site-packages" >> $RFILE
+fi
 echo "export SstVerbose=1" >> $RFILE
 echo "export OMP_PROC_BIND=spread" >> $RFILE
 echo "export OMP_PLACES=threads" >> $RFILE

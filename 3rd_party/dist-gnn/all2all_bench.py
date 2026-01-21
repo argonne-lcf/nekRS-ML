@@ -6,60 +6,46 @@ from argparse import ArgumentParser
 from time import perf_counter
 import random
 
-try:
-    from mpi4py import MPI
-    WITH_DDP = True
-except ModuleNotFoundError as e:
-    WITH_DDP = False
-    pass
-
 import torch
 import torch.distributed as dist
 import torch.distributed.nn as distnn
 
 TORCH_DTYPE = torch.float32
 
-# Get MPI:
-if WITH_DDP:
-    SIZE = MPI.COMM_WORLD.Get_size()
-    RANK = MPI.COMM_WORLD.Get_rank()
-    COMM = MPI.COMM_WORLD
-    LOCAL_RANK = int(os.getenv("PALS_LOCAL_RANKID"))
+from mpi4py import MPI
+SIZE = MPI.COMM_WORLD.Get_size()
+RANK = MPI.COMM_WORLD.Get_rank()
+COMM = MPI.COMM_WORLD
+LOCAL_RANK = int(os.getenv("PALS_LOCAL_RANKID"))
 
-    try:
-        WITH_CUDA = torch.cuda.is_available()
-        if RANK == 0 and WITH_CUDA: print('Running on CUDA devices',flush=True)
-    except:
-        WITH_CUDA = False
-        pass
+try:
+    WITH_CUDA = torch.cuda.is_available()
+    if RANK == 0 and WITH_CUDA: print('Running on CUDA devices',flush=True)
+except:
+    WITH_CUDA = False
+    pass
 
-    try:
-        WITH_XPU = torch.xpu.is_available()
-        if RANK == 0 and WITH_XPU: print('Running on XPU devices',flush=True)
-    except:
-        WITH_XPU = False
-        pass
+try:
+    WITH_XPU = torch.xpu.is_available()
+    if RANK == 0 and WITH_XPU: print('Running on XPU devices',flush=True)
+except:
+    WITH_XPU = False
+    pass
 
-    if WITH_CUDA:
-        DEVICE = torch.device('cuda')
-        N_DEVICES = torch.cuda.device_count()
-        DEVICE_ID = LOCAL_RANK if N_DEVICES>1 else 0
-        torch.cuda.set_device(DEVICE_ID)
-    elif WITH_XPU:
-        DEVICE = torch.device('xpu')
-        N_DEVICES = torch.xpu.device_count()
-        DEVICE_ID = LOCAL_RANK if N_DEVICES>1 else 0
-        torch.xpu.set_device(DEVICE_ID)
-    else:
-        DEVICE = torch.device('cpu')
-        DEVICE_ID = 'cpu'
-        if RANK == 0: print('Running on CPU devices',flush=True)
+if WITH_CUDA:
+    DEVICE = torch.device('cuda')
+    N_DEVICES = torch.cuda.device_count()
+    DEVICE_ID = LOCAL_RANK if N_DEVICES>1 else 0
+    torch.cuda.set_device(DEVICE_ID)
+elif WITH_XPU:
+    DEVICE = torch.device('xpu')
+    N_DEVICES = torch.xpu.device_count()
+    DEVICE_ID = LOCAL_RANK if N_DEVICES>1 else 0
+    torch.xpu.set_device(DEVICE_ID)
 else:
-    SIZE = 1
-    RANK = 0
-    LOCAL_RANK = 0
-    MASTER_ADDR = 'localhost'
-    print('MPI Initialization failed!',flush=True)
+    DEVICE = torch.device('cpu')
+    DEVICE_ID = 'cpu'
+    if RANK == 0: print('Running on CPU devices',flush=True)
 
 
 def init_process_group(
@@ -225,30 +211,29 @@ def main() -> None:
         print(args)
         print('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n',flush=True)
 
-    if WITH_DDP:
-        os.environ['RANK'] = str(RANK)
-        os.environ['WORLD_SIZE'] = str(SIZE)
-        if args.master_addr is not None:
-            MASTER_ADDR = str(args.master_addr) if RANK == 0 else None
-        else:
-            MASTER_ADDR = socket.gethostname() if RANK == 0 else None
-        MASTER_ADDR = MPI.COMM_WORLD.bcast(MASTER_ADDR, root=0)
-        os.environ['MASTER_ADDR'] = MASTER_ADDR
-        if args.master_port is not None:
-            os.environ['MASTER_PORT'] = str(args.master_port)
-        else:
-            os.environ['MASTER_PORT'] = str(2345)
-        init_process_group(RANK, SIZE)
-        
-        random.seed(42+int(RANK))
-        neighbors = get_neighbors(args)
-        buffers = build_buffers(args, neighbors)
-        COMM.Barrier()
-        avg_time = halo_test(args, neighbors, buffers)
-        if RANK == 0:
-            print(f'\n\nAverage all2all time: {avg_time:>4e} sec',flush=True)        
+    os.environ['RANK'] = str(RANK)
+    os.environ['WORLD_SIZE'] = str(SIZE)
+    if args.master_addr is not None:
+        MASTER_ADDR = str(args.master_addr) if RANK == 0 else None
+    else:
+        MASTER_ADDR = socket.gethostname() if RANK == 0 else None
+    MASTER_ADDR = MPI.COMM_WORLD.bcast(MASTER_ADDR, root=0)
+    os.environ['MASTER_ADDR'] = MASTER_ADDR
+    if args.master_port is not None:
+        os.environ['MASTER_PORT'] = str(args.master_port)
+    else:
+        os.environ['MASTER_PORT'] = str(2345)
+    init_process_group(RANK, SIZE)
+    
+    random.seed(42+int(RANK))
+    neighbors = get_neighbors(args)
+    buffers = build_buffers(args, neighbors)
+    COMM.Barrier()
+    avg_time = halo_test(args, neighbors, buffers)
+    if RANK == 0:
+        print(f'\n\nAverage all2all time: {avg_time:>4e} sec',flush=True)        
 
-        cleanup()
+    cleanup()
 
 
 if __name__ == '__main__':

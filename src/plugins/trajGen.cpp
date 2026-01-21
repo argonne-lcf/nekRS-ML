@@ -32,9 +32,6 @@ trajGen_t::trajGen_t(gnn_t *graph_, int dt_factor_, int skip_, dfloat time_init_
     irank = "_rank_" + std::to_string(rank);
     nranks = "_size_" + std::to_string(size);
 
-    // allocate memory 
-    //dlong N = mesh->Nelements * mesh->Np; // total number of nodes
-
     if (verbose) printf("\n[RANK %d] -- Finished instantiating trajGen_t object\n", rank);
     if (verbose) printf("[RANK %d] -- The number of elements is %d \n", rank, mesh->Nelements);
 }
@@ -221,24 +218,6 @@ void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
         U = new dfloat[num_dim * field_offset]();
 
 #if defined(NEKRS_ENABLE_ADIOS)
-        /*  
-        // Get global size of data
-        hlong global = field_offset;
-        MPI_Allreduce(MPI_IN_PLACE, &global, 1, MPI_HLONG, MPI_SUM, comm);
-        client->_field_offset = field_offset;
-        client->_global_field_offset = global;
-        std::cout << "[RANK " << rank << "] -- field_offset: " << field_offset << " global_field_offset: " << global << std::endl;
-
-        // Gather size of data
-        hlong* gathered = new hlong[size];
-        hlong offset = 0;
-        MPI_Allgather(&field_offset, 1, MPI_HLONG, gathered, 1, MPI_HLONG, MPI_COMM_WORLD);
-        for (hlong i=0; i<rank; i++) {
-            offset += gathered[i];
-        }
-        client->_offset_field_offset = offset;
-        */
-
         // Define ADIOS variables
         client->uIn = client->_stream_io.DefineVariable<dfloat>("in_u", 
                                                         {client->_global_field_offset * client->_num_dim}, // global dim
