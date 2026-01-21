@@ -117,19 +117,23 @@ class MLPReprod():
             times.append(perf_counter() - tic)
 
         compute_time = sum(times) / len(times)
-        mlp_flops = 2 * self.cfg.hidden_channels**2 * N * (self.cfg.n_mlp_hidden_layers + 2)
-        flops_per_step = 3 * mlp_flops # backward pass is approx. 2x forward pass flops
+        gemm_flops = 2 * self.cfg.hidden_channels**2 * N
+        mlp_flops = gemm_flops * (self.cfg.n_mlp_hidden_layers + 2)
+        step_flops = 3 * mlp_flops # backward pass is approx. 2x forward pass flops
         sizeof_dtype = torch.tensor([], dtype=self.torch_dtype).element_size() # in bytes
-        ai = (2 * N * self.cfg.hidden_channels**2) \
-                / (sizeof_dtype * (2 *N * self.cfg.hidden_channels + self.cfg.hidden_channels**2))
+        gemm_mem_traffic = sizeof_dtype * (2 *N * self.cfg.hidden_channels + self.cfg.hidden_channels**2) 
+        mlp_mem_traffic = gemm_mem_traffic * (self.cfg.n_mlp_hidden_layers + 2)
+        step_mem_traffic = 3 * mlp_mem_traffic # backward pass is approx. 2x forward pass flops
+        gemm_ai = gemm_flops / gemm_mem_traffic
+        
 
         log.info(f"Training performance metrics (per step) with N={N}:")
+        log.info(f"\tGEMM AI: {gemm_ai:.4f}")
         log.info(f"\tCompute time: {compute_time:.4f} seconds")
-        log.info(f"\tFLOPS: {flops_per_step/1e9:.4f} GFLOPS")
-        log.info(f"\tAI: {ai:.4f}")
-        log.info(f"\tMemory traffic: {flops_per_step / ai / 1e9:.4f} GB")
-        log.info(f"\tFLOPS/s: {flops_per_step / compute_time / 1e12:.4f} TFLOPS/s")
-        log.info(f"\tMemory bandwidth: {flops_per_step / ai / 1e9 / compute_time:.4f} GB/s")
+        log.info(f"\tFLOPS: {step_flops / 1e12:.4f} TFLOPS")
+        log.info(f"\tFLOPS/s: {step_flops / compute_time / 1e12:.4f} TFLOPS/s")
+        log.info(f"\tMem traffic: {step_mem_traffic / 1e9:.4f} GB")
+        log.info(f"\tMem BW: {step_mem_traffic / 1e9 / compute_time:.4f} GB/s")
         log.info("\n")
 
     @torch.no_grad()
@@ -162,18 +166,23 @@ class MLPReprod():
             times.append(perf_counter() - tic)
 
         compute_time = sum(times) / len(times)
-        flops_per_step = 2 * self.cfg.hidden_channels**2 * N * (self.cfg.n_mlp_hidden_layers + 2)
+        gemm_flops = 2 * self.cfg.hidden_channels**2 * N
+        mlp_flops = gemm_flops * (self.cfg.n_mlp_hidden_layers + 2)
+        step_flops = mlp_flops
         sizeof_dtype = torch.tensor([], dtype=self.torch_dtype).element_size() # in bytes
-        ai = (2 * N * self.cfg.hidden_channels**2) \
-                / (sizeof_dtype * (2 *N * self.cfg.hidden_channels + self.cfg.hidden_channels**2))
+        gemm_mem_traffic = sizeof_dtype * (2 *N * self.cfg.hidden_channels + self.cfg.hidden_channels**2) 
+        mlp_mem_traffic = gemm_mem_traffic * (self.cfg.n_mlp_hidden_layers + 2)
+        step_mem_traffic = mlp_mem_traffic
+        gemm_ai = gemm_flops / gemm_mem_traffic
+
 
         log.info(f"Inference performance metrics (per step) with N={N}:")
+        log.info(f"\tGEMM AI: {gemm_ai:.4f}")
         log.info(f"\tCompute time: {compute_time:.4f} seconds")
-        log.info(f"\tFLOPS: {flops_per_step/1e9:.4f} GFLOPS")
-        log.info(f"\tAI: {ai:.4f}")
-        log.info(f"\tMemory traffic: {flops_per_step / ai / 1e9:.4f} GB")
-        log.info(f"\tFLOPS/s: {flops_per_step / compute_time / 1e12:.4f} TFLOPS/s")
-        log.info(f"\tMemory bandwidth: {flops_per_step / ai / 1e9 / compute_time:.4f} GB/s")
+        log.info(f"\tFLOPS: {step_flops / 1e12:.4f} TFLOPS")
+        log.info(f"\tFLOPS/s: {step_flops / compute_time / 1e12:.4f} TFLOPS/s")
+        log.info(f"\tMem traffic: {step_mem_traffic / 1e9:.4f} GB")
+        log.info(f"\tMem BW: {step_mem_traffic / 1e9 / compute_time:.4f} GB/s")
         log.info("\n")
 
 
