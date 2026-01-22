@@ -4,7 +4,7 @@ set -a
 # user input
 SYSTEM=
 NEKRS_HOME=
-VENV_PATH="../_env"
+VENV_PATH="${PWD}/../_env"
 NODES=$(cat ${PBS_NODEFILE} | wc -l)
 TIME="01:00"
 PROJ_ID="datascience"
@@ -318,9 +318,9 @@ function setup_venv() {
 
 function generate_script() {
   NEKRS_HOME=${NEKRS_HOME} VENV_PATH=${VENV_PATH}/bin/activate PROJ_ID=${PROJ_ID} \
-  DEPLOYMENT=$DEPLOYMENT DB_NODES=$DB_NODES SIM_NODES=$SIM_NODES TRAIN_NODES=$TRAIN_NODES \
-  ML_TASK=${ML_TASK} \
-    ./nrsrun_${SYSTEM} ${CASE_NAME} ${NODES} ${TIME}
+  DB_NODES=$DB_NODES SIM_NODES=$SIM_NODES TRAIN_NODES=$TRAIN_NODES \
+  DEPLOYMENT=$DEPLOYMENT ML_TASK=${ML_TASK} \
+  ${PWD}/nrsrun_${SYSTEM} ${CASE_NAME} ${NODES} ${TIME}
 }
 
 parse_args "$@"
