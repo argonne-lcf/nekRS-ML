@@ -7,6 +7,8 @@ from time import perf_counter
 
 import torch
 
+from ittapi import compat as itt
+
 from gnn import MLP
 
 log = logging.getLogger(__name__)
@@ -92,49 +94,26 @@ class MLPReprod():
 
     def train(self, graph_component: Optional[str] = 'nodes'):
         self.model.train()
-        
+
         if graph_component == 'nodes':
             N = self.num_nodes
         elif graph_component == 'edges':
             N = self.num_edges
         else:
             sys.exit('Invalid graph component')
+        log.info(f"Training with N={N}, hidden_channels={self.cfg.hidden_channels} and n_mlp_hidden_layers={self.cfg.n_mlp_hidden_layers}")
 
         # Warmup 
-        for _ in range(10):
+        for _ in range(1):
             x = torch.randn(N, self.cfg.hidden_channels, dtype=self.torch_dtype, device=self.device)
             y = torch.randn(N, self.cfg.hidden_channels, dtype=self.torch_dtype, device=self.device)
             self.train_step(x, y)
 
         # Performance test
-        times = []
         for _ in range(self.cfg.phase1_steps):
             x = torch.randn(N, self.cfg.hidden_channels, dtype=self.torch_dtype, device=self.device)
             y = torch.randn(N, self.cfg.hidden_channels, dtype=self.torch_dtype, device=self.device)
-            
-            tic = perf_counter()
             self.train_step(x, y)
-            times.append(perf_counter() - tic)
-
-        compute_time = sum(times) / len(times)
-        gemm_flops = 2 * self.cfg.hidden_channels**2 * N
-        mlp_flops = gemm_flops * (self.cfg.n_mlp_hidden_layers + 2)
-        step_flops = 3 * mlp_flops # backward pass is approx. 2x forward pass flops
-        sizeof_dtype = torch.tensor([], dtype=self.torch_dtype).element_size() # in bytes
-        gemm_mem_traffic = sizeof_dtype * (2 *N * self.cfg.hidden_channels + self.cfg.hidden_channels**2) 
-        mlp_mem_traffic = gemm_mem_traffic * (self.cfg.n_mlp_hidden_layers + 2)
-        step_mem_traffic = 3 * mlp_mem_traffic # backward pass is approx. 2x forward pass flops
-        gemm_ai = gemm_flops / gemm_mem_traffic
-        
-
-        log.info(f"Training performance metrics (per step) with N={N}:")
-        log.info(f"\tGEMM AI: {gemm_ai:.4f}")
-        log.info(f"\tCompute time: {compute_time:.4f} seconds")
-        log.info(f"\tFLOPS: {step_flops / 1e12:.4f} TFLOPS")
-        log.info(f"\tFLOPS/s: {step_flops / compute_time / 1e12:.4f} TFLOPS/s")
-        log.info(f"\tMem traffic: {step_mem_traffic / 1e9:.4f} GB")
-        log.info(f"\tMem BW: {step_mem_traffic / 1e9 / compute_time:.4f} GB/s")
-        log.info("\n")
 
     @torch.no_grad()
     def test_step(self, x: torch.Tensor):
@@ -150,40 +129,22 @@ class MLPReprod():
             N = self.num_edges
         else:
             sys.exit('Invalid graph component')
+        log.info(f"Inference with N={N}, hidden_channels={self.cfg.hidden_channels} and n_mlp_hidden_layers={self.cfg.n_mlp_hidden_layers}")
 
         # Warmup 
-        for _ in range(10):
+        for _ in range(1):
             x = torch.randn(N, self.cfg.hidden_channels, dtype=self.torch_dtype, device=self.device)
             self.test_step(x)
 
         # Performance test
-        times = []
-        for _ in range(self.cfg.phase1_steps):
-            x = torch.randn(N, self.cfg.hidden_channels, dtype=self.torch_dtype, device=self.device)
-
-            tic = perf_counter()
-            self.test_step(x)
-            times.append(perf_counter() - tic)
-
-        compute_time = sum(times) / len(times)
-        gemm_flops = 2 * self.cfg.hidden_channels**2 * N
-        mlp_flops = gemm_flops * (self.cfg.n_mlp_hidden_layers + 2)
-        step_flops = mlp_flops
-        sizeof_dtype = torch.tensor([], dtype=self.torch_dtype).element_size() # in bytes
-        gemm_mem_traffic = sizeof_dtype * (2 *N * self.cfg.hidden_channels + self.cfg.hidden_channels**2) 
-        mlp_mem_traffic = gemm_mem_traffic * (self.cfg.n_mlp_hidden_layers + 2)
-        step_mem_traffic = mlp_mem_traffic
-        gemm_ai = gemm_flops / gemm_mem_traffic
-
-
-        log.info(f"Inference performance metrics (per step) with N={N}:")
-        log.info(f"\tGEMM AI: {gemm_ai:.4f}")
-        log.info(f"\tCompute time: {compute_time:.4f} seconds")
-        log.info(f"\tFLOPS: {step_flops / 1e12:.4f} TFLOPS")
-        log.info(f"\tFLOPS/s: {step_flops / compute_time / 1e12:.4f} TFLOPS/s")
-        log.info(f"\tMem traffic: {step_mem_traffic / 1e9:.4f} GB")
-        log.info(f"\tMem BW: {step_mem_traffic / 1e9 / compute_time:.4f} GB/s")
-        log.info("\n")
+        itt.resume()
+        with torch.autograd.profiler.emit_itt():
+            torch.profiler.itt.range_push('inference')
+            for _ in range(self.cfg.phase1_steps):
+                x = torch.randn(N, self.cfg.hidden_channels, dtype=self.torch_dtype, device=self.device)
+                self.test_step(x)
+            torch.profiler.itt.range_pop()
+        itt.pause()
 
 
 @hydra.main(version_base=None, config_path='./conf', config_name='config')
@@ -195,10 +156,10 @@ def main(cfg: DictConfig) -> None:
 
     mlp_reprod = MLPReprod(cfg)
 
-    mlp_reprod.train(graph_component='nodes')
-    mlp_reprod.train(graph_component='edges')
+    #mlp_reprod.train(graph_component='nodes')
+    #mlp_reprod.train(graph_component='edges')
 
-    mlp_reprod.test(graph_component='nodes')
+    #mlp_reprod.test(graph_component='nodes')
     mlp_reprod.test(graph_component='edges')
 
 
