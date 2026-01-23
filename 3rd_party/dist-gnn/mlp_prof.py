@@ -110,10 +110,15 @@ class MLPReprod():
             self.train_step(x, y)
 
         # Performance test
-        for _ in range(self.cfg.phase1_steps):
-            x = torch.randn(N, self.cfg.hidden_channels, dtype=self.torch_dtype, device=self.device)
-            y = torch.randn(N, self.cfg.hidden_channels, dtype=self.torch_dtype, device=self.device)
-            self.train_step(x, y)
+        itt.resume()
+        with torch.autograd.profiler.emit_itt():
+            torch.profiler.itt.range_push('training')
+            for _ in range(self.cfg.phase1_steps):
+                x = torch.randn(N, self.cfg.hidden_channels, dtype=self.torch_dtype, device=self.device)
+                y = torch.randn(N, self.cfg.hidden_channels, dtype=self.torch_dtype, device=self.device)
+                self.train_step(x, y)
+            torch.profiler.itt.range_pop()
+        itt.pause()
 
     @torch.no_grad()
     def test_step(self, x: torch.Tensor):
@@ -156,11 +161,10 @@ def main(cfg: DictConfig) -> None:
 
     mlp_reprod = MLPReprod(cfg)
 
-    #mlp_reprod.train(graph_component='nodes')
-    #mlp_reprod.train(graph_component='edges')
-
-    #mlp_reprod.test(graph_component='nodes')
-    mlp_reprod.test(graph_component='edges')
+    if cfg.model_task == 'train':
+        mlp_reprod.train(graph_component='edges')
+    elif cfg.model_task == 'inference':
+        mlp_reprod.test(graph_component='edges')
 
 
 if __name__ == "__main__":

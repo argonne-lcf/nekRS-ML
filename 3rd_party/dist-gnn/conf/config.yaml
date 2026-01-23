@@ -17,7 +17,7 @@ master_port: 2345
 device_skip: 0 # temporary workaround to skip GPU on a node
 
 # Modeling task
-model_task: "train"
+model_task: "train" # {train, inference}
 time_dependency: "time_independent" # {time_independent, time_dependent}
 consistency: True
 use_residual: False
