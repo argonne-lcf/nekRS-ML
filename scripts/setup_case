@@ -192,6 +192,8 @@ function setup_case() {
     cp ${CASE_NAME}_${ML_TASK}.par ${CASE_NAME}.par
     cp ${CASE_NAME}_${ML_TASK}.re2 ${CASE_NAME}.re2
     cp ${CASE_NAME}_${ML_TASK}.oudf ${CASE_NAME}.oudf
+  elif [ "${DEPLOYMENT}" == "colocated" ] || [ "${DEPLOYMENT}" == "clustered" ]; then
+    cp ${CASE_NAME}.par.safe ${CASE_NAME}.par
   fi
 }
 
