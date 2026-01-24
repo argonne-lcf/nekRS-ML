@@ -325,7 +325,7 @@ class NekRSMLTest(NekRSTest):
         ])
 
     def check_traj_cmd(self):
-        # Check the GNN traj if the case is of `traj` type.
+        # Return if the case is not a `traj` case.
         if self.ml_args["time_dependency"] != "time_dependent":
             return []
 
@@ -418,20 +418,16 @@ class NekRSMLOnlineTest(NekRSMLTest):
             "export SR_SOCKET_TIMEOUT=10000",
         ]
 
-    def setup_config(self):
+    def create_ssim_config(self):
         args = self.ml_args
         db_bind_list = self.current_partition.extras["db_bind_list"]
         cpu_bind_list = self.current_partition.extras["cpu_bind_list"]
 
-        rpn = int(args["rpn"])
-        ml_rpn = int(rpn / 2)
-        sim_rpn = rpn - ml_rpn
+        case, rpn = args["case"], int(args["rpn"])
+        ml_rpn, sim_rpn = int(rpn / 2), rpn - int(rpn / 2)
 
         ids = cpu_bind_list.split(":")
-        sim_ids = ids[:sim_rpn]
-        ml_ids = ids[sim_rpn:]
-
-        case = args["case"]
+        sim_ids, ml_ids = ids[:sim_rpn], ids[sim_rpn:]
 
         config_yaml = os.path.join(self.stagedir, "ssim_config.yaml.reframe")
         with open(config_yaml, "w") as f:
@@ -524,7 +520,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
     @run_before("run")
     def setup_run(self):
         super().set_environment()
-        self.setup_config()
+        self.create_ssim_config()
         self.set_prerun_cmds()
         self.set_launcher_options()
         self.set_executable_options()
