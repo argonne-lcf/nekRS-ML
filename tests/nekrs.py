@@ -113,6 +113,8 @@ class NekRSBuild(CompileOnlyTest):
             "-DENABLE_ADIOS=OFF",
             "-DENABLE_SMARTREDIS=ON",
             f"-DSMARTREDIS_INSTALL_DIR={self.smartredis_build.get_install_path()}",
+            "-DENABLE_ADIOS=ON",
+            "-DADIOS2_INSTALL_DIR=${ADIOS2_INSTALL_DIR}",
         ]
 
         self.prebuild_cmds += [
@@ -121,6 +123,7 @@ class NekRSBuild(CompileOnlyTest):
             f"export CC={self.build_system.cc}",
             f"export CXX={self.build_system.cxx}",
             f"export FC={self.build_system.ftn}",
+            "export ADIOS2_INSTALL_DIR=`which adios2-config`/../../",
         ]
 
     @sanity_function
