@@ -426,7 +426,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
         db_bind_list = self.current_partition.extras["db_bind_list"]
         cpu_bind_list = self.current_partition.extras["cpu_bind_list"]
 
-        case, rpn = args["case"], int(args["rpn"])
+        client, case, rpn = args["client"], args["case"], int(args["rpn"])
         ml_rpn, sim_rpn = int(rpn / 2), rpn - int(rpn / 2)
 
         ids = cpu_bind_list.split(":")
@@ -434,51 +434,66 @@ class NekRSMLOnlineTest(NekRSMLTest):
 
         config_yaml = os.path.join(self.stagedir, "ssim_config.yaml.reframe")
         with open(config_yaml, "w") as f:
-            f.write("# Database config\n")
-            f.write("database:\n")
-            f.write("    launch: True\n")
-            # FIXME: This should be the `--client` value in the ml_args.
-            f.write('    backend: "redis"\n')
-            f.write(f'    deployment: "{args["deployment"]}"\n')
-            f.write(f'    exp_name: "{self.nekrs_ml_experiment}"\n')
-            # FIXME: The following should be machine-dependent:
-            f.write("    port: 6782\n")
-            f.write('    network_interface: "uds"\n')
-            f.write('    launcher: "pals"\n')
-            f.write("\n")
+            if client == "smartredis":
+                f.write("###################\n")
+                f.write("# Database config #\n")
+                f.write("###################\n")
+                f.write("database:\n")
+                f.write("    launch: True\n")
+                f.write('    backend: "redis"\n')
+                f.write(f'    deployment: "{args["deployment"]}"\n')
+                f.write(f'    exp_name: "{self.nekrs_ml_experiment}"\n')
+                # FIXME: The following should be machine-dependent:
+                f.write("    port: 6782\n")
+                f.write('    network_interface: "uds"\n')
+                f.write('    launcher: "pals"\n')
+                f.write("\n")
+            elif client == "adios":
+                f.write("###################\n")
+                f.write("# Workflow config #\n")
+                f.write("###################\n")
+                f.write("scheduler: pbs\n")
+                f.write(f'deployment: "{args["deployment"]}"\n')
 
-            f.write("# Run config\n")
+            f.write("##############\n")
+            f.write("# Run config #\n")
+            f.write("##############\n")
             f.write("run_args:\n")
             f.write(f"    nodes: {args['nn']}\n")
-            f.write(f"    db_nodes: {args['db_nodes']}\n")
             f.write(f"    sim_nodes: {args['sim_nodes']}\n")
-            f.write(f"    ml_nodes: {args['sim_nodes']}\n")
             f.write(f"    simprocs: {args['sim_nodes'] * sim_rpn}\n")
             f.write(f"    simprocs_pn: {sim_rpn}\n")
+            f.write(f'    sim_cpu_bind: "list:{":".join(sim_ids)}"\n')
+            f.write(f"    ml_nodes: {args['sim_nodes']}\n")
             f.write(f"    mlprocs: {args['train_nodes'] * ml_rpn}\n")
             f.write(f"    mlprocs_pn: {ml_rpn}\n")
-            f.write(f"    dbprocs: {args['db_nodes'] * rpn}\n")
-            f.write(f"    dbprocs_pn: {ml_rpn}\n")
-
-            f.write(f'    sim_cpu_bind: "list:{":".join(sim_ids)}"\n')
             f.write(f'    ml_cpu_bind: "list:{":".join(ml_ids)}"\n')
-            f.write(f"    db_cpu_bind: [{db_bind_list}]\n")
+            if client == "smartredis":
+                f.write(f"    db_nodes: {args['db_nodes']}\n")
+                f.write(f"    dbprocs: {args['db_nodes'] * rpn}\n")
+                f.write(f"    dbprocs_pn: {ml_rpn}\n")
+                f.write(f"    db_cpu_bind: [{db_bind_list}]\n")
             f.write("\n")
 
-            f.write("# Simulation config\n")
+            f.write("#####################\n")
+            f.write("# Simulation config #\n")
+            f.write("#####################\n")
             f.write("sim:\n")
             f.write(f'    executable: "{self.nekrs_binary}"\n')
             f.write(
                 f'    arguments: "{list_to_cmd(self.get_nekrs_executable_options())}"\n'
             )
             f.write(f'    affinity: "./affinity_nrs.sh"\n')
-            f.write(
-                f'    copy_files: ["./{case}.usr","./{case}.par","./{case}.udf","./{case}.re2"]\n'
-            )
-            f.write('    link_files: ["./affinity_nrs.sh", ".cache"]\n')
+            if client == "smartredis":
+                f.write(
+                    f'    copy_files: ["./{case}.usr","./{case}.par","./{case}.udf","./{case}.re2"]\n'
+                )
+                f.write('    link_files: ["./affinity_nrs.sh", ".cache"]\n')
             f.write("\n")
 
-            f.write("# Trainer config\n")
+            f.write("##################\n")
+            f.write("# Trainer config #\n")
+            f.write("##################\n")
             f.write("train:\n")
             f.write(
                 f'    executable: "{os.path.join(self.get_gnn_dist_dir(), "main.py")}"\n'
@@ -488,12 +503,14 @@ class NekRSMLOnlineTest(NekRSMLTest):
                 (
                     "    arguments: "
                     '"halo_swap_mode=all_to_all_opt layer_norm=True online=True verbose=True '
-                    f"consistency=True client.db_nodes={args['db_nodes']} target_loss={args['target_loss']} "
-                    f'device_skip={sim_rpn} time_dependency={args["time_dependency"]}"\n'
+                    f"consistency=True target_loss={args['target_loss']} "
+                    f'device_skip={sim_rpn} time_dependency={args["time_dependency"]} '
+                    f'client.db_nodes={args['db_nodes']}"\n'
                 )
             )
-            f.write("    copy_files: []\n")
-            f.write('    link_files: ["./affinity_ml.sh"]\n')
+            if client == "smartredis":
+                f.write("    copy_files: []\n")
+                f.write('    link_files: ["./affinity_ml.sh"]\n')
 
     def set_prerun_cmds(self):
         self.prerun_cmds += [
