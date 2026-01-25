@@ -99,3 +99,23 @@ class NekRSTGVOnlineTraj(NekRSMLOnlineTest):
             target_loss=6.9076e-01,
         )
         self.tags |= {f"tgv_online_traj_{self.model}"}
+
+
+@rfm.simple_test
+class NekRSTGVOnlineTrajAdios(NekRSMLOnlineTest):
+    num_nodes = parameter([1])
+    ranks_per_node = parameter([8])
+    model = parameter(["dist-gnn", "sr-gnn"])
+
+    def __init__(self):
+        super().__init__(
+            case="tgv",
+            directory="tgv_gnn_online_traj_adios",
+            nn=self.num_nodes,
+            rpn=self.ranks_per_node,
+            model=self.model,
+            time_dependency="time_dependent",
+            client="adios",
+            target_loss=6.9076e-01,
+        )
+        self.tags |= {f"tgv_online_traj_adios_{self.model}"}
