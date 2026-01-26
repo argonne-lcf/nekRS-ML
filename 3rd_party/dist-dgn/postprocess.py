@@ -106,20 +106,27 @@ def plot_training_loss(log_file: str):
                     per_step_vlb_losses[step].append(loss_val)
 
     # Plot loss vs iterations
-    plt.figure(figsize=(8, 6))
+    plt.figure(figsize=(12, 6))
+    plt.subplot(1, 2, 1)
     plt.plot(iterations, losses, label='Loss', linewidth=1)
-    if len(mse_losses) > 0:
-        plt.plot(iterations, mse_losses, label='MSE Loss', linewidth=1)
-    if len(vlb_losses) > 0:
-        plt.plot(iterations, vlb_losses, label='VLB Loss', linewidth=1)
     if len(running_losses) > 0:
         plt.plot(iterations, running_losses, label='Running Loss', linewidth=1)
     plt.xlabel('Iterations')
     plt.ylabel('Loss')
-    plt.title('Training Loss vs Iterations')
     plt.grid(True, alpha=0.3)
+    plt.legend(loc='upper right')
+    plt.title('Training Loss vs Iterations')
     #plt.yscale('log')
-    plt.xlim(-100,2600)
+    plt.subplot(1, 2, 2)
+    if len(mse_losses) > 0:
+        plt.plot(iterations, mse_losses, label='MSE Loss', linewidth=1)
+    if len(vlb_losses) > 0:
+        plt.plot(iterations, vlb_losses, label='VLB Loss', linewidth=1)
+    plt.xlabel('Iterations')
+    plt.ylabel('Loss')
+    plt.title('Loss Components vs Iterations')
+    plt.grid(True, alpha=0.3)
+    plt.xlim(-100,2000)
     plt.legend(loc='upper right')
     plt.tight_layout()
     plt.savefig('loss_plot.png', dpi=150)

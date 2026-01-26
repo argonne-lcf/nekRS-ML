@@ -56,9 +56,9 @@ echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIN
 
 echo -e "\n# Train model" >>$RFILE
 echo "head_node=\`head -1 \$PBS_NODEFILE | cut -d'.' -f1\`" >>$RFILE
-echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/dist-dgn/main.py batch_size=4 input_node_features=2 halo_swap_mode=none consistency=False phase1_steps=200 phase2_steps=500 ckptfreq=100 backend=xccl gnn_outputs_path=${PWD}/gnn_outputs_poly_3 verbose=True postprocess=False 2>&1 | tee train.log" >> $RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/dist-dgn/main.py batch_size=4 mlp_hidden_channels=32 n_mlp_hidden_layers=5 n_messagePassing_layers=4 input_node_features=2 halo_swap_mode=none consistency=False phase1_steps=300 phase2_steps=700 lr_phase23=0.00001 ckptfreq=100 backend=xccl gnn_outputs_path=${PWD}/gnn_outputs_poly_3 verbose=True postprocess=False 2>&1 | tee train.log" >> $RFILE
 
 echo -e "\n# Perform inference and generate files for visualization" >>$RFILE
-echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/dist-dgn/inference.py model_task=inference input_node_features=2 halo_swap_mode=none consistency=False master_addr=\$head_node backend=xccl num_gen_samples=1 gnn_outputs_path=${PWD}/gnn_outputs_poly_3 ckpt_dir=${PWD}/ckpt inference_dir=${PWD}/predictions verbose=True postprocess=True 2>&1 | tee inference.log" >> $RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/dist-dgn/inference.py model_task=inference num_gen_samples=1 mlp_hidden_channels=32 n_mlp_hidden_layers=5 n_messagePassing_layers=4 input_node_features=2 halo_swap_mode=none consistency=False master_addr=\$head_node backend=xccl gnn_outputs_path=${PWD}/gnn_outputs_poly_3 ckpt_dir=${PWD}/ckpt inference_dir=${PWD}/predictions verbose=True postprocess=True 2>&1 | tee inference.log" >> $RFILE
 chmod u+x $RFILE
 

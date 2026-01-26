@@ -43,6 +43,7 @@ def vlb_loss(
     """
     kl = kl_divergence(true_distribution[0], true_distribution[1], model_distribution[0], model_distribution[1]) # Dimension: (num_nodes, num_features)
     kl = batch_wise_mean(kl, batch) / math.log(2.0) # Dimension (batch_size)
+    # Use a decoder NLL loss for r==0 since we are measuring the reconstruction error 
     if (r == 0).any():
         decoder_nll = F.gaussian_nll_loss(model_distribution[0], field_start, model_distribution[1], reduction='none') # Dimension: (num_nodes, num_features)
         decoder_nll = batch_wise_mean(decoder_nll, batch) # Dimension (batch_size)

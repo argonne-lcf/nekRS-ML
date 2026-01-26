@@ -244,10 +244,18 @@ class DGNTrainer:
         self.s_optimizer.reset_n_steps(self.iteration)
 
         # ~~~~ Set step sampler
-        self.step_sampler = step_sampler.AdaptiveExponentialSampler(
+        if self.cfg.diffusion_step_sampler == "uniform":
+            self.step_sampler = step_sampler.UniformSampler(
                 num_diffusion_steps=self.cfg.num_diffusion_steps, 
                 device=self.device, 
                 dtype=self.torch_dtype)
+        elif self.cfg.diffusion_step_sampler == "adaptive_exponential":
+            self.step_sampler = step_sampler.AdaptiveExponentialSampler(
+                num_diffusion_steps=self.cfg.num_diffusion_steps, 
+                device=self.device, 
+                dtype=self.torch_dtype)
+        else:
+            sys.exit('Invalid diffusion step sampler')
 
         # ~~~~ Set diffusion process
         self.diffusion_process = DiffusionProcess(self.cfg.num_diffusion_steps)
@@ -280,8 +288,7 @@ class DGNTrainer:
             sepstr = '-' * len(astr)
             log.info(sepstr)
             log.info(astr)
-
-        dist.barrier()
+        COMM.Barrier()
 
     def save_model(self):
         if RANK == 0:
@@ -307,7 +314,7 @@ class DGNTrainer:
                         'iteration' : self.iteration,
                         }
             torch.save(save_dict, self.model_path)
-
+        COMM.Barrier()
 
     def build_model(self) -> nn.Module:
         if RANK == 0:
@@ -1156,7 +1163,7 @@ class DGNTrainer:
                 # Hybrid loss function for diffusion models from the paper 
                 # Improved Denoising Diffusion Probabilistic Models (https://arxiv.org/abs/2102.09672).
                 # Adapted from https://github.com/tum-pbs/dgn4cfd/blob/main/dgn4cfd/nn/losses.py
-                lambda_vlb = 0.01
+                lambda_vlb = 0.001
                 true_posterior_mean, true_posterior_variance = \
                         self.diffusion_process.get_posterior_mean_and_variance(
                                                         data.x[:,:self.cfg.input_node_features], 
@@ -1174,8 +1181,9 @@ class DGNTrainer:
                     (true_posterior_mean, true_posterior_variance), 
                     (model_posterior_mean, model_posterior_variance), 
                     data.batch, 
-                    r)
-                loss += lambda_vlb * vlb_term # Dimension (batch_size)
+                    r) # Dimension (batch_size)
+                vlb_term *= lambda_vlb
+                loss += vlb_term # Dimension (batch_size)
                 if self.cfg.verbose: 
                     if RANK == 0:
                         log.info(f"MSE loss term: {mse_term.detach().cpu().numpy().tolist()}, mean = {mse_term.detach().cpu().mean().numpy().tolist()}")
