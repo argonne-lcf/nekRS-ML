@@ -457,7 +457,6 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write(f"    mlprocs_pn: {ml_rpn}\n")
             f.write(f"    dbprocs: {args['db_nodes'] * db_rpn}\n")
             f.write(f"    dbprocs_pn: {db_rpn}\n")
-
             f.write(f'    sim_cpu_bind: "list:{":".join(sim_ids)}"\n')
             f.write(f'    ml_cpu_bind: "list:{":".join(ml_ids)}"\n')
             f.write(f"    db_cpu_bind: [{db_bind_list}]\n")

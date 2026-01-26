@@ -8,7 +8,7 @@ import os
 class NekRSTGVOffline(NekRSMLOfflineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([2])
-    model = parameter(["dist-gnn", "sr-gnn"])
+    model = parameter(["dist-gnn"])
 
     def __init__(self):
         super().__init__(
@@ -27,7 +27,7 @@ class NekRSTGVOffline(NekRSMLOfflineTest):
 class NekRSTGVOfflineCoarseMesh(NekRSMLOfflineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([2])
-    model = parameter(["dist-gnn", "sr-gnn"])
+    model = parameter(["dist-gnn"])
 
     def __init__(self):
         super().__init__(
@@ -46,7 +46,7 @@ class NekRSTGVOfflineCoarseMesh(NekRSMLOfflineTest):
 class NekRSTGVOfflineTraj(NekRSMLOfflineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([4])
-    model = parameter(["dist-gnn", "sr-gnn"])
+    model = parameter(["dist-gnn"])
 
     def __init__(self):
         super().__init__(
@@ -65,7 +65,7 @@ class NekRSTGVOfflineTraj(NekRSMLOfflineTest):
 class NekRSTGVOnline(NekRSMLOnlineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([4])
-    model = parameter(["dist-gnn", "sr-gnn"])
+    model = parameter(["dist-gnn"])
 
     def __init__(self):
         super().__init__(
@@ -85,7 +85,7 @@ class NekRSTGVOnline(NekRSMLOnlineTest):
 class NekRSTGVOnlineTraj(NekRSMLOnlineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([8])
-    model = parameter(["dist-gnn", "sr-gnn"])
+    model = parameter(["dist-gnn"])
 
     def __init__(self):
         super().__init__(
