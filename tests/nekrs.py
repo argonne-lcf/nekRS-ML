@@ -420,13 +420,14 @@ class NekRSMLOnlineTest(NekRSMLTest):
 
     def create_ssim_config(self):
         args = self.ml_args
-        db_bind_list = self.current_partition.extras["db_bind_list"]
-        cpu_bind_list = self.current_partition.extras["cpu_bind_list"]
 
         case, rpn = args["case"], int(args["rpn"])
         ml_rpn, sim_rpn = int(rpn / 2), rpn - int(rpn / 2)
 
-        ids = cpu_bind_list.split(":")
+        db_bind_list = self.current_partition.extras["db_bind_list"]
+        db_rpn = len(db_bind_list.split(","))
+
+        ids = self.current_partition.extras["cpu_bind_list"].split(":")
         sim_ids, ml_ids = ids[:sim_rpn], ids[sim_rpn:]
 
         config_yaml = os.path.join(self.stagedir, "ssim_config.yaml.reframe")
@@ -454,8 +455,8 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write(f"    simprocs_pn: {sim_rpn}\n")
             f.write(f"    mlprocs: {args['train_nodes'] * ml_rpn}\n")
             f.write(f"    mlprocs_pn: {ml_rpn}\n")
-            f.write(f"    dbprocs: {args['db_nodes'] * rpn}\n")
-            f.write(f"    dbprocs_pn: {ml_rpn}\n")
+            f.write(f"    dbprocs: {args['db_nodes'] * db_rpn}\n")
+            f.write(f"    dbprocs_pn: {db_rpn}\n")
 
             f.write(f'    sim_cpu_bind: "list:{":".join(sim_ids)}"\n')
             f.write(f'    ml_cpu_bind: "list:{":".join(ml_ids)}"\n')
