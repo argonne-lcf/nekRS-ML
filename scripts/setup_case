@@ -291,11 +291,13 @@ function setup_venv() {
 
     if [ ${MODEL} == "sr-gnn" ]; then
       if [ ${SYSTEM} == "aurora" ]; then
-        src_dir="${PWD}/../pytorch_cluster"
-        git clone https://github.com/rusty1s/pytorch_cluster.git ${src_dir}
+        cwd=${PWD}
+        git clone https://github.com/rusty1s/pytorch_cluster.git ${VENV_PATH}/pytorch_cluster
+        cd ${VENV_PATH}/pytorch_cluster
         # Need to force the install to not link with OpenMP, change lines 53-54 to if False:
-        sed -i 's/fopenmp/lgomp/' ${src_dir}/setup.py
-        CXX=$(which dpcpp) python ${src_dir}/setup.py install
+        sed -i 's/fopenmp/lgomp/' setup.py
+        CXX=$(which dpcpp) python setup.py install
+        cd ${cwd}
       fi
     fi
     
