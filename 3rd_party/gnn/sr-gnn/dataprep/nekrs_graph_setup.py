@@ -402,11 +402,12 @@ def get_pygeom_dataset_lo_hi_pymech(
         )  # pygeom pos format -- [N, 3]
         vel_xhi_i = torch.tensor(xhi_field.elem[i].vel).reshape((3, -1)).T
 
-        x_gll = xhi_field.elem[i].pos[0, 0, 0, :]
-        dx_min = x_gll[1] - x_gll[0]
+        elm_vtx_lo_i = get_element_vertices(pos_xlo_i)
+        elm_vtx_hi_i = get_element_vertices(pos_xhi_i)
 
-        error_max = (pos_xlo_i.max(dim=0)[0] - pos_xhi_i.max(dim=0)[0]).max()
-        error_min = (pos_xlo_i.min(dim=0)[0] - pos_xhi_i.min(dim=0)[0]).max()
+        dx_min = (elm_vtx_lo_i.max(dim=0)[0] - elm_vtx_lo_i.min(dim=0)[0]).min()
+        error_max = (elm_vtx_lo_i.max(dim=0)[0] - elm_vtx_hi_i.max(dim=0)[0]).max()
+        error_min = (elm_vtx_lo_i.min(dim=0)[0] - elm_vtx_hi_i.min(dim=0)[0]).max()
         rel_error_max = torch.abs(error_max / dx_min) * 100
         rel_error_min = torch.abs(error_min / dx_min) * 100
 
@@ -1113,3 +1114,25 @@ def get_pygeom_dataset(
     t_load = time.time() - t_load
     print("\ttook %g sec" % (t_load))
     return data_train_list, data_valid_list, data_mean, data_var, n_samples
+
+
+def get_element_vertices(pos: Tensor) -> Tensor:
+    """Given the position of the GLL points within the element,
+       compute the polynomial order and return the vertices of the element.
+    """
+    Ngll = round(pos.shape[0]**(1/3))
+    N = Ngll - 1
+    
+    if N == 1:
+        return pos
+    else:
+        indices = torch.tensor([0,
+                                Ngll-1,
+                                Ngll**2-N-1,
+                                Ngll**2-1,
+                                Ngll**3-Ngll**2,
+                                Ngll**3-Ngll**2+N,
+                                Ngll**3-N-1,
+                                Ngll**3-1])
+        elm_vtx = pos[indices, :]
+        return elm_vtx
