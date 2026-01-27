@@ -25,17 +25,10 @@ def grep(pattern, file):
     )
 
 
-def check_args(args, required_args):
+def check_required_args(args, required_args):
     for arg in required_args:
         if arg not in args:
             raise KeyError(f"Required kwarg {arg} was not found.")
-
-    if "deployment" in args and args["test_type"] == "online":
-        val = args["deployment"]
-        if (val != "colocated") or (val != "clustered"):
-            raise KeyError(
-                f'Key "deployment" has invalid value: "{val}" for an online example.'
-            )
 
 
 def init_missing_args(args):
@@ -56,6 +49,27 @@ def init_missing_args(args):
         args["sim_nodes"] = 1
     if "train_nodes" not in args:
         args["train_nodes"] = 1
+
+    return args
+
+
+def validate_args(args):
+    def validate_value(key, valid_values, allow_empty=False):
+        if allow_empty and key not in args:
+            return
+        if args[key] not in valid_values:
+            raise ValueError(
+                f"Input '{key}' has an invalid value: {args[key]}, "
+                f"valid values are: {valid_values}"
+            )
+
+    if args["test_type"] == "online":
+        validate_value("deployment", ["colocated", "clustered"])
+    else:
+        validate_value("deployment", ["clustered", "colocated", "offline"])
+    validate_value("model", ["dist-gnn", "sr-gnn"])
+    validate_value("ml_task", ["train", "inference"], allow_empty=True)
+    validate_value("client", ["smartredis", "adios", "posix"])
 
     return args
 
@@ -209,7 +223,7 @@ class NekRSTest(RunOnlyTest):
 class NekRSMLTest(NekRSTest):
     def __init__(self, **kwargs):
         # Check if the required arguments are in kwargs.
-        check_args(
+        check_required_args(
             kwargs,
             [
                 "case",
