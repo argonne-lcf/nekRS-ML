@@ -261,24 +261,6 @@ class NekRSMLTest(NekRSTest):
         return os.path.join(self.stagedir, "_env")
 
     @cache
-    def get_gnn_output_dir(self):
-        order = self.get_order()
-        return os.path.join(self.stagedir, f"gnn_outputs_poly_{order}")
-
-    @cache
-    def get_traj_root(self):
-        order = self.get_order()
-        return os.path.join(f"traj_poly_{order}", "tinit_0.000000_dtfactor_10")
-
-    @cache
-    def get_traj_dir(self):
-        return os.path.join(self.stagedir, self.get_traj_root())
-
-    @cache
-    def get_check_input_files_path(self):
-        return os.path.join(self.get_gnn_dist_dir(), "check_input_files.py")
-
-    @cache
     def get_max_ranks(self):
         max_rpn = self.current_partition.extras["ranks_per_node"]
         return self.ml_args["nn"] * max_rpn
@@ -317,6 +299,23 @@ class NekRSMLTest(NekRSTest):
             os.path.join(self.get_venv_path(), "bin", "activate"),
         ])
 
+    def set_environment(self):
+        super().set_environment()
+
+    def set_launcher_options(self):
+        super().set_launcher_options()
+
+
+class NekRSMLOfflineTest(NekRSMLTest):
+    def __init__(self, **kwargs):
+        kwargs["test_type"] = "offline"
+        super().__init__(**kwargs)
+
+    @cache
+    def get_gnn_output_dir(self):
+        order = self.get_order()
+        return os.path.join(self.stagedir, f"gnn_outputs_poly_{order}")
+
     def check_halo_info_cmd(self):
         halo_info = [
             "python",
@@ -328,6 +327,10 @@ class NekRSMLTest(NekRSTest):
         ]
         return list_to_cmd(self.get_mpiexec() + halo_info)
 
+    @cache
+    def get_check_input_files_path(self):
+        return os.path.join(self.get_gnn_dist_dir(), "check_input_files.py")
+
     def check_input_files_cmd(self):
         return list_to_cmd([
             "python",
@@ -337,6 +340,15 @@ class NekRSMLTest(NekRSTest):
             "--PATH",
             self.get_gnn_output_dir(),
         ])
+
+    @cache
+    def get_traj_root(self):
+        order = self.get_order()
+        return os.path.join(f"traj_poly_{order}", "tinit_0.000000_dtfactor_10")
+
+    @cache
+    def get_traj_dir(self):
+        return os.path.join(self.stagedir, self.get_traj_root())
 
     def check_traj_cmd(self):
         # Return if the case is not a `traj` case.
@@ -360,17 +372,21 @@ class NekRSMLTest(NekRSTest):
             cmds.append(cmd)
         return cmds
 
-    def set_environment(self):
-        super().set_environment()
+    def set_prerun_cmds(self):
+        # Run all the pre-training steps
+        self.prerun_cmds += [
+            self.setup_case_cmd(),
+            self.source_cmd(),
+            self.nekrs_cmd(extra_args=[f"--build-only {self.get_max_ranks()}"]),
+            self.nekrs_cmd(),
+        ]
 
-    def set_launcher_options(self):
-        super().set_launcher_options()
-
-
-class NekRSMLOfflineTest(NekRSMLTest):
-    def __init__(self, **kwargs):
-        kwargs["test_type"] = "offline"
-        super().__init__(**kwargs)
+        if self.ml_args["model"] == "dist-gnn":
+            self.prerun_cmds += [
+                self.check_halo_info_cmd(),
+                self.check_input_files_cmd(),
+                *self.check_traj_cmd(),
+            ]
 
     def set_executable_options(self):
         self.executable = list_to_cmd([
@@ -386,18 +402,6 @@ class NekRSMLOfflineTest(NekRSMLTest):
             f"traj_data_path={self.get_traj_dir()}",
             f"target_loss={self.ml_args['target_loss']}",
             f"time_dependency={self.ml_args['time_dependency']}",
-        ]
-
-    def set_prerun_cmds(self):
-        # Run all the pre-training steps
-        self.prerun_cmds += [
-            self.setup_case_cmd(),
-            self.source_cmd(),
-            self.nekrs_cmd(extra_args=[f"--build-only {self.get_max_ranks()}"]),
-            self.nekrs_cmd(),
-            self.check_halo_info_cmd(),
-            self.check_input_files_cmd(),
-            *self.check_traj_cmd(),
         ]
 
     @run_before("run")
