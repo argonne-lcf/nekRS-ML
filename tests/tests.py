@@ -20,7 +20,7 @@ class NekRSTGVOffline(NekRSMLOfflineTest):
             time_dependency="time_independent",
             target_loss=1.6206e-04,
         )
-        self.tags |= {f"tgv_offline_{self.model}"}
+        self.tags |= {f"tgv_offline"}
 
 
 @rfm.simple_test
@@ -39,7 +39,7 @@ class NekRSTGVOfflineCoarseMesh(NekRSMLOfflineTest):
             time_dependency="time_independent",
             target_loss=1.6206e-04,
         )
-        self.tags |= {f"tgv_offline_coarse_mesh_{self.model}"}
+        self.tags |= {f"tgv_offline_coarse_mesh"}
 
 
 @rfm.simple_test
@@ -58,7 +58,7 @@ class NekRSTGVOfflineTraj(NekRSMLOfflineTest):
             time_dependency="time_dependent",
             target_loss=6.9076e-01,
         )
-        self.tags |= {f"tgv_offline_traj_{self.model}"}
+        self.tags |= {f"tgv_offline_traj"}
 
 
 @rfm.simple_test
@@ -78,7 +78,7 @@ class NekRSTGVOnline(NekRSMLOnlineTest):
             client="smartredis",
             target_loss=1.6206e-04,
         )
-        self.tags |= {f"tgv_online_{self.model}"}
+        self.tags |= {f"tgv_online"}
 
 
 @rfm.simple_test
@@ -98,4 +98,4 @@ class NekRSTGVOnlineTraj(NekRSMLOnlineTest):
             client="smartredis",
             target_loss=6.9076e-01,
         )
-        self.tags |= {f"tgv_online_traj_{self.model}"}
+        self.tags |= {f"tgv_online_traj"}
