@@ -391,9 +391,10 @@ class NekRSMLOfflineTest(NekRSMLTest):
     def set_prerun_cmds(self):
         # Run all the pre-training steps
         self.prerun_cmds += [
-            self.nekrs_cmd(),
             self.setup_case_cmd(),
             self.source_cmd(),
+            self.nekrs_cmd(extra_args=[f"--build-only {self.get_max_ranks()}"]),
+            self.nekrs_cmd(),
             self.check_halo_info_cmd(),
             self.check_input_files_cmd(),
             *self.check_traj_cmd(),
