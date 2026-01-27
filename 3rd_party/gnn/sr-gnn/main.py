@@ -137,7 +137,7 @@ class Trainer:
         if scaler is None:
             self.scaler = None
         self.device = DEVICE
-        self.backend = self.cfg.backend
+        self.backend = None
 
         # ~~~~ Init torch stuff
         self.setup_torch()

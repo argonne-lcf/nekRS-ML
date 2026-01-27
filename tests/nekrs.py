@@ -25,12 +25,6 @@ def grep(pattern, file):
     )
 
 
-def check_required_args(args, required_args):
-    for arg in required_args:
-        if arg not in args:
-            raise KeyError(f"Required kwarg {arg} was not found.")
-
-
 def init_missing_args(args):
     # Replicating setup_case default values for the time being.
     if "time" not in args:
@@ -202,8 +196,10 @@ class NekRSTest(RunOnlyTest):
         self.executable = f"{self.nekrs_binary}"
         self.executable_opts = self.get_nekrs_executable_options()
 
-    def get_gnn_dist_dir(self):
-        return os.path.join(self.nekrs_home, "3rd_party", "gnn", "dist-gnn")
+    def get_gnn_dir(self):
+        return os.path.join(
+            self.nekrs_home, "3rd_party", "gnn", self.ml_args["model"]
+        )
 
     @run_before("run")
     def setup_run(self):
@@ -222,18 +218,10 @@ class NekRSTest(RunOnlyTest):
 
 class NekRSMLTest(NekRSTest):
     def __init__(self, **kwargs):
-        # Check if the required arguments are in kwargs.
-        check_required_args(
-            kwargs,
-            [
-                "case",
-                "directory",
-                "nn",
-                "rpn",
-                "target_loss",
-                "time_dependency",
-            ],
-        )
+        required_args = ["case", "directory", "nn", "rpn", "time_dependency"]
+        for arg in required_args:
+            if arg not in kwargs:
+                raise KeyError(f"Required kwarg {arg} was not found.")
 
         super().__init__(
             kwargs["case"], kwargs["directory"], kwargs["nn"], kwargs["rpn"]
@@ -249,12 +237,22 @@ class NekRSMLTest(NekRSTest):
         return self.job.launcher.command(self.job) + self.job.launcher.options
 
     @cache
-    def get_order(self):
+    def get_order(self, pattern):
         par_file = os.path.join(self.sourcesdir, f"{self.nekrs_case_name}.par")
-        result = grep("gnnPolynomialOrder", par_file)
-        if result.stdout is None:
-            result = grep("polynomialOrder", par_file)
+        result = grep(pattern, par_file)
+        if result is None:
+            raise ValueError(
+                f"Expected pattern '{pattern}' not found in {par_file}"
+            )
         return int(result.stdout.split()[2])
+
+    @cache
+    def get_gnn_order(self):
+        return self.get_order("gnnPolynomialOrder")
+
+    @cache
+    def get_nekrs_order(self):
+        return self.get_order("polynomialOrder")
 
     @cache
     def get_venv_path(self):
@@ -313,15 +311,15 @@ class NekRSMLOfflineTest(NekRSMLTest):
 
     @cache
     def get_gnn_output_dir(self):
-        order = self.get_order()
+        order = self.get_gnn_order()
         return os.path.join(self.stagedir, f"gnn_outputs_poly_{order}")
 
     def check_halo_info_cmd(self):
         halo_info = [
             "python",
-            os.path.join(self.get_gnn_dist_dir(), "create_halo_info_par.py"),
+            os.path.join(self.get_gnn_dir(), "create_halo_info_par.py"),
             "--POLY",
-            str(self.get_order()),
+            str(self.get_gnn_order()),
             "--PATH",
             self.get_gnn_output_dir(),
         ]
@@ -329,7 +327,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
 
     @cache
     def get_check_input_files_path(self):
-        return os.path.join(self.get_gnn_dist_dir(), "check_input_files.py")
+        return os.path.join(self.get_gnn_dir(), "check_input_files.py")
 
     def check_input_files_cmd(self):
         return list_to_cmd([
@@ -343,7 +341,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
 
     @cache
     def get_traj_root(self):
-        order = self.get_order()
+        order = self.get_gnn_order()
         return os.path.join(f"traj_poly_{order}", "tinit_0.000000_dtfactor_10")
 
     @cache
@@ -372,6 +370,30 @@ class NekRSMLOfflineTest(NekRSMLTest):
             cmds.append(cmd)
         return cmds
 
+    def set_sr_gnn_target_and_input_list(self):
+        tlist = f"{self.nekrs_case_name}_p{self.get_nekrs_order() * 10}*"
+        ilist = f"{self.nekrs_case_name}_p{self.get_gnn_order() * 10}*"
+        return list_to_cmd([
+            f"target_list=`ls {tlist}`; input_list=`ls {ilist}`"
+        ])
+
+    def generate_sr_gnn_data_cmd(self):
+        train_sr = [
+            "python",
+            os.path.join(self.get_gnn_dir(), "nek_to_pt.py"),
+            "--case_path",
+            self.stagedir,
+            "--target_snap_list ${target_list}",
+            "--input_snap_list ${input_list}",
+            "--target_poly_order",
+            str(self.get_nekrs_order()),
+            "--input_poly_order",
+            str(self.get_gnn_order()),
+            "--n_element_neighbors",
+            "12",
+        ]
+        return list_to_cmd(train_sr)
+
     def set_prerun_cmds(self):
         # Run all the pre-training steps
         self.prerun_cmds += [
@@ -387,22 +409,37 @@ class NekRSMLOfflineTest(NekRSMLTest):
                 self.check_input_files_cmd(),
                 *self.check_traj_cmd(),
             ]
+        elif self.ml_args["model"] == "sr-gnn":
+            self.prerun_cmds += [
+                self.set_sr_gnn_target_and_input_list(),
+                self.generate_sr_gnn_data_cmd(),
+            ]
 
     def set_executable_options(self):
+        main_path = self.get_gnn_dir()
         self.executable = list_to_cmd([
             "python",
-            os.path.join(self.get_gnn_dist_dir(), "main.py"),
+            os.path.join(self.get_gnn_dir(), "main.py"),
         ])
 
-        # FIXME: master_addr=$head_node
-        self.executable_opts = [
-            "halo_swap_mode=all_to_all_opt",
-            "layer_norm=True",
-            f"gnn_outputs_path={self.get_gnn_output_dir()}",
-            f"traj_data_path={self.get_traj_dir()}",
-            f"target_loss={self.ml_args['target_loss']}",
-            f"time_dependency={self.ml_args['time_dependency']}",
-        ]
+        if self.ml_args["model"] == "dist-gnn":
+            # FIXME: master_addr=$head_node
+            self.executable_opts = [
+                "halo_swap_mode=all_to_all_opt",
+                "layer_norm=True",
+                f"gnn_outputs_path={self.get_gnn_output_dir()}",
+                f"traj_data_path={self.get_traj_dir()}",
+                f"target_loss={self.ml_args['target_loss']}",
+                f"time_dependency={self.ml_args['time_dependency']}",
+            ]
+        elif self.ml_args["model"] == "sr-gnn":
+            self.executable_opts = [
+                "epochs=5",
+                "n_element_neighbors=12",
+                "n_messagePassing_layers=6",
+                f"data_dir={os.path.join(self.stagedir, 'pt_datasets')}",
+                f"model_dir={os.path.join(self.stagedir, 'saved_models')}",
+            ]
 
     @run_before("run")
     def setup_run(self):
@@ -497,7 +534,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write("# Trainer config\n")
             f.write("train:\n")
             f.write(
-                f'    executable: "{os.path.join(self.get_gnn_dist_dir(), "main.py")}"\n'
+                f'    executable: "{os.path.join(self.get_gnn_dir(), "main.py")}"\n'
             )
             f.write('    affinity: ""\n')
             f.write(

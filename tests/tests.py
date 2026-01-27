@@ -62,6 +62,24 @@ class NekRSTGVOfflineTraj(NekRSMLOfflineTest):
 
 
 @rfm.simple_test
+class NekRSTurbChannelOffline(NekRSMLOfflineTest):
+    num_nodes = parameter([1])
+    ranks_per_node = parameter([12])
+    model = parameter(["sr-gnn"])
+
+    def __init__(self):
+        super().__init__(
+            case="turbChannel",
+            directory="turbChannel_srgnn",
+            nn=self.num_nodes,
+            rpn=self.ranks_per_node,
+            model=self.model,
+            time_dependency="time_independent",
+        )
+        self.tags |= {"turbchannel_offline"}
+
+
+@rfm.simple_test
 class NekRSTGVOnline(NekRSMLOnlineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([4])
