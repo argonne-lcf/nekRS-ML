@@ -402,35 +402,14 @@ def get_pygeom_dataset_lo_hi_pymech(
         )  # pygeom pos format -- [N, 3]
         vel_xhi_i = torch.tensor(xhi_field.elem[i].vel).reshape((3, -1)).T
 
-        print(f"element id: {i}")
-        print(f"pos_xlo_i: {pos_xlo_i.shape}")
-        print(f"pos_xhi_i: {pos_xhi_i.shape}")
-        print(f"pos_xlo_i: {pos_xlo_i[:8]}")
-        print(f"pos_xhi_i: {pos_xhi_i[:16]}")
+        elm_vtx_lo_i = get_element_vertices(pos_xlo_i)
+        elm_vtx_hi_i = get_element_vertices(pos_xhi_i)
 
-        elm_vtx_lo = get_element_vertices(pos_xlo_i)
-        elm_vtx_hi = get_element_vertices(pos_xhi_i)
-        print(f"elm_vtx_lo: {elm_vtx_lo}")
-        print(f"elm_vtx_hi: {elm_vtx_hi}")
-
-        x_gll = xhi_field.elem[i].pos[0, 0, 0, :]
-        dx_min = x_gll[1] - x_gll[0]
-
-        print("Max pos_xlo_i: ", pos_xlo_i.max(dim=0)[0])
-        print("Max pos_xhi_i: ", pos_xhi_i.max(dim=0)[0])
-        print("Min pos_xlo_i: ", pos_xlo_i.min(dim=0)[0])
-        print("Min pos_xhi_i: ", pos_xhi_i.min(dim=0)[0])
-
-        error_max = (pos_xlo_i.max(dim=0)[0] - pos_xhi_i.max(dim=0)[0]).max()
-        error_min = (pos_xlo_i.min(dim=0)[0] - pos_xhi_i.min(dim=0)[0]).max()
+        dx_min = (elm_vtx_lo_i.max(dim=0)[0] - elm_vtx_lo_i.min(dim=0)[0]).min()
+        error_max = (elm_vtx_lo_i.max(dim=0)[0] - elm_vtx_hi_i.max(dim=0)[0]).max()
+        error_min = (elm_vtx_lo_i.min(dim=0)[0] - elm_vtx_hi_i.min(dim=0)[0]).max()
         rel_error_max = torch.abs(error_max / dx_min) * 100
         rel_error_min = torch.abs(error_min / dx_min) * 100
-        print(f"error_max: {error_max}")
-        print(f"error_min: {error_min}")
-        print(f"dx_min: {dx_min}")
-        print(f"rel_error_max: {rel_error_max}")
-        print(f"rel_error_min: {rel_error_min}")
-        print("--------------------------------\n\n")
 
         # Check positions
         if (rel_error_max > 1e-2) or (rel_error_min > 1e-2):
@@ -1141,24 +1120,19 @@ def get_element_vertices(pos: Tensor) -> Tensor:
     """Given the position of the GLL points within the element,
        compute the polynomial order and return the vertices of the element.
     """
-    Np1 = round(pos.shape[0]**(1/3))
-    N = Np1 - 1
-    print(f"N: {N}")
-    print(f"Np1: {Np1}")
+    Ngll = round(pos.shape[0]**(1/3))
+    N = Ngll - 1
     
     if N == 1:
         return pos
     else:
-        # write posd to file to 4 decimal places
-        np.savetxt("pos.txt", pos.numpy(), fmt='%.4f')
         indices = torch.tensor([0,
-                                Np1-1,
-                                Np1**2-N-1,
-                                Np1**2-1,
-                                Np1**3-Np1**2-1,
-                                Np1**3-Np1**2+N-1,
-                                Np1**3-N-1,
-                                Np1**3-1])
-        print(f"indices: {indices}")
+                                Ngll-1,
+                                Ngll**2-N-1,
+                                Ngll**2-1,
+                                Ngll**3-Ngll**2,
+                                Ngll**3-Ngll**2+N,
+                                Ngll**3-N-1,
+                                Ngll**3-1])
         elm_vtx = pos[indices, :]
         return elm_vtx
