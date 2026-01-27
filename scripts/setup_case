@@ -113,6 +113,10 @@ function check_args() {
     echo "Invalid deployment type! Supported options are offline, clustered and colocated."
     exit 1
   fi
+  if [ ${MODEL} == "sr-gnn"] && [ ${DEPLOYMENT} != "offline" ]; then
+    echo "Currently, sr-gnn model is only supported with offline deployment."
+    exit 1
+  fi
   if [ -n "${ML_TASK}" ] && [ "${ML_TASK}" != "train" ] && [ "${ML_TASK}" != "inference" ]; then
     echo "Invalid deployment type! Supported options are undefined, train and inference."
     exit 1
