@@ -236,15 +236,12 @@ class NekRSMLTest(NekRSTest):
     def get_mpiexec(self):
         return self.job.launcher.command(self.job) + self.job.launcher.options
 
-    @cache
     def get_order(self, pattern):
-        par_file = os.path.join(self.sourcesdir, f"{self.nekrs_case_name}.par")
-        result = grep(pattern, par_file)
-        if result is None:
-            raise ValueError(
-                f"Expected pattern '{pattern}' not found in {par_file}"
-            )
-        return int(result.stdout.split()[2])
+        pf = os.path.join(self.sourcesdir, f"{self.nekrs_case_name}.par")
+        txt = grep(pattern, pf)
+        if txt is None:
+            raise ValueError(f"Expected pattern '{pattern}' not found in {pf}")
+        return int(txt.stdout.split()[2])
 
     @cache
     def get_gnn_order(self):
@@ -396,7 +393,6 @@ class NekRSMLOfflineTest(NekRSMLTest):
         return list_to_cmd(train_sr)
 
     def set_prerun_cmds(self):
-        # Run all the pre-training steps
         self.prerun_cmds += [
             self.setup_case_cmd(),
             self.source_cmd(),
@@ -424,7 +420,6 @@ class NekRSMLOfflineTest(NekRSMLTest):
         ])
 
         if self.ml_args["model"] == "dist-gnn":
-            # FIXME: master_addr=$head_node
             self.executable_opts = [
                 "halo_swap_mode=all_to_all_opt",
                 "layer_norm=True",
