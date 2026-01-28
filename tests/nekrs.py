@@ -452,8 +452,14 @@ class NekRSMLOfflineTest(NekRSMLTest):
     @sanity_function
     def check_run(self):
         nekrs_ok = super().check_exit_code()
+
+        pattern = (
+            r"Total training time: \S+ seconds"
+            if self.ml_args["model"] == "sr-gnn"
+            else r"SUCCESS! GNN training validated!"
+        )
         gnn_ok = sn.assert_found(
-            r"SUCCESS! GNN training validated!",
+            pattern,
             self.stdout,
             msg="GNN validation failed.",
         )
