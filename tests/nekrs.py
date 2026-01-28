@@ -379,16 +379,12 @@ class NekRSMLOfflineTest(NekRSMLTest):
         train_sr = [
             "python",
             os.path.join(self.get_gnn_dir(), "nek_to_pt.py"),
-            "--case_path",
-            self.stagedir,
+            f"--case_path {self.stagedir}",
             "--target_snap_list ${target_list}",
             "--input_snap_list ${input_list}",
-            "--target_poly_order",
-            str(self.get_sim_order()),
-            "--input_poly_order",
-            str(self.get_gnn_order()),
-            "--n_element_neighbors",
-            "12",
+            f"--target_poly_order {str(self.get_sim_order())}",
+            f"--input_poly_order {str(self.get_gnn_order())}",
+            "--n_element_neighbors 12",
         ]
         return list_to_cmd(train_sr)
 
