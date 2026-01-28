@@ -477,6 +477,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
     def create_ssim_config(self):
         args = self.ml_args
 
+        #FIXME: This only works for colocated, not clustered.
         case, rpn = args["case"], int(args["rpn"])
         ml_rpn, sim_rpn = int(rpn / 2), rpn - int(rpn / 2)
 
@@ -511,7 +512,6 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write(f"    simprocs_pn: {sim_rpn}\n")
             f.write(f"    mlprocs: {args['train_nodes'] * ml_rpn}\n")
             f.write(f"    mlprocs_pn: {ml_rpn}\n")
-            f.write(f"    dbprocs: {args['db_nodes'] * db_rpn}\n")
             f.write(f"    dbprocs_pn: {db_rpn}\n")
             f.write(f'    sim_cpu_bind: "list:{":".join(sim_ids)}"\n')
             f.write(f'    ml_cpu_bind: "list:{":".join(ml_ids)}"\n')
@@ -550,7 +550,6 @@ class NekRSMLOnlineTest(NekRSMLTest):
 
     def set_prerun_cmds(self):
         self.prerun_cmds += [
-            *self.setup_torch_env_vars(),
             self.setup_case_cmd(
                 extra_args=[
                     f"--client {self.ml_args['client']}",
@@ -558,6 +557,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
                 ]
             ),
             self.source_cmd(),
+            *self.setup_torch_env_vars(),
             # FIXME: Temporary workaround.
             list_to_cmd(["mv", "ssim_config.yaml.reframe", "ssim_config.yaml"]),
             self.nekrs_cmd(extra_args=[f"--build-only {self.get_max_ranks()}"]),
