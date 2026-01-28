@@ -125,7 +125,6 @@ class DistributedDGN(torch.nn.Module):
         # ~~~~ Embed the diffusion step
         emb = self.diffusion_step_embedding(r) # Shape (batch_size, emb_width)
 
-
         # ~~~~ Node encoder
         x = torch.cat([field_r, cond_node_features], dim=1) if cond_node_features is not None else field_r
         x = self.node_encoder(x) # Shape (num_nodes, mlp_hidden_channels)
