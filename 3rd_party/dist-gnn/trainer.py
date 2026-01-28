@@ -126,12 +126,14 @@ class Trainer:
         if self.rank == 0: log.info('Done with build_buffers')
 
         # ~~~~ Build model and move to gpu 
+        if self.cfg.verbose: self.check_memory_stats('Before build model')
         self.model = self.build_model()
         if self.rank == 0: 
             log.info('Built model with %i trainable parameters' %(self.count_weights(self.model)))
         self.model.to(self.device)
         self.model.to(self.torch_dtype)
         if self.rank == 0: log.info('Done with build_model')
+        if self.cfg.verbose: self.check_memory_stats('After build model')
 
         # ~~~~ Set model and checkpoint savepaths 
         try:
@@ -369,6 +371,31 @@ class Trainer:
             self.torch_dtype = torch.float64
         else:
             sys.exit('Only fp32, fp64 and bf16 data types are currently supported')
+
+        # Reset peak memory stats and empty cache
+        if self.with_cuda:
+            torch.cuda.reset_peak_memory_stats()
+            torch.cuda.empty_cache()
+        elif self.with_xpu:
+            torch.xpu.reset_peak_memory_stats()
+            torch.xpu.empty_cache()
+
+    def check_memory_stats(self, info: Optional[str] = '', peak: Optional[bool] = False):
+        if self.rank == 0: 
+            allocated_memory = reserved_memory = 0
+            if self.with_cuda:
+                allocated_memory = torch.cuda.memory_allocated() / GB_SIZE
+                reserved_memory = torch.cuda.memory_reserved() / GB_SIZE
+            elif self.with_xpu:
+                allocated_memory = torch.xpu.memory_allocated() / GB_SIZE
+                reserved_memory = torch.xpu.memory_reserved() / GB_SIZE
+            log.info(f'{info} Allocated memory: {allocated_memory:.4f} GB, Reserved memory: {reserved_memory:.4f} GB')
+            if peak:
+                if self.with_cuda:
+                    peak_memory = torch.cuda.max_memory_allocated() / GB_SIZE
+                elif self.with_xpu:
+                    peak_memory = torch.xpu.max_memory_allocated() / GB_SIZE
+                log.info(f'Peak allocated memory: {peak_memory:.4f} GB')
 
     def halo_swap(self, input_tensor, buff_send, buff_recv):
         """
@@ -1310,6 +1337,7 @@ class Trainer:
             torch.xpu.synchronize()
 
     def train_step(self, data) -> Tensor:
+        if self.cfg.mem_profile: self.check_memory_stats('Before train_step')
         loss = torch.tensor([0.0])
         graph = self.data['graph']
         tic = time.time()
@@ -1324,6 +1352,7 @@ class Trainer:
             graph.node_degree = graph.node_degree.to(self.device)
             loss = loss.to(self.device)
         if self.cfg.timers: self.update_timer('dataTransfer', self.timer_step, time.time() - tic)
+        if self.cfg.mem_profile: self.check_memory_stats('After data offload')
 
         self.s_optimizer.zero_grad()
 
@@ -1341,6 +1370,7 @@ class Trainer:
             self.buffer_send = None
             self.buffer_recv = None
         if self.cfg.timers: self.update_timer('bufferInit', self.timer_step, time.time() - tic)
+        if self.cfg.mem_profile: self.check_memory_stats('After buffer init')
         
         # Prediction
         tic = time.time()
@@ -1358,6 +1388,7 @@ class Trainer:
                              SIZE = self.size,
                              batch = graph.batch)
         if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
+        if self.cfg.mem_profile: self.check_memory_stats('After forward pass')
 
         if self.cfg.use_residual:
             pred = out_gnn + x_scaled
@@ -1376,14 +1407,19 @@ class Trainer:
             sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
             loss = (1.0/(graph.effective_nodes*n_output_features)) * sum_squared_errors
         if self.cfg.timers: self.update_timer('loss', self.timer_step, time.time() - tic)
+        if self.cfg.mem_profile: self.check_memory_stats('After loss')
 
         tic = time.time()
         loss.backward()
         if self.cfg.timers: self.update_timer('backwardPass', self.timer_step, time.time() - tic)
+        if self.cfg.mem_profile: self.check_memory_stats('After backward pass')
 
         tic = time.time()
         self.s_optimizer.step_and_update_lr()
         if self.cfg.timers: self.update_timer('optimizerStep', self.timer_step, time.time() - tic)
+        if self.cfg.mem_profile: 
+            self.check_memory_stats('After optimizer step', peak=True)
+
 
         # Update timers
         self.synchronize()
@@ -1394,6 +1430,7 @@ class Trainer:
         return loss
     
     def inference_step(self, x) -> Tensor:
+        if self.cfg.mem_profile: self.check_memory_stats('Before inference step')
         graph = self.data['graph']
         stats = self.data['stats']
         tic = time.time()
@@ -1406,6 +1443,7 @@ class Trainer:
             graph.halo_info = graph.halo_info.to(self.device)
             graph.node_degree = graph.node_degree.to(self.device)
         if self.cfg.timers: self.update_timer('dataTransfer', self.timer_step, time.time() - tic)
+        if self.cfg.mem_profile: self.check_memory_stats('After data offload')
                 
         # re-allocate send buffer 
         tic = time.time()
@@ -1421,6 +1459,7 @@ class Trainer:
             self.buffer_send = None
             self.buffer_recv = None
         if self.cfg.timers: self.update_timer('bufferInit', self.timer_step, time.time() - tic)
+        if self.cfg.mem_profile: self.check_memory_stats('After buffer init')
         
         # Prediction
         tic = time.time()
@@ -1439,6 +1478,7 @@ class Trainer:
                              SIZE = self.size,
                              batch = graph.batch)
         if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
+        if self.cfg.mem_profile: self.check_memory_stats('After forward pass')
 
         if self.cfg.use_residual: 
             pred = out_gnn + x_scaled

@@ -58,6 +58,8 @@ client:
     adios_engine: 'SST'
     adios_transport: 'WAN' # WAN, MPI, UCX, RDMA
 
+# Profiling
+mem_profile: False
 
 hydra:
   job:
