@@ -481,7 +481,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
         inference_ok = (
             sn.assert_found(
                 "Done with inference!",
-                self.stdout,
+                self.stderr,
                 msg="GNN validation failed (inference).",
             )
             if self.ml_args["model"] == "sr-gnn"
