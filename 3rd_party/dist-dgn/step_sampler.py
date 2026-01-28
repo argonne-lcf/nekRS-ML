@@ -40,7 +40,7 @@ class StepSampler():
         return samples, importance_weights
     
 
-class UniformStepSampler(StepSampler):
+class UniformSampler(StepSampler):
     """Uniform sampler for the diffusion steps"""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -74,7 +74,7 @@ class AdaptiveExponentialSampler(StepSampler):
     def __init__(self, 
         initial_decay_rate=0.0001, 
         final_decay_rate=0.03,
-        decay_rate_increment=0.05, # 5% increment per step
+        decay_rate_increment=0.01, # 1% increment per step
         *args, 
         **kwargs
     ):
@@ -85,12 +85,11 @@ class AdaptiveExponentialSampler(StepSampler):
     
     @property
     def weights(self) -> torch.Tensor:
-        timesteps = torch.arange(self.num_diffusion_steps, dtype=self.dtype)
-
         # Compute the adaptive decay rate
         self.decay_rate = self.initial_decay_rate * (1 + self.decay_rate_increment) ** self.step
         self.decay_rate = min(self.decay_rate, self.final_decay_rate)
 
         # Compute the weights
+        timesteps = torch.arange(self.num_diffusion_steps, dtype=self.dtype)
         weights = torch.exp(-self.decay_rate * timesteps).to(self.device)
         return weights

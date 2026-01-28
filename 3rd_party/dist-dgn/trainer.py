@@ -1125,10 +1125,17 @@ class DGNTrainer:
                                                         r, 
                                                         batch=data.batch, 
                                                         dirichlet_mask=BC_mask)
-        if self.cfg.postprocess and self.iteration%100 == 0:
-            postprocess.plot_2d_field(COMM, graph.pos, field_r[data.batch==0].cpu().numpy(), f'field_r_r{r[0]}.png')
-            postprocess.plot_2d_field(COMM, graph.pos, data.x[data.batch==0,:self.cfg.input_node_features].cpu().numpy(), f'data_x_r{r[0]}.png')
-            COMM.Barrier()
+        #if self.cfg.postprocess and self.iteration%100 == 0:
+        #if self.cfg.postprocess and ((r == 10).any() or (r == 60).any()):
+        if self.cfg.postprocess:
+            #if (r == 10).any():
+            #    index = torch.where(r == 10)[0].item()
+            #elif (r == 60).any():
+            #    index = torch.where(r == 60)[0].item()
+            for index in range(len(r)):
+                postprocess.plot_2d_field(COMM, graph.pos, field_r[data.batch==index].cpu().numpy(), f'field_r_r{r[index]}_iter{self.iteration}.png')
+                postprocess.plot_2d_field(COMM, graph.pos, data.x[data.batch==index,:self.cfg.input_node_features].cpu().numpy(), f'data_x_r{r[index]}_iter{self.iteration}.png')
+                COMM.Barrier()
         
         # Prediction
         tic = time.time()
@@ -1147,9 +1154,13 @@ class DGNTrainer:
                              SIZE = SIZE,
                              cond_node_features = None, # TODO: Add conditional node features
                              batch = data.batch)
-        if self.cfg.postprocess and self.iteration%100 == 0:
-            postprocess.plot_2d_field(COMM, graph.pos, model_noise[data.batch==0].detach().cpu().numpy(), f'model_noise_r{r[0]}.png')
-            postprocess.plot_2d_field(COMM, graph.pos, noise[data.batch==0].cpu().numpy(), f'noise_r{r[0]}.png')
+        if self.cfg.postprocess and ((r == 10).any() or (r == 60).any()):
+            if (r == 10).any():
+                index = torch.where(r == 10)[0].item()
+            elif (r == 60).any():
+                index = torch.where(r == 60)[0].item()
+            postprocess.plot_2d_field(COMM, graph.pos, model_noise[data.batch==index].detach().cpu().numpy(), f'model_noise_r{r[index]}_iter{self.iteration}.png')
+            postprocess.plot_2d_field(COMM, graph.pos, noise[data.batch==index].cpu().numpy(), f'noise_r{r[index]}_iter{self.iteration}.png')
             COMM.Barrier()
         if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
 
@@ -1188,7 +1199,8 @@ class DGNTrainer:
                     if RANK == 0:
                         log.info(f"MSE loss term: {mse_term.detach().cpu().numpy().tolist()}, mean = {mse_term.detach().cpu().mean().numpy().tolist()}")
                         log.info(f"VLB loss term: {vlb_term.detach().cpu().numpy().tolist()}, mean = {vlb_term.detach().cpu().mean().numpy().tolist()}")
-            loss = (loss * importance_weights).mean()
+            #loss = (loss * importance_weights).mean() # this undoes bias of sampling, not what we want generally
+            loss = loss.mean()
         else: # custom consistent loss
             # TODO: Custom parallel and consistent loss function to be implemented here
             if RANK == 0: log.error('Custom parallel and consistent loss not yet implemented')

@@ -22,15 +22,19 @@ class DistributedDGN(torch.nn.Module):
         self.parse_arch(arch)
 
         # ~~~~ Diffusion-step embedding
+        freq_width = max(self.mlp_hidden_channels, 128)
+        emb_width = max(self.mlp_hidden_channels, freq_width*2)
         self.diffusion_step_embedding = nn.Sequential(
-            SinusoidalPositionEmbedding(self.mlp_hidden_channels),
-            nn.Linear(self.mlp_hidden_channels, self.emb_width),
-            nn.SELU(),
+            SinusoidalPositionEmbedding(freq_width),
+            nn.Linear(freq_width, 2 * emb_width),
+            nn.SiLU(),
+            nn.Linear(2 * emb_width, emb_width),
+            nn.SiLU()
         )
 
         # ~~~~ Diffusion-step encoder
         self.diffusion_step_encoder = nn.ModuleList([
-            nn.Linear(self.emb_width, self.mlp_hidden_channels),
+            nn.Linear(emb_width, self.mlp_hidden_channels),
             nn.SELU(), 
             nn.Linear(self.mlp_hidden_channels * 2, self.mlp_hidden_channels),
         ])
@@ -71,7 +75,7 @@ class DistributedDGN(torch.nn.Module):
             self.processor.append(
                         DistributedMessagePassingLayer(
                                      channels = self.mlp_hidden_channels,
-                                     emb_features = self.emb_width,
+                                     emb_features = emb_width,
                                      n_mlp_hidden_layers = self.n_mlp_hidden_layers,
                                      halo_swap_mode = self.halo_swap_mode, 
                                      layer_norm = self.layer_norm,
@@ -120,6 +124,7 @@ class DistributedDGN(torch.nn.Module):
 
         # ~~~~ Embed the diffusion step
         emb = self.diffusion_step_embedding(r) # Shape (batch_size, emb_width)
+
 
         # ~~~~ Node encoder
         x = torch.cat([field_r, cond_node_features], dim=1) if cond_node_features is not None else field_r
