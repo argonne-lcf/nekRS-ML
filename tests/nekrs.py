@@ -251,7 +251,7 @@ class NekRSMLTest(NekRSTest):
         return self.get_order("gnnPolynomialOrder")
 
     @cache
-    def get_nekrs_order(self):
+    def get_sim_order(self):
         return self.get_order("polynomialOrder")
 
     @cache
@@ -372,7 +372,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
         return cmds
 
     def set_sr_gnn_target_and_input_list(self):
-        tlist = f"{self.nekrs_case_name}_p{self.get_nekrs_order() * 10}*"
+        tlist = f"{self.nekrs_case_name}_p{self.get_sim_order() * 10}*"
         ilist = f"{self.nekrs_case_name}_p{self.get_gnn_order() * 10}*"
         return list_to_cmd([
             f"target_list=`ls {tlist}`; input_list=`ls {ilist}`"
@@ -387,7 +387,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
             "--target_snap_list ${target_list}",
             "--input_snap_list ${input_list}",
             "--target_poly_order",
-            str(self.get_nekrs_order()),
+            str(self.get_sim_order()),
             "--input_poly_order",
             str(self.get_gnn_order()),
             "--n_element_neighbors",
