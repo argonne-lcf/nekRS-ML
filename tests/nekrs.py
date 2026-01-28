@@ -270,6 +270,7 @@ class NekRSMLTest(NekRSTest):
     def nekrs_cmd(self, extra_args=[]):
         # Set nekrs executable options used in NekRSTest class.
         super().set_executable_options()
+        super().set_launcher_options()
         return list_to_cmd(
             self.get_mpiexec()
             + [self.executable]
@@ -477,7 +478,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
     def create_ssim_config(self):
         args = self.ml_args
 
-        #FIXME: This only works for colocated, not clustered.
+        # FIXME: This only works for colocated, not clustered.
         case, rpn = args["case"], int(args["rpn"])
         ml_rpn, sim_rpn = int(rpn / 2), rpn - int(rpn / 2)
 
