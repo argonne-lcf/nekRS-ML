@@ -465,7 +465,7 @@ def main():
                 prediction_path + f"/{args.output_name}_error0.f{time_id}",
                 xhi_field_error,
             )
-            logger.info("Done!")
+            logger.info("Done with inference!")
 
 
 if __name__ == "__main__":

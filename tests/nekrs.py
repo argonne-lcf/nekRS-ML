@@ -437,12 +437,35 @@ class NekRSMLOfflineTest(NekRSMLTest):
                 f"model_dir={os.path.join(self.stagedir, 'saved_models')}",
             ]
 
+    def set_postrun_cmds(self):
+        if self.ml_args["model"] != "sr-gnn":
+            return
+
+        self.postrun_cmds += [
+            "export model=${PWD}/`ls saved_models/*.tar`",
+            list_to_cmd([
+                "python",
+                os.path.join(self.get_gnn_dir(), "postprocess.py"),
+                "--model_path ${model}",
+                f"--case_path {self.stagedir}",
+                f"--output_name {self.nekrs_case_name}",
+                f"--target_snap_list",
+                f"{self.nekrs_case_name}_p{self.get_sim_order() * 10}.f00000",
+                f"--input_snap_list",
+                f"{self.nekrs_case_name}_p{self.get_gnn_order() * 10}.f00000",
+                f"--target_poly_order {str(self.get_sim_order())}",
+                f"--input_poly_order {str(self.get_gnn_order())}",
+                "--n_element_neighbors 12",
+            ]),
+        ]
+
     @run_before("run")
     def setup_run(self):
         super().set_environment()
         super().set_launcher_options()
         self.set_prerun_cmds()
         self.set_executable_options()
+        self.set_postrun_cmds()
 
     @sanity_function
     def check_run(self):
@@ -459,7 +482,17 @@ class NekRSMLOfflineTest(NekRSMLTest):
             msg="GNN validation failed.",
         )
 
-        return nekrs_ok and gnn_ok
+        inference_ok = (
+            sn.assert_found(
+                "Done with inference!",
+                self.stdout,
+                msg="GNN validation failed (inference).",
+            )
+            if self.ml_args["model"] == "sr-gnn"
+            else True
+        )
+
+        return nekrs_ok and gnn_ok and inference_ok
 
 
 class NekRSMLOnlineTest(NekRSMLTest):
