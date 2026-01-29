@@ -162,9 +162,10 @@ else
   ADIOS2_BUILD=SYSTEM
 fi
 echo "module use /soft/modulefiles/" >> $RFILE
-echo "module load conda" >> $RFILE
+echo "module load conda/2025-09-25" >> $RFILE
 echo "conda activate" >> $RFILE
 echo "source ${VENV_PATH}" >> $RFILE
+echo "module load gcc-native/12.3" >> $RFILE
 if [ ${ADIOS2_BUILD} == "SYSTEM" ]; then
   module load spack-pe-gnu
   module load adios2/2.10.0-cuda

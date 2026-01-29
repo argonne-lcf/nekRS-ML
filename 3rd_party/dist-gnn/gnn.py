@@ -92,16 +92,10 @@ class DistributedGNN(torch.nn.Module):
             batch = edge_index.new_zeros(x.size(0))
 
         # ~~~~ Node encoder
-        allocated_memory = torch.xpu.memory_allocated() / 1024**3
-        print(f'Before node encoder: allocated memory: {allocated_memory:.4f} GB',flush=True)
         x = self.node_encoder(x)
-        allocated_memory = torch.xpu.memory_allocated() / 1024**3
-        print(f'After node encoder: allocated memory: {allocated_memory:.4f} GB',flush=True)
 
         # ~~~~ Edge encoder
         e = self.edge_encoder(edge_attr)
-        allocated_memory = torch.xpu.memory_allocated() / 1024**3
-        print(f'After edge encoder: allocated memory: {allocated_memory:.4f} GB',flush=True)
         
         # ~~~~ Processor
         for i in range(self.n_messagePassing_layers):
@@ -117,13 +111,9 @@ class DistributedGNN(torch.nn.Module):
                                     neighboring_procs,
                                     SIZE,
                                     batch)
-            allocated_memory = torch.xpu.memory_allocated() / 1024**3
-            print(f'After {i}th processor: allocated memory: {allocated_memory:.4f} GB',flush=True)
 
         # ~~~~ Node decoder
         x = self.node_decoder(x)
-        allocated_memory = torch.xpu.memory_allocated() / 1024**3
-        print(f'After node decoder: allocated memory: {allocated_memory:.4f} GB',flush=True)
 
         return x
 
@@ -187,14 +177,8 @@ class MLP(torch.nn.Module):
     def forward(self, x: Tensor) -> Tensor:
         for i in range(len(self.ic)):
             x = self.mlp[i](x)
-            allocated_memory = torch.xpu.memory_allocated() / 1024**3
-            print(f'After GEMM of {i}th MLP layer: allocated memory: {allocated_memory:.4f} GB',flush=True)
             if i < (len(self.ic) - 1):
                 x = self.activation_layer(x)
-                allocated_memory = torch.xpu.memory_allocated() / 1024**3
-                print(f'After activation of {i}th MLP layer: allocated memory: {allocated_memory:.4f} GB',flush=True)
-            allocated_memory = torch.xpu.memory_allocated() / 1024**3
-            print(f'End of {i}th MLP layer: allocated memory: {allocated_memory:.4f} GB',flush=True)
         x = self.norm_layer(x) if self.norm_layer else x
         return x
 

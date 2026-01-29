@@ -126,14 +126,14 @@ class Trainer:
         if self.rank == 0: log.info('Done with build_buffers')
 
         # ~~~~ Build model and move to gpu 
-        if self.cfg.verbose: self.check_memory_stats('Before build model')
+        if self.cfg.mem_profile: self.check_memory_stats('Before build model')
         self.model = self.build_model()
         if self.rank == 0: 
             log.info('Built model with %i trainable parameters' %(self.count_weights(self.model)))
         self.model.to(self.device)
         self.model.to(self.torch_dtype)
         if self.rank == 0: log.info('Done with build_model')
-        if self.cfg.verbose: self.check_memory_stats('After build model')
+        if self.cfg.mem_profile: self.check_memory_stats('After build model')
 
         # ~~~~ Set model and checkpoint savepaths 
         try:
