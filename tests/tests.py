@@ -74,6 +74,9 @@ class NekRSTurbChannelOffline(NekRSMLOfflineTest):
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
             model=self.model,
+            epochs=5,
+            n_element_neighbors=12,
+            n_messagePassing_layers=6,
             time_dependency="time_independent",
         )
         self.tags |= {"turbchannel_offline"}
@@ -92,9 +95,6 @@ class NekRSTGVOnline(NekRSMLOnlineTest):
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
             model=self.model,
-            epochs=5,
-            n_element_neighbors=12,
-            n_messagePassing_layers=6,
             time_dependency="time_independent",
             client="smartredis",
             target_loss=1.6206e-04,
