@@ -256,13 +256,12 @@ class NekRSMLTest(NekRSTest):
         return os.path.join(self.stagedir, "_env")
 
     @cache
-    def get_max_ranks(self):
-        max_rpn = self.current_partition.extras["ranks_per_node"]
-        return self.ml_args["nn"] * max_rpn
-
-    @cache
-    def get_ranks(self):
-        return self.ml_args["nn"] * self.ml_args["rpn"]
+    def get_sim_ranks(self):
+        rpn = self.ml_args["rpn"]
+        # FIXME: colocated vs clustered
+        if self.ml_args["deployment"] == "colocated":
+            rpn = int(rpn / 2)
+        return self.ml_args["nn"] * rpn
 
     def nekrs_cmd(self, extra_args=[]):
         # Set nekrs executable options used in NekRSTest class.
@@ -351,7 +350,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
         if self.ml_args["time_dependency"] != "time_dependent":
             return []
 
-        ranks = self.get_ranks()
+        ranks = self.get_sim_ranks()
         cmds = []
         for rank in range(ranks):
             suffix = f"data_rank_{rank}_size_{ranks}"
@@ -392,7 +391,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
         self.prerun_cmds += [
             self.setup_case_cmd(),
             self.source_cmd(),
-            self.nekrs_cmd(extra_args=[f"--build-only {self.get_max_ranks()}"]),
+            self.nekrs_cmd(extra_args=[f"--build-only {self.get_sim_ranks()}"]),
             self.nekrs_cmd(),
         ]
 
@@ -591,7 +590,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             *self.setup_torch_env_vars(),
             # FIXME: Temporary workaround.
             list_to_cmd(["mv", "ssim_config.yaml.reframe", "ssim_config.yaml"]),
-            self.nekrs_cmd(extra_args=[f"--build-only {self.get_max_ranks()}"]),
+            self.nekrs_cmd(extra_args=[f"--build-only {self.get_sim_ranks()}"]),
         ]
 
     def set_executable_options(self):
