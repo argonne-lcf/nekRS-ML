@@ -384,8 +384,8 @@ class NekRSMLOfflineTest(NekRSMLTest):
             f"--case_path {self.stagedir}",
             "--target_snap_list ${target_list}",
             "--input_snap_list ${input_list}",
-            f"--target_poly_order {str(self.get_sim_order())}",
-            f"--input_poly_order {str(self.get_gnn_order())}",
+            f"--target_poly_order {self.get_sim_order()}",
+            f"--input_poly_order {self.get_gnn_order()}",
             f"--n_element_neighbors {self.ml_args['n_element_neighbors']}",
         ]
         return list_to_cmd(train_sr)
@@ -451,8 +451,8 @@ class NekRSMLOfflineTest(NekRSMLTest):
                 f"{self.nekrs_case_name}_p{self.get_sim_order() * 10}.f00000",
                 f"--input_snap_list",
                 f"{self.nekrs_case_name}_p{self.get_gnn_order() * 10}.f00000",
-                f"--target_poly_order {str(self.get_sim_order())}",
-                f"--input_poly_order {str(self.get_gnn_order())}",
+                f"--target_poly_order {self.get_sim_order()}",
+                f"--input_poly_order {self.get_gnn_order()}",
                 f"--n_element_neighbors {self.ml_args['n_element_neighbors']}",
             ]),
         ]
