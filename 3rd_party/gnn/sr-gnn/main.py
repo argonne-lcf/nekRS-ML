@@ -799,6 +799,9 @@ def train(cfg: DictConfig):
 
 @hydra.main(version_base=None, config_path="./conf", config_name="config")
 def main(cfg: DictConfig) -> None:
+    # Backend can be automatically found.
+    cfg.backend = None
+
     if RANK == 0:
         logger.info("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
         logger.info("INPUTS:")
