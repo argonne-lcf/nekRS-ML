@@ -26,23 +26,26 @@ def grep(pattern, file):
 
 
 def init_missing_args(args):
-    # Replicating setup_case default values for the time being.
-    if "time" not in args:
-        args["time"] = "01:00"
-    if "model" not in args:
-        args["model"] = "dist-gnn"
-    if "deployment" not in args:
-        args["deployment"] = (
-            "offline" if args["test_type"] == "offline" else "colocated"
-        )
-    if "client" not in args:
-        args["client"] = "posix"
-    if "db_nodes" not in args:
-        args["db_nodes"] = 1
-    if "sim_nodes" not in args:
-        args["sim_nodes"] = 1
-    if "train_nodes" not in args:
-        args["train_nodes"] = 1
+    def init_value(key, dval):
+        if key not in args:
+            args[key] = dval
+
+    init_value("time", "01:00")
+
+    init_value("model", "dist-gnn")
+    if args["model"] == "sr-gnn":
+        init_value("epochs", 1)
+        init_value("n_element_neighbors", 0)
+        init_value("n_messagePassing_layers", 2)
+
+    init_value(
+        "deployment",
+        "offline" if args["test_type"] == "offline" else "colocated",
+    )
+    init_value("client", "posix")
+    init_value("db_nodes", 1)
+    init_value("sim_nodes", 1)
+    init_value("train_nodes", 1)
 
     return args
 
@@ -381,9 +384,9 @@ class NekRSMLOfflineTest(NekRSMLTest):
             f"--case_path {self.stagedir}",
             "--target_snap_list ${target_list}",
             "--input_snap_list ${input_list}",
-            f"--target_poly_order {str(self.get_sim_order())}",
-            f"--input_poly_order {str(self.get_gnn_order())}",
-            "--n_element_neighbors 12",
+            f"--target_poly_order {self.get_sim_order()}",
+            f"--input_poly_order {self.get_gnn_order()}",
+            f"--n_element_neighbors {self.ml_args['n_element_neighbors']}",
         ]
         return list_to_cmd(train_sr)
 
@@ -425,9 +428,9 @@ class NekRSMLOfflineTest(NekRSMLTest):
             ]
         elif self.ml_args["model"] == "sr-gnn":
             self.executable_opts = [
-                "epochs=5",
-                "n_element_neighbors=12",
-                "n_messagePassing_layers=6",
+                f"epochs={self.ml_args['epochs']}",
+                f"n_element_neighbors={self.ml_args['n_element_neighbors']}",
+                f"n_messagePassing_layers={self.ml_args['n_messagePassing_layers']}",
                 f"data_dir={os.path.join(self.stagedir, 'pt_datasets')}",
                 f"model_dir={os.path.join(self.stagedir, 'saved_models')}",
             ]
@@ -448,9 +451,9 @@ class NekRSMLOfflineTest(NekRSMLTest):
                 f"{self.nekrs_case_name}_p{self.get_sim_order() * 10}.f00000",
                 f"--input_snap_list",
                 f"{self.nekrs_case_name}_p{self.get_gnn_order() * 10}.f00000",
-                f"--target_poly_order {str(self.get_sim_order())}",
-                f"--input_poly_order {str(self.get_gnn_order())}",
-                "--n_element_neighbors 12",
+                f"--target_poly_order {self.get_sim_order()}",
+                f"--input_poly_order {self.get_gnn_order()}",
+                f"--n_element_neighbors {self.ml_args['n_element_neighbors']}",
             ]),
         ]
 

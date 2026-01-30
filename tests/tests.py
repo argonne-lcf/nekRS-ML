@@ -5,7 +5,7 @@ import os
 
 
 @rfm.simple_test
-class NekRSTGVOffline(NekRSMLOfflineTest):
+class TGVOffline(NekRSMLOfflineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([2])
     model = parameter(["dist-gnn"])
@@ -24,7 +24,7 @@ class NekRSTGVOffline(NekRSMLOfflineTest):
 
 
 @rfm.simple_test
-class NekRSTGVOfflineCoarseMesh(NekRSMLOfflineTest):
+class TGVOfflineCoarseMesh(NekRSMLOfflineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([2])
     model = parameter(["dist-gnn"])
@@ -43,7 +43,7 @@ class NekRSTGVOfflineCoarseMesh(NekRSMLOfflineTest):
 
 
 @rfm.simple_test
-class NekRSTGVOfflineTraj(NekRSMLOfflineTest):
+class TGVOfflineTraj(NekRSMLOfflineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([4])
     model = parameter(["dist-gnn"])
@@ -62,7 +62,7 @@ class NekRSTGVOfflineTraj(NekRSMLOfflineTest):
 
 
 @rfm.simple_test
-class NekRSTurbChannelOffline(NekRSMLOfflineTest):
+class TurbChannelOffline(NekRSMLOfflineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([12])
     model = parameter(["sr-gnn"])
@@ -74,13 +74,16 @@ class NekRSTurbChannelOffline(NekRSMLOfflineTest):
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
             model=self.model,
+            epochs=5,
+            n_element_neighbors=12,
+            n_messagePassing_layers=6,
             time_dependency="time_independent",
         )
         self.tags |= {"turbchannel_offline"}
 
 
 @rfm.simple_test
-class NekRSTGVOnline(NekRSMLOnlineTest):
+class TGVOnline(NekRSMLOnlineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([4])
     model = parameter(["dist-gnn"])
@@ -100,7 +103,7 @@ class NekRSTGVOnline(NekRSMLOnlineTest):
 
 
 @rfm.simple_test
-class NekRSTGVOnlineTraj(NekRSMLOnlineTest):
+class TGVOnlineTraj(NekRSMLOnlineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([8])
     model = parameter(["dist-gnn"])
