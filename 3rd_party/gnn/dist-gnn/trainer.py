@@ -1261,6 +1261,14 @@ class Trainer:
                 f"outputs_rank_{RANK}"
             )  # outputs must come first
             input_files = self.client.get_file_list(f"inputs_rank_{RANK}")
+            if self.cfg.target_loss != 0:
+                # Load more files until we have at least 5
+                while len(output_files) < 5:
+                    time.sleep(1)
+                    output_files = self.client.get_file_list(
+                        f"outputs_rank_{RANK}"
+                    )
+                    input_files = self.client.get_file_list(f"inputs_rank_{RANK}")
             self.online_timers["metaData"].append(time.time() - tic)
 
             # Load files
