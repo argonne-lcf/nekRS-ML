@@ -289,9 +289,6 @@ def train(cfg: DictConfig, client: Optional[OnlineClient] = None) -> None:
 
 @hydra.main(version_base=None, config_path="./conf", config_name="config")
 def main(cfg: DictConfig) -> None:
-    # Backend can be automatically found.
-    cfg.backend = None
-
     if cfg.verbose:
         log.info(
             f"Hello from rank {RANK}/{SIZE}, local rank {LOCAL_RANK}, on node {HOST_NAME} and device {DEVICE}:{DEVICE_ID + cfg.device_skip} out of {N_DEVICES}."
