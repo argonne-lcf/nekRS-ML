@@ -29,6 +29,7 @@ import dataprep.nekrs_graph_setup  # needed to load the .pt data
 import logging
 logging.basicConfig(
     level=logging.INFO,
+    stream=sys.stdout,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     force=True,
 )

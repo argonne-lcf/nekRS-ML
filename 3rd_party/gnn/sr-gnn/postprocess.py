@@ -18,6 +18,7 @@ import logging
 
 logging.basicConfig(
     level=logging.INFO,
+    stream=sys.stdout,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     force=True,
 )
@@ -228,7 +229,7 @@ def main():
         )
         with torch.no_grad():
             for i in range(n_snaps):
-                print(f"Evaluating element {i}/{n_snaps}")
+                logger.info(f"Evaluating element {i}/{n_snaps}")
 
                 pos_xlo_i = (
                     torch.tensor(xlo_field.elem[i].pos).reshape((3, -1)).T
@@ -257,15 +258,15 @@ def main():
 
                 # Check positions
                 if (rel_error_max > 1e-2) or (rel_error_min > 1e-2):
-                    print(
+                    logger.error(
                         f"Relative error in positions exceeds 0.01% in element i={i}."
                     )
                     sys.exit()
                 if pos_xlo_i.max() == 0.0 and pos_xlo_i.min() == 0.0:
-                    print(f"Node positions are not stored in {input_path}.")
+                    logger.error(f"Node positions are not stored in {input_path}.")
                     sys.exit()
                 if pos_xhi_i.max() == 0.0 and pos_xhi_i.min() == 0.0:
-                    print(f"Node positions are not stored in {target_path}.")
+                    logger.error(f"Node positions are not stored in {target_path}.")
                     sys.exit()
 
                 # get x_mean and x_std

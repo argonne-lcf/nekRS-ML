@@ -1,4 +1,5 @@
 import os
+import sys
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import time
@@ -14,6 +15,7 @@ HOST_NAME = MPI.Get_processor_name()
 import logging
 logging.basicConfig(
     level=logging.INFO,
+    stream=sys.stdout,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     force=True,
 )
