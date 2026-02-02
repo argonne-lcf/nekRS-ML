@@ -25,37 +25,48 @@ def grep(pattern, file):
     )
 
 
-def check_args(args, required_args):
-    for arg in required_args:
-        if arg not in args:
-            raise KeyError(f"Required kwarg {arg} was not found.")
+def init_missing_args(args):
+    def init_value(key, dval):
+        if key not in args:
+            args[key] = dval
 
-    if "deployment" in args and args["test_type"] == "online":
-        val = args["deployment"]
-        if (val != "colocated") or (val != "clustered"):
-            raise KeyError(
-                f'Key "deployment" has invalid value: "{val}" for an online example.'
+    init_value("time", "01:00")
+
+    init_value("model", "dist-gnn")
+    if args["model"] == "sr-gnn":
+        init_value("epochs", 1)
+        init_value("n_element_neighbors", 0)
+        init_value("n_messagePassing_layers", 2)
+
+    init_value(
+        "deployment",
+        "offline" if args["test_type"] == "offline" else "colocated",
+    )
+    init_value("client", "posix")
+    init_value("db_nodes", 1)
+    init_value("sim_nodes", 1)
+    init_value("train_nodes", 1)
+
+    return args
+
+
+def validate_args(args):
+    def validate_value(key, valid_values, allow_empty=False):
+        if allow_empty and key not in args:
+            return
+        if args[key] not in valid_values:
+            raise ValueError(
+                f"Input '{key}' has an invalid value: {args[key]}, "
+                f"valid values are: {valid_values}"
             )
 
-
-def init_missing_args(args):
-    # Replicating setup_case default values for the time being.
-    if "time" not in args:
-        args["time"] = "01:00"
-    if "model" not in args:
-        args["model"] = "dist-gnn"
-    if "deployment" not in args:
-        args["deployment"] = (
-            "offline" if args["test_type"] == "offline" else "colocated"
-        )
-    if "client" not in args:
-        args["client"] = "posix"
-    if "db_nodes" not in args:
-        args["db_nodes"] = 1
-    if "sim_nodes" not in args:
-        args["sim_nodes"] = 1
-    if "train_nodes" not in args:
-        args["train_nodes"] = 1
+    if args["test_type"] == "online":
+        validate_value("deployment", ["colocated", "clustered"])
+    else:
+        validate_value("deployment", ["clustered", "colocated", "offline"])
+    validate_value("model", ["dist-gnn", "sr-gnn"])
+    validate_value("ml_task", ["train", "inference"], allow_empty=True)
+    validate_value("client", ["smartredis", "adios", "posix"])
 
     return args
 
@@ -188,8 +199,10 @@ class NekRSTest(RunOnlyTest):
         self.executable = f"{self.nekrs_binary}"
         self.executable_opts = self.get_nekrs_executable_options()
 
-    def get_gnn_dist_dir(self):
-        return os.path.join(self.nekrs_home, "3rd_party", "gnn", "dist-gnn")
+    def get_gnn_dir(self):
+        return os.path.join(
+            self.nekrs_home, "3rd_party", "gnn", self.ml_args["model"]
+        )
 
     @run_before("run")
     def setup_run(self):
@@ -208,18 +221,10 @@ class NekRSTest(RunOnlyTest):
 
 class NekRSMLTest(NekRSTest):
     def __init__(self, **kwargs):
-        # Check if the required arguments are in kwargs.
-        check_args(
-            kwargs,
-            [
-                "case",
-                "directory",
-                "nn",
-                "rpn",
-                "target_loss",
-                "time_dependency",
-            ],
-        )
+        required_args = ["case", "directory", "nn", "rpn", "time_dependency"]
+        for arg in required_args:
+            if arg not in kwargs:
+                raise KeyError(f"Required kwarg {arg} was not found.")
 
         super().__init__(
             kwargs["case"], kwargs["directory"], kwargs["nn"], kwargs["rpn"]
@@ -228,54 +233,43 @@ class NekRSMLTest(NekRSTest):
         # Initialize missing arguments with default values from setup_case script.
         self.ml_args = init_missing_args(kwargs)
         self.descr = f"NekRS-ML {self.ml_args['test_type']} test"
-        self.tags = {"all"}
+        self.tags = {"all", self.ml_args["model"]}
 
     @cache
     def get_mpiexec(self):
         return self.job.launcher.command(self.job) + self.job.launcher.options
 
+    def get_order(self, pattern):
+        pf = os.path.join(self.sourcesdir, f"{self.nekrs_case_name}.par")
+        txt = grep(pattern, pf)
+        if txt is None:
+            raise ValueError(f"Expected pattern '{pattern}' not found in {pf}")
+        return int(txt.stdout.split()[2])
+
     @cache
-    def get_order(self):
-        par_file = os.path.join(self.sourcesdir, f"{self.nekrs_case_name}.par")
-        result = grep("gnnPolynomialOrder", par_file)
-        if result.stdout is None:
-            result = grep("polynomialOrder", par_file)
-        return int(result.stdout.split()[2])
+    def get_gnn_order(self):
+        return self.get_order("gnnPolynomialOrder")
+
+    @cache
+    def get_sim_order(self):
+        return self.get_order("polynomialOrder")
 
     @cache
     def get_venv_path(self):
         return os.path.join(self.stagedir, "_env")
 
     @cache
-    def get_gnn_output_dir(self):
-        order = self.get_order()
-        return os.path.join(self.stagedir, f"gnn_outputs_poly_{order}")
-
-    @cache
-    def get_traj_root(self):
-        order = self.get_order()
-        return os.path.join(f"traj_poly_{order}", "tinit_0.000000_dtfactor_10")
-
-    @cache
-    def get_traj_dir(self):
-        return os.path.join(self.stagedir, self.get_traj_root())
-
-    @cache
-    def get_check_input_files_path(self):
-        return os.path.join(self.get_gnn_dist_dir(), "check_input_files.py")
-
-    @cache
-    def get_max_ranks(self):
-        max_rpn = self.current_partition.extras["ranks_per_node"]
-        return self.ml_args["nn"] * max_rpn
-
-    @cache
-    def get_ranks(self):
-        return self.ml_args["nn"] * self.ml_args["rpn"]
+    def get_sim_ranks(self):
+        rpn = self.ml_args["rpn"]
+        # FIXME: colocated vs clustered
+        if self.ml_args["deployment"] == "colocated":
+            rpn = int(rpn / 2)
+        return self.ml_args["nn"] * rpn
 
     def nekrs_cmd(self, extra_args=[]):
         # Set nekrs executable options used in NekRSTest class.
         super().set_executable_options()
+        super().set_launcher_options()
         return list_to_cmd(
             self.get_mpiexec()
             + [self.executable]
@@ -292,6 +286,8 @@ class NekRSMLTest(NekRSTest):
             self.get_venv_path(),
             "--nodes",
             str(self.ml_args["nn"]),
+            "--model",
+            str(self.ml_args["model"]),
             *extra_args,
         ])
 
@@ -301,16 +297,37 @@ class NekRSMLTest(NekRSTest):
             os.path.join(self.get_venv_path(), "bin", "activate"),
         ])
 
+    def set_environment(self):
+        super().set_environment()
+
+    def set_launcher_options(self):
+        super().set_launcher_options()
+
+
+class NekRSMLOfflineTest(NekRSMLTest):
+    def __init__(self, **kwargs):
+        kwargs["test_type"] = "offline"
+        super().__init__(**kwargs)
+
+    @cache
+    def get_gnn_output_dir(self):
+        order = self.get_gnn_order()
+        return os.path.join(self.stagedir, f"gnn_outputs_poly_{order}")
+
     def check_halo_info_cmd(self):
         halo_info = [
             "python",
-            os.path.join(self.get_gnn_dist_dir(), "create_halo_info_par.py"),
+            os.path.join(self.get_gnn_dir(), "create_halo_info_par.py"),
             "--POLY",
-            str(self.get_order()),
+            str(self.get_gnn_order()),
             "--PATH",
             self.get_gnn_output_dir(),
         ]
         return list_to_cmd(self.get_mpiexec() + halo_info)
+
+    @cache
+    def get_check_input_files_path(self):
+        return os.path.join(self.get_gnn_dir(), "check_input_files.py")
 
     def check_input_files_cmd(self):
         return list_to_cmd([
@@ -322,12 +339,21 @@ class NekRSMLTest(NekRSTest):
             self.get_gnn_output_dir(),
         ])
 
+    @cache
+    def get_traj_root(self):
+        order = self.get_gnn_order()
+        return os.path.join(f"traj_poly_{order}", "tinit_0.000000_dtfactor_10")
+
+    @cache
+    def get_traj_dir(self):
+        return os.path.join(self.stagedir, self.get_traj_root())
+
     def check_traj_cmd(self):
-        # Check the GNN traj if the case is of `traj` type.
+        # Return if the case is not a `traj` case.
         if self.ml_args["time_dependency"] != "time_dependent":
             return []
 
-        ranks = self.get_ranks()
+        ranks = self.get_sim_ranks()
         cmds = []
         for rank in range(ranks):
             suffix = f"data_rank_{rank}_size_{ranks}"
@@ -344,43 +370,91 @@ class NekRSMLTest(NekRSTest):
             cmds.append(cmd)
         return cmds
 
-    def set_environment(self):
-        super().set_environment()
-
-    def set_launcher_options(self):
-        super().set_launcher_options()
-
-
-class NekRSMLOfflineTest(NekRSMLTest):
-    def __init__(self, **kwargs):
-        kwargs["test_type"] = "offline"
-        super().__init__(**kwargs)
-
-    def set_executable_options(self):
-        self.executable = list_to_cmd([
-            "python",
-            os.path.join(self.get_gnn_dist_dir(), "main.py"),
+    def set_sr_gnn_target_and_input_list(self):
+        tlist = f"{self.nekrs_case_name}_p{self.get_sim_order() * 10}*"
+        ilist = f"{self.nekrs_case_name}_p{self.get_gnn_order() * 10}*"
+        return list_to_cmd([
+            f"target_list=`ls {tlist}`; input_list=`ls {ilist}`"
         ])
 
-        # FIXME: master_addr=$head_node
-        self.executable_opts = [
-            "halo_swap_mode=all_to_all_opt",
-            "layer_norm=True",
-            f"gnn_outputs_path={self.get_gnn_output_dir()}",
-            f"traj_data_path={self.get_traj_dir()}",
-            f"target_loss={self.ml_args['target_loss']}",
-            f"time_dependency={self.ml_args['time_dependency']}",
+    def generate_sr_gnn_data_cmd(self):
+        train_sr = [
+            "python",
+            os.path.join(self.get_gnn_dir(), "nek_to_pt.py"),
+            f"--case_path {self.stagedir}",
+            "--target_snap_list ${target_list}",
+            "--input_snap_list ${input_list}",
+            f"--target_poly_order {self.get_sim_order()}",
+            f"--input_poly_order {self.get_gnn_order()}",
+            f"--n_element_neighbors {self.ml_args['n_element_neighbors']}",
         ]
+        return list_to_cmd(train_sr)
 
     def set_prerun_cmds(self):
-        # Run all the pre-training steps
         self.prerun_cmds += [
-            self.nekrs_cmd(),
             self.setup_case_cmd(),
             self.source_cmd(),
-            self.check_halo_info_cmd(),
-            self.check_input_files_cmd(),
-            *self.check_traj_cmd(),
+            self.nekrs_cmd(extra_args=[f"--build-only {self.get_sim_ranks()}"]),
+            self.nekrs_cmd(),
+        ]
+
+        if self.ml_args["model"] == "dist-gnn":
+            self.prerun_cmds += [
+                self.check_halo_info_cmd(),
+                self.check_input_files_cmd(),
+                *self.check_traj_cmd(),
+            ]
+        elif self.ml_args["model"] == "sr-gnn":
+            self.prerun_cmds += [
+                self.set_sr_gnn_target_and_input_list(),
+                self.generate_sr_gnn_data_cmd(),
+            ]
+
+    def set_executable_options(self):
+        main_path = self.get_gnn_dir()
+        self.executable = list_to_cmd([
+            "python",
+            os.path.join(self.get_gnn_dir(), "main.py"),
+        ])
+
+        if self.ml_args["model"] == "dist-gnn":
+            self.executable_opts = [
+                "halo_swap_mode=all_to_all_opt",
+                "layer_norm=True",
+                f"gnn_outputs_path={self.get_gnn_output_dir()}",
+                f"traj_data_path={self.get_traj_dir()}",
+                f"target_loss={self.ml_args['target_loss']}",
+                f"time_dependency={self.ml_args['time_dependency']}",
+            ]
+        elif self.ml_args["model"] == "sr-gnn":
+            self.executable_opts = [
+                f"epochs={self.ml_args['epochs']}",
+                f"n_element_neighbors={self.ml_args['n_element_neighbors']}",
+                f"n_messagePassing_layers={self.ml_args['n_messagePassing_layers']}",
+                f"data_dir={os.path.join(self.stagedir, 'pt_datasets')}",
+                f"model_dir={os.path.join(self.stagedir, 'saved_models')}",
+            ]
+
+    def set_postrun_cmds(self):
+        if self.ml_args["model"] != "sr-gnn":
+            return
+
+        self.postrun_cmds += [
+            "export model=${PWD}/`ls saved_models/*.tar`",
+            list_to_cmd([
+                "python",
+                os.path.join(self.get_gnn_dir(), "postprocess.py"),
+                "--model_path ${model}",
+                f"--case_path {self.stagedir}",
+                f"--output_name {self.nekrs_case_name}",
+                f"--target_snap_list",
+                f"{self.nekrs_case_name}_p{self.get_sim_order() * 10}.f00000",
+                f"--input_snap_list",
+                f"{self.nekrs_case_name}_p{self.get_gnn_order() * 10}.f00000",
+                f"--target_poly_order {self.get_sim_order()}",
+                f"--input_poly_order {self.get_gnn_order()}",
+                f"--n_element_neighbors {self.ml_args['n_element_neighbors']}",
+            ]),
         ]
 
     @run_before("run")
@@ -389,17 +463,34 @@ class NekRSMLOfflineTest(NekRSMLTest):
         super().set_launcher_options()
         self.set_prerun_cmds()
         self.set_executable_options()
+        self.set_postrun_cmds()
 
     @sanity_function
     def check_run(self):
         nekrs_ok = super().check_exit_code()
+
+        pattern = (
+            r"Total training time: \S+ seconds"
+            if self.ml_args["model"] == "sr-gnn"
+            else r"SUCCESS! GNN training validated!"
+        )
         gnn_ok = sn.assert_found(
-            r"SUCCESS! GNN training validated!",
+            pattern,
             self.stdout,
             msg="GNN validation failed.",
         )
 
-        return nekrs_ok and gnn_ok
+        inference_ok = (
+            sn.assert_found(
+                "Done with inference!",
+                self.stdout,
+                msg="GNN validation failed (inference).",
+            )
+            if self.ml_args["model"] == "sr-gnn"
+            else True
+        )
+
+        return nekrs_ok and gnn_ok and inference_ok
 
 
 class NekRSMLOnlineTest(NekRSMLTest):
@@ -416,20 +507,18 @@ class NekRSMLOnlineTest(NekRSMLTest):
             "export SR_SOCKET_TIMEOUT=10000",
         ]
 
-    def setup_config(self):
+    def create_ssim_config(self):
         args = self.ml_args
+
+        # FIXME: This only works for colocated, not clustered.
+        case, rpn = args["case"], int(args["rpn"])
+        ml_rpn, sim_rpn = int(rpn / 2), rpn - int(rpn / 2)
+
         db_bind_list = self.current_partition.extras["db_bind_list"]
-        cpu_bind_list = self.current_partition.extras["cpu_bind_list"]
+        db_rpn = len(db_bind_list.split(","))
 
-        rpn = int(args["rpn"])
-        ml_rpn = int(rpn / 2)
-        sim_rpn = rpn - ml_rpn
-
-        ids = cpu_bind_list.split(":")
-        sim_ids = ids[:sim_rpn]
-        ml_ids = ids[sim_rpn:]
-
-        case = args["case"]
+        ids = self.current_partition.extras["cpu_bind_list"].split(":")
+        sim_ids, ml_ids = ids[:sim_rpn], ids[sim_rpn:]
 
         config_yaml = os.path.join(self.stagedir, "ssim_config.yaml.reframe")
         with open(config_yaml, "w") as f:
@@ -456,9 +545,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write(f"    simprocs_pn: {sim_rpn}\n")
             f.write(f"    mlprocs: {args['train_nodes'] * ml_rpn}\n")
             f.write(f"    mlprocs_pn: {ml_rpn}\n")
-            f.write(f"    dbprocs: {args['db_nodes'] * rpn}\n")
-            f.write(f"    dbprocs_pn: {ml_rpn}\n")
-
+            f.write(f"    dbprocs_pn: {db_rpn}\n")
             f.write(f'    sim_cpu_bind: "list:{":".join(sim_ids)}"\n')
             f.write(f'    ml_cpu_bind: "list:{":".join(ml_ids)}"\n')
             f.write(f"    db_cpu_bind: [{db_bind_list}]\n")
@@ -480,7 +567,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write("# Trainer config\n")
             f.write("train:\n")
             f.write(
-                f'    executable: "{os.path.join(self.get_gnn_dist_dir(), "main.py")}"\n'
+                f'    executable: "{os.path.join(self.get_gnn_dir(), "main.py")}"\n'
             )
             f.write('    affinity: ""\n')
             f.write(
@@ -496,7 +583,6 @@ class NekRSMLOnlineTest(NekRSMLTest):
 
     def set_prerun_cmds(self):
         self.prerun_cmds += [
-            *self.setup_torch_env_vars(),
             self.setup_case_cmd(
                 extra_args=[
                     f"--client {self.ml_args['client']}",
@@ -504,9 +590,10 @@ class NekRSMLOnlineTest(NekRSMLTest):
                 ]
             ),
             self.source_cmd(),
+            *self.setup_torch_env_vars(),
             # FIXME: Temporary workaround.
             list_to_cmd(["mv", "ssim_config.yaml.reframe", "ssim_config.yaml"]),
-            self.nekrs_cmd(extra_args=[f"--build-only {self.get_max_ranks()}"]),
+            self.nekrs_cmd(extra_args=[f"--build-only {self.get_sim_ranks()}"]),
         ]
 
     def set_executable_options(self):
@@ -522,7 +609,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
     @run_before("run")
     def setup_run(self):
         super().set_environment()
-        self.setup_config()
+        self.create_ssim_config()
         self.set_prerun_cmds()
         self.set_launcher_options()
         self.set_executable_options()

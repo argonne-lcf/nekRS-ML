@@ -4,7 +4,7 @@ set -a
 # user input
 SYSTEM=
 NEKRS_HOME=
-VENV_PATH="../_env"
+VENV_PATH="${PWD}/../_env"
 NODES=$(cat ${PBS_NODEFILE} | wc -l)
 TIME="01:00"
 PROJ_ID="datascience"
@@ -113,6 +113,10 @@ function check_args() {
     echo "Invalid deployment type! Supported options are offline, clustered and colocated."
     exit 1
   fi
+  if [ ${MODEL} = "sr-gnn" ] && [ ${DEPLOYMENT} != "offline" ]; then
+    echo "Currently, sr-gnn model is only supported with offline deployment."
+    exit 1
+  fi
   if [ -n "${ML_TASK}" ] && [ "${ML_TASK}" != "train" ] && [ "${ML_TASK}" != "inference" ]; then
     echo "Invalid deployment type! Supported options are undefined, train and inference."
     exit 1
@@ -192,6 +196,8 @@ function setup_case() {
     cp ${CASE_NAME}_${ML_TASK}.par ${CASE_NAME}.par
     cp ${CASE_NAME}_${ML_TASK}.re2 ${CASE_NAME}.re2
     cp ${CASE_NAME}_${ML_TASK}.oudf ${CASE_NAME}.oudf
+  elif [ "${DEPLOYMENT}" == "colocated" ] || [ "${DEPLOYMENT}" == "clustered" ]; then
+    cp ${CASE_NAME}.par.safe ${CASE_NAME}.par
   fi
 }
 
@@ -289,13 +295,13 @@ function setup_venv() {
 
     if [ ${MODEL} == "sr-gnn" ]; then
       if [ ${SYSTEM} == "aurora" ]; then
-        cd ../
-        git clone https://github.com/rusty1s/pytorch_cluster.git
-        cd pytorch_cluster
+        cwd=${PWD}
+        git clone https://github.com/rusty1s/pytorch_cluster.git ${VENV_PATH}/pytorch_cluster
+        cd ${VENV_PATH}/pytorch_cluster
         # Need to force the install to not link with OpenMP, change lines 53-54 to if False:
         sed -i 's/fopenmp/lgomp/' setup.py
         CXX=$(which dpcpp) python setup.py install
-        cd ../..
+        cd ${cwd}
       fi
     fi
     
@@ -318,9 +324,9 @@ function setup_venv() {
 
 function generate_script() {
   NEKRS_HOME=${NEKRS_HOME} VENV_PATH=${VENV_PATH}/bin/activate PROJ_ID=${PROJ_ID} \
-  DEPLOYMENT=$DEPLOYMENT DB_NODES=$DB_NODES SIM_NODES=$SIM_NODES TRAIN_NODES=$TRAIN_NODES \
-  ML_TASK=${ML_TASK} \
-    ./nrsrun_${SYSTEM} ${CASE_NAME} ${NODES} ${TIME}
+  DB_NODES=$DB_NODES SIM_NODES=$SIM_NODES TRAIN_NODES=$TRAIN_NODES \
+  DEPLOYMENT=$DEPLOYMENT ML_TASK=${ML_TASK} \
+  ${PWD}/nrsrun_${SYSTEM} ${CASE_NAME} ${NODES} ${TIME}
 }
 
 parse_args "$@"

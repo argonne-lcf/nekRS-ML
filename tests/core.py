@@ -32,6 +32,10 @@ PBS_OUTPUT_WRITEBACK_WAIT = 3
 # FIXME: Consider making this a configuration parameter
 PBS_CANCEL_DELAY = 3
 
+# Maximum number of retries for when qstat encounters transient connection failures
+# and time to delay before another try
+MAX_RETRIES = 5
+RETRY_DELAY = 5.0  # seconds
 
 _run_strict = functools.partial(osext.run_command, check=True)
 
@@ -65,9 +69,30 @@ def poll_fixed(self, *jobs):
     if not jobs:
         return
 
-    completed = osext.run_command(
-        f"qstat -f {' '.join(job.jobid for job in jobs)}"
-    )
+    def is_transient_qstat_failure(completed):
+        if completed.returncode != 255:
+            return False
+
+        error = completed.stderr or ""
+        transient_markers = [
+                "cannot connect to server",
+        ]
+        return any(m in error for m in transient_markers)
+
+    for attempt in range(MAX_RETRIES):
+        completed = osext.run_command(
+            f"qstat -f {' '.join(job.jobid for job in jobs)}"
+        )
+
+        if is_transient_qstat_failure(completed):
+            self.log(
+                f"qstat transient failure (attempt {attempt+1}/{MAX_RETRIES}), retrying..."
+            )
+            time.sleep(RETRY_DELAY)
+            continue
+
+        break 
+    
     # Depending on the configuration, completed jobs will remain on the job
     # list for a limited time, or be removed upon completion.
     # If qstat cannot find any of the job IDs, it will return 153.

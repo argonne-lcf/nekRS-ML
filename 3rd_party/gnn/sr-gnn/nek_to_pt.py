@@ -5,6 +5,7 @@ Adapted from Shivam Barwey (ANL) at https://github.com/sbarwey/DDP_PyGeom.
 """
 
 import os
+import sys
 import numpy as np
 import argparse
 import torch
@@ -15,6 +16,7 @@ import logging
 
 logging.basicConfig(
     level=logging.INFO,
+    stream=sys.stdout,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     force=True,
 )
