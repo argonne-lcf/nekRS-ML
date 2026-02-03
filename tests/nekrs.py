@@ -85,11 +85,14 @@ class SmartRedisBuild(CompileOnlyTest):
         self.build_system.cxx = self.current_environ.cxx
         self.build_system.ftn = self.current_environ.ftn
         self.build_system.flags_from_environ = False
-        self.build_system.max_concurrency = self.current_partition.extras[
-            "ranks_per_node"
-        ]
+        # For SmartRedis, actual build parallelization is set with `NRPOC` environment variable.
+        self.build_system.max_concurrency = 1
         self.build_system.options = ["lib"]
         self.install_path = os.path.join(f"{self.stagedir}", "install")
+
+        self.prebuild_cmds += [
+            f"export NPROC={self.current_partition.extras['ranks_per_node']}"
+        ]
 
     def get_install_path(self):
         return self.install_path

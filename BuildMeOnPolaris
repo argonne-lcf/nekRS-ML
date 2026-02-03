@@ -46,7 +46,7 @@ if [ ${ENABLE_SMARTREDIS} == "ON" ]; then
     git clone https://github.com/rickybalin/SmartRedis.git
     cd SmartRedis
     #pip install -e .
-    make lib
+    NPROC=10 make lib
     cd $CWD
     echo -e "\033[35mDone building SmartRedis\033[m"
     echo
