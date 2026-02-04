@@ -114,8 +114,6 @@ def build_buffers(args, neighbors):
             buff_recv[i] = torch.empty([args.num_nodes, args.num_features], dtype=TORCH_DTYPE, device=DEVICE)
             buff_recv_sz[i] = torch.numel(buff_recv[i])*buff_recv[i].element_size()/1024/1024
     elif args.all_to_all_buff == 'semi-optimized':
-        #buff_send = [torch.empty([], device=DEVICE)] * SIZE
-        #buff_recv = [torch.empty([], device=DEVICE)] * SIZE
         buff_send = [torch.zeros(1, dtype=TORCH_DTYPE, device=DEVICE)] * SIZE
         buff_recv = [torch.zeros(1, dtype=TORCH_DTYPE, device=DEVICE)] * SIZE
         for i in neighbors:
