@@ -145,9 +145,10 @@ site_configuration = {
                 "module load libfabric",
                 "module load PrgEnv-gnu",
                 "module use /soft/modulefiles/",
-                "module load spack-pe-base cmake",
                 "module load conda",
                 "conda activate",
+                "module load gcc-native/12.3",
+                "module load spack-pe-base cmake",
                 "module list",
             ],
             "env_vars": [
