@@ -278,12 +278,10 @@ class RunOnlyTest(rfm.RunOnlyRegressionTest):
             import warnings
 
             warnings.warn(
-                (
-                    f"Requested ranks per node ({self.num_tasks_per_node}) is larger "
-                    f"than the maximum value of the system({max_rpn})"
-                ),
+                f"Requested ranks per node ({self.num_tasks_per_node}) is larger than the maximum value of the system ({max_rpn}). Setting ranks per node to {max_rpn}.",
                 RuntimeWarning,
             )
+            self.num_tasks_per_node = max_rpn
 
         self.num_tasks = self.num_nodes * self.num_tasks_per_node
         self.num_cpus_per_task = 1
