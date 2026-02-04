@@ -75,7 +75,7 @@ def poll_fixed(self, *jobs):
 
         error = completed.stderr or ""
         transient_markers = [
-                "cannot connect to server",
+            "cannot connect to server",
         ]
         return any(m in error for m in transient_markers)
 
@@ -86,13 +86,13 @@ def poll_fixed(self, *jobs):
 
         if is_transient_qstat_failure(completed):
             self.log(
-                f"qstat transient failure (attempt {attempt+1}/{MAX_RETRIES}), retrying..."
+                f"qstat transient failure (attempt {attempt + 1}/{MAX_RETRIES}), retrying..."
             )
             time.sleep(RETRY_DELAY)
             continue
 
-        break 
-    
+        break
+
     # Depending on the configuration, completed jobs will remain on the job
     # list for a limited time, or be removed upon completion.
     # If qstat cannot find any of the job IDs, it will return 153.
