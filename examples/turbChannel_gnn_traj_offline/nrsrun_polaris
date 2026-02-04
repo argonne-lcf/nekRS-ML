@@ -1,0 +1,85 @@
+#!/bin/bash
+set -e
+
+#--------------------------------------
+: ${QUEUE:="prod"}
+: ${NEKRS_GPU_MPI:=0}
+: ${NEKRS_BACKEND:="CUDA"}
+: ${RANKS_PER_NODE:=4}
+: ${CPU_BIND_LIST:="24:16:8:1"}
+: ${VENV_PATH:=""}
+#--------------------------------------
+
+TOTAL_RANKS=$(( $NODES * RANKS_PER_NODE ))
+
+#--------------------------------------
+# Update the .box file to increase the mesh size linearly with the number of nodes
+NZ=$(( 20*TOTAL_RANKS ))
+#LZ=$(echo "3.141592653 * $TOTAL_RANKS" | bc -l)
+cp ${1}.box.safe ${1}.box
+sed -i "s/NZ/${NZ}/g" ${1}.box
+#sed -i "s/LZ/${LZ}/g" ${1}.par
+
+#--------------------------------------
+# Run genbox from Nek5000 to generate the .re2 mesh file
+if [ ! -d $NEKRS_HOME/Nek5000 ]; then
+  CWD=$PWD
+  cd $NEKRS_HOME
+  git clone https://github.com/rickybalin/Nek5000.git
+  cd Nek5000/tools
+  FC=ftn ./maketools genbox
+  cd $CWD
+fi
+$NEKRS_HOME/Nek5000/bin/genbox ${1}.box ${1}
+
+#--------------------------------------
+# Setup the case
+source $NEKRS_HOME/bin/nrsqsub_utils
+setup $# 1
+chk_case $TOTAL_RANKS
+
+#--------------------------------------
+# Generate the run script
+RFILE=run.sh
+echo "#!/bin/bash -l" > $RFILE
+echo "##PBS -S /bin/bash" >> $RFILE
+echo "##PBS -N nekrs-ml" >> $RFILE
+echo "##PBS -l walltime=${TIME}:00" >> $RFILE
+echo "##PBS -l select=$NODES" >> $RFILE
+echo "##PBS -l filesystems=home:eagle" >> $RFILE
+echo "##PBS -k doe" >> $RFILE
+echo "##PBS -j oe" >> $RFILE
+echo "##PBS -A $PROJ_ID" >> $RFILE
+echo "##PBS -q $QUEUE" >> $RFILE
+echo "#cd \$PBS_O_WORKDIR" >> $RFILE
+
+echo -e "\nexport TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
+
+echo -e "\necho Jobid: \$PBS_JOBID" >>$RFILE
+echo "echo Running on host \`hostname\`" >>$RFILE
+echo "echo Running on nodes \`cat \$PBS_NODEFILE\`" >>$RFILE
+
+echo "module use /soft/modulefiles/" >> $RFILE
+echo "module load conda" >> $RFILE
+echo "conda activate" >> $RFILE
+echo "source ${VENV_PATH}" >> $RFILE
+echo "module list" >> $RFILE
+
+echo -e "\nexport NEKRS_HOME=$NEKRS_HOME" >>$RFILE
+echo "export NEKRS_CACHE_BCAST=$NEKRS_CACHE_BCAST" >>$RFILE
+echo "export NEKRS_LOCAL_TMP_DIR=/local/scratch" >>$RFILE
+echo "export NEKRS_GPU_MPI=$NEKRS_GPU_MPI" >>$RFILE
+echo "export MPICH_MPIIO_HINTS=$MPICH_MPIIO_HINTS" >>$RFILE
+echo "export MPICH_MPIIO_STATS=0" >>$RFILE
+echo "export MPICH_GPU_SUPPORT_ENABLED=0" >> $RFILE
+echo "export MPICH_OFI_NIC_POLICY=NUMA" >> $RFILE
+
+echo -e "\n# Run nekRS" >>$RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND}" >> $RFILE
+
+echo -e "\n# Generate the halo_info, edge_weights and node_degree files" >>$RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/create_halo_info_par.py --POLY 7 --PATH ./gnn_outputs_poly_7" >> $RFILE
+
+echo -e "\n# Train the GNN" >>$RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/main.py precision=bf16 phase1_steps=20 hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=nccl halo_swap_mode=all_to_all_opt time_dependency=time_dependent verbose=True gnn_outputs_path=${PWD}/gnn_outputs_poly_2 traj_data_path=${PWD}/traj_poly_2/tinit_0.000000_dtfactor_10" >> $RFILE
+chmod u+x $RFILE

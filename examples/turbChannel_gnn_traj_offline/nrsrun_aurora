@@ -1,0 +1,107 @@
+#!/bin/bash
+set -e
+
+#--------------------------------------
+: ${QUEUE:="prod"}
+: ${NEKRS_GPU_MPI:=0}
+: ${NEKRS_BACKEND:="dpcpp"}
+: ${RANKS_PER_NODE:=12}
+: ${CPU_BIND_LIST:="1:8:16:24:32:40:53:60:68:76:84:92"}
+: ${OCCA_DPCPP_COMPILER_FLAGS:="-O3 -fsycl -fsycl-targets=intel_gpu_pvc -ftarget-register-alloc-mode=pvc:auto -fma"}
+: ${ONEAPI_SDK:=""}
+: ${FRAMEWORKS_MODULE:="frameworks"}
+: ${VENV_PATH:=""}
+#--------------------------------------
+
+TOTAL_RANKS=$(( nodes * RANKS_PER_NODE ))
+
+#--------------------------------------
+# Copy the .par file
+#cp ${1}.par.safe ${1}.par
+
+#--------------------------------------
+# Update the .box file to increase the mesh size linearly with the number of nodes
+NZ=$(( 26*TOTAL_RANKS ))
+#LZ=$(echo "3.141592653 * $TOTAL_RANKS" | bc -l)
+cp ${1}.box.safe ${1}.box
+sed -i "s/NZ/${NZ}/g" ${1}.box
+#sed -i "s/LZ/${LZ}/g" ${1}.par
+
+#--------------------------------------
+# Run genbox from Nek5000 to generate the .re2 mesh file
+if [ ! -d $NEKRS_HOME/Nek5000 ]; then
+  CWD=$PWD
+  cd $NEKRS_HOME
+  git clone https://github.com/rickybalin/Nek5000.git
+  cd Nek5000/tools
+  FC=`which gfortran` ./maketools genbox
+  cd $CWD
+fi
+$NEKRS_HOME/Nek5000/bin/genbox ${1}.box ${1}
+
+#--------------------------------------
+# Setup the case
+source $NEKRS_HOME/bin/nrsqsub_utils
+setup $# 1
+chk_case $TOTAL_RANKS
+
+#--------------------------------------
+# Generate the run script
+RFILE=run.sh
+echo "#!/bin/bash -l" > $RFILE
+echo "##PBS -S /bin/bash" >> $RFILE
+echo "##PBS -N nekrs-ml" >> $RFILE
+echo "##PBS -l walltime=${TIME}:00" >> $RFILE
+echo "##PBS -l select=$NODES" >> $RFILE
+echo "##PBS -l filesystems=home:flare" >> $RFILE
+echo "##PBS -k doe" >> $RFILE
+echo "##PBS -j oe" >> $RFILE
+echo "##PBS -A $PROJ_ID" >> $RFILE
+echo "##PBS -q $QUEUE" >> $RFILE
+echo "#cd \$PBS_O_WORKDIR" >> $RFILE
+
+echo -e "\nexport TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
+
+echo -e "\necho Jobid: \$PBS_JOBID" >>$RFILE
+echo "echo Running on host \`hostname\`" >>$RFILE
+echo "echo Running on nodes \`cat \$PBS_NODEFILE\`" >>$RFILE
+
+echo "module load ${FRAMEWORKS_MODULE}" >> $RFILE
+echo "source ${VENV_PATH}" >> $RFILE
+echo "module list" >> $RFILE
+
+echo -e "\nexport NEKRS_HOME=$NEKRS_HOME" >>$RFILE
+echo "export OCCA_DPCPP_COMPILER_FLAGS=\"$OCCA_DPCPP_COMPILER_FLAGS\"" >> $RFILE
+echo "export FI_CXI_RX_MATCH_MODE=hybrid" >> $RFILE # required by parRSB
+
+# Temporary workaround while waiting on bugfix in runtime
+echo "export UR_L0_USE_COPY_ENGINE=0" >> $RFILE
+
+echo -e "\n# oneCCL env variables" >> $RFILE
+echo "export CCL_PROCESS_LAUNCHER=pmix" >> $RFILE
+echo "export CCL_ATL_TRANSPORT=mpi" >> $RFILE
+echo "export CCL_KVS_MODE=mpi" >> $RFILE
+echo "export CCL_ALLREDUCE_SCALEOUT=direct:0-1048576,rabenseifner:1048577-max" >> $RFILE
+echo "export CCL_BCAST=double_tree" >> $RFILE
+echo "export CCL_CONFIGURATION_PATH=\"\"" >> $RFILE
+echo "export CCL_CONFIGURATION=cpu_gpu_dpcpp" >> $RFILE
+echo "export CCL_KVS_CONNECTION_TIMEOUT=600" >> $RFILE
+echo "export CCL_ZE_CACHE_OPEN_IPC_HANDLES_THRESHOLD=1024" >> $RFILE
+echo "export CCL_KVS_USE_MPI_RANKS=1" >> $RFILE
+echo "export CCL_ENABLE_SYCL_KERNELS=1" >> $RFILE
+echo "export CCL_ALLTOALLV=naive" >> $RFILE
+echo "export CCL_ALLTOALLV_SCALEOUT=naive" >> $RFILE
+echo "export CCL_ALLTOALLV_MONOLITHIC_KERNEL=0" >> $RFILE
+
+echo -e "\nulimit -c unlimited" >> $RFILE
+
+echo -e "\n# Run nekRS" >>$RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND}" >> $RFILE
+
+echo -e "\n# Generate the halo_info, edge_weights and node_degree files" >>$RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/create_halo_info_par.py --POLY 2 --PATH ./gnn_outputs_poly_2" >> $RFILE
+
+echo -e "\n# Train the GNN" >>$RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/main.py precision=bf16 phase1_steps=20 hidden_channels=256 n_mlp_hidden_layers=2 n_messagePassing_layers=8 backend=xccl halo_swap_mode=all_to_all_opt time_dependency=time_dependent verbose=True gnn_outputs_path=${PWD}/gnn_outputs_poly_2 traj_data_path=${PWD}/traj_poly_2/tinit_0.000000_dtfactor_10" >> $RFILE
+chmod u+x $RFILE
+
