@@ -510,7 +510,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             "export SR_SOCKET_TIMEOUT=10000",
         ]
 
-    def create_ssim_config(self):
+    def create_traj_config(self):
         args = self.ml_args
 
         # FIXME: This only works for colocated, not clustered.
@@ -525,64 +525,82 @@ class NekRSMLOnlineTest(NekRSMLTest):
 
         config_yaml = os.path.join(self.stagedir, "ssim_config.yaml.reframe")
         with open(config_yaml, "w") as f:
-            f.write("# Database config\n")
-            f.write("database:\n")
-            f.write("    launch: True\n")
-            # FIXME: This should be the `--client` value in the ml_args.
-            f.write('    backend: "redis"\n')
-            f.write(f'    deployment: "{args["deployment"]}"\n')
-            f.write(f'    exp_name: "{self.nekrs_ml_experiment}"\n')
-            # FIXME: The following should be machine-dependent:
-            f.write("    port: 6782\n")
-            f.write('    network_interface: "uds"\n')
-            f.write('    launcher: "pals"\n')
+            if self.ml_args["client"] == "smartredis":
+                f.write("###################\n")
+                f.write("# Database config #\n")
+                f.write("###################\n")
+                f.write("database:\n")
+                f.write("    launch: True\n")
+                f.write('    backend: "redis"\n')
+                f.write(f'    deployment: "{args["deployment"]}"\n')
+                f.write(f'    exp_name: "{self.nekrs_ml_experiment}"\n')
+                # FIXME: The following should be machine-dependent:
+                f.write("    port: 6782\n")
+                f.write('    network_interface: "uds"\n')
+                f.write('    launcher: "pals"\n')
+            elif self.ml_args["client"] == "adios":
+                f.write("###################\n")
+                f.write("# Workflow config #\n")
+                f.write("###################\n")
+                f.write(f"scheduler: {self.current_partition.scheduler}\n")
+                f.write(f'deployment: "{args["deployment"]}"\n')
             f.write("\n")
 
             f.write("# Run config\n")
             f.write("run_args:\n")
             f.write(f"    nodes: {args['nn']}\n")
-            f.write(f"    db_nodes: {args['db_nodes']}\n")
             f.write(f"    sim_nodes: {args['sim_nodes']}\n")
-            f.write(f"    ml_nodes: {args['sim_nodes']}\n")
             f.write(f"    simprocs: {args['sim_nodes'] * sim_rpn}\n")
             f.write(f"    simprocs_pn: {sim_rpn}\n")
+            f.write(f'    sim_cpu_bind: "list:{":".join(sim_ids)}"\n')
+            f.write(f"    ml_nodes: {args['sim_nodes']}\n")
             f.write(f"    mlprocs: {args['train_nodes'] * ml_rpn}\n")
             f.write(f"    mlprocs_pn: {ml_rpn}\n")
-            f.write(f"    dbprocs_pn: {db_rpn}\n")
-            f.write(f'    sim_cpu_bind: "list:{":".join(sim_ids)}"\n')
             f.write(f'    ml_cpu_bind: "list:{":".join(ml_ids)}"\n')
-            f.write(f"    db_cpu_bind: [{db_bind_list}]\n")
+            if self.ml_args["client"] == "smartredis":
+                f.write(f"    db_nodes: {args['db_nodes']}\n")
+                f.write(f"    dbprocs_pn: {db_rpn}\n")
+                f.write(f"    db_cpu_bind: [{db_bind_list}]\n")
             f.write("\n")
 
-            f.write("# Simulation config\n")
+            f.write("#####################\n")
+            f.write("# Simulation config #\n")
+            f.write("#####################\n")
             f.write("sim:\n")
             f.write(f'    executable: "{self.nekrs_binary}"\n')
             f.write(
                 f'    arguments: "{list_to_cmd(self.get_nekrs_executable_options())}"\n'
             )
             f.write(f'    affinity: "./affinity_nrs.sh"\n')
-            f.write(
-                f'    copy_files: ["./{case}.usr","./{case}.par","./{case}.udf","./{case}.re2"]\n'
-            )
-            f.write('    link_files: ["./affinity_nrs.sh", ".cache"]\n')
+            if self.ml_args["client"] == "smartredis":
+                f.write(
+                    f'    copy_files: ["./{case}.usr","./{case}.par","./{case}.udf","./{case}.re2"]\n'
+                )
+                f.write('    link_files: ["./affinity_nrs.sh", ".cache"]\n')
             f.write("\n")
 
-            f.write("# Trainer config\n")
+            f.write("##################\n")
+            f.write("# Trainer config #\n")
+            f.write("##################\n")
             f.write("train:\n")
             f.write(
                 f'    executable: "{os.path.join(self.get_gnn_dir(), "main.py")}"\n'
             )
             f.write('    affinity: ""\n')
-            f.write(
-                (
-                    "    arguments: "
-                    '"halo_swap_mode=all_to_all_opt layer_norm=True online=True verbose=True '
-                    f"consistency=True client.db_nodes={args['db_nodes']} target_loss={args['target_loss']} "
-                    f'device_skip={sim_rpn} time_dependency={args["time_dependency"]}"\n'
+            if self.ml_args["client"] == "smartredis":
+                f.write(
+                    (
+                        "    arguments: "
+                        '"halo_swap_mode=all_to_all_opt layer_norm=True online=True verbose=True '
+                        f"consistency=True client.db_nodes={args['db_nodes']} target_loss={args['target_loss']} "
+                        f'device_skip={sim_rpn} time_dependency={args["time_dependency"]}"\n'
+                    )
                 )
-            )
-            f.write("    copy_files: []\n")
-            f.write('    link_files: ["./affinity_ml.sh"]\n')
+            elif self.ml_args["client"] == "adios":
+                pass
+            if self.ml_args["client"] == "smartredis":
+                f.write("    copy_files: []\n")
+                f.write('    link_files: ["./affinity_ml.sh"]\n')
 
     def set_prerun_cmds(self):
         self.prerun_cmds += [
@@ -612,7 +630,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
     @run_before("run")
     def setup_run(self):
         super().set_environment()
-        self.create_ssim_config()
+        self.create_traj_config()
         self.set_prerun_cmds()
         self.set_launcher_options()
         self.set_executable_options()
