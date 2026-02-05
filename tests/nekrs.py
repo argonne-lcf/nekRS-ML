@@ -420,20 +420,21 @@ class NekRSMLOfflineTest(NekRSMLTest):
             os.path.join(self.get_gnn_dir(), "main.py"),
         ])
 
-        if self.ml_args["model"] == "dist-gnn":
+        args = self.ml_args
+        if args["model"] == "dist-gnn":
             self.executable_opts = [
                 "halo_swap_mode=all_to_all_opt",
                 "layer_norm=True",
                 f"gnn_outputs_path={self.get_gnn_output_dir()}",
                 f"traj_data_path={self.get_traj_dir()}",
-                f"target_loss={self.ml_args['target_loss']}",
-                f"time_dependency={self.ml_args['time_dependency']}",
+                f"target_loss={args['target_loss']}",
+                f"time_dependency={args['time_dependency']}",
             ]
-        elif self.ml_args["model"] == "sr-gnn":
+        elif args["model"] == "sr-gnn":
             self.executable_opts = [
-                f"epochs={self.ml_args['epochs']}",
-                f"n_element_neighbors={self.ml_args['n_element_neighbors']}",
-                f"n_messagePassing_layers={self.ml_args['n_messagePassing_layers']}",
+                f"epochs={args['epochs']}",
+                f"n_element_neighbors={args['n_element_neighbors']}",
+                f"n_messagePassing_layers={args['n_messagePassing_layers']}",
                 f"data_dir={os.path.join(self.stagedir, 'pt_datasets')}",
                 f"model_dir={os.path.join(self.stagedir, 'saved_models')}",
             ]
@@ -514,7 +515,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
         args = self.ml_args
 
         # FIXME: This only works for colocated, not clustered.
-        case, rpn = args["case"], int(args["rpn"])
+        case, rpn, client = args["case"], int(args["rpn"]), args["client"]
         ml_rpn, sim_rpn = int(rpn / 2), rpn - int(rpn / 2)
 
         db_bind_list = self.current_partition.extras["db_bind_list"]
@@ -541,7 +542,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
                 f.write("    port: 6782\n")
                 f.write('    network_interface: "uds"\n')
                 f.write('    launcher: "pals"\n')
-            elif self.ml_args["client"] == "adios":
+            elif client == "adios":
                 f.write("###################\n")
                 f.write("# Workflow config #\n")
                 f.write("###################\n")
@@ -560,7 +561,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write(f"    mlprocs: {args['train_nodes'] * ml_rpn}\n")
             f.write(f"    mlprocs_pn: {ml_rpn}\n")
             f.write(f'    ml_cpu_bind: "list:{":".join(ml_ids)}"\n')
-            if self.ml_args["client"] == "smartredis":
+            if client == "smartredis":
                 f.write(f"    db_nodes: {args['db_nodes']}\n")
                 f.write(f"    dbprocs_pn: {db_rpn}\n")
                 f.write(f"    db_cpu_bind: [{db_bind_list}]\n")
@@ -575,7 +576,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
                 f'    arguments: "{list_to_cmd(self.get_nekrs_executable_options())}"\n'
             )
             f.write(f'    affinity: "./affinity_nrs.sh"\n')
-            if self.ml_args["client"] == "smartredis":
+            if client == "smartredis":
                 f.write(
                     f'    copy_files: ["./{case}.usr","./{case}.par","./{case}.udf","./{case}.re2"]\n'
                 )
@@ -597,16 +598,16 @@ class NekRSMLOnlineTest(NekRSMLTest):
                 f"consistency=True target_loss={args['target_loss']} "
                 f"device_skip={sim_rpn} time_dependency={args['time_dependency']} "
             )
-            if self.ml_args["client"] == "smartredis":
+            if client == "smartredis":
                 arg_str += f'client.db_nodes={args["db_nodes"]}" '
-            elif self.ml_args["client"] == "adios":
+            elif client == "adios":
                 arg_str += (
                     "client.backend=adios client.adios_transport=WAN "
                     "online_update_freq=500 hidden_channels=32 n_mlp_hidden_layers=5 n_messagePassing_layers=4 "
                 )
             f.write(arg_str + "\n")
 
-            if self.ml_args["client"] == "smartredis":
+            if client == "smartredis":
                 f.write("    copy_files: []\n")
                 f.write('    link_files: ["./affinity_ml.sh"]\n')
 
