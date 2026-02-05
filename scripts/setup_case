@@ -240,7 +240,7 @@ function load_modules() {
   fi
 }
 
-function build_smartsim() {
+function install_smartsim() {
   if [ "${SYSTEM}" == "polaris" ]; then
     export CC=cc
     export CXX=CC
@@ -253,12 +253,7 @@ function build_smartsim() {
   cwd=$PWD
 
   cd ${VENV_PATH}
-  if [ ! -d SmartSim ]; then
-    git clone https://github.com/rickybalin/SmartSim.git
-  fi
-  cd SmartSim
-  git checkout rollback_aurora
-  pip install -e .
+  uv pip install git+https://github.com/rickybalin/SmartSim.git@rollback_aurora
 
   if [ ${SYSTEM} == "aurora" ]; then
     DEVICE="cpu"
@@ -275,51 +270,60 @@ function build_smartsim() {
   cd ${cwd}
 }
 
+function install_parrsb() {
+  cwd=$PWD
+
+  cd ${VENV_PATH}
+
+  # Install parRSB
+  git clone https://github.com/thilinarmtb/parRSB.git -b general_graph
+  cd parRSB
+  cmake -B build -S . -DCMAKE_INSTALL_PREFIX=${VENV_PATH}
+  cmake --build build --target install
+
+  # Install parRSB.py
+  CMAKE_MODULE_PATH=${VENV_PATH} uv pip install git+https://github.com/thilinarmtb/parRSB.py.git
+
+  # Cleanup
+  rm -rf ${VENV_PATH}/parRSB
+
+  cd ${cwd}
+}
+
 function setup_venv() {
-  if [ ! -d ${VENV_PATH} ]; then
-    echo -e "\033[35mPython venv \"${VENV_PATH}\" doesn't exist, building one now ...\033[m"
-    python -m venv --clear ${VENV_PATH} --system-site-packages
-    source ${VENV_PATH}/bin/activate
-  
-    if [ ${SYSTEM} == "crux" ]; then
-      pip install numpy
-      pip install torch --index-url https://download.pytorch.org/whl/cpu
-      MPICC="cc -shared" pip install --force-reinstall --no-cache-dir --no-binary=mpi4py mpi4py
-    fi
+  uv venv --clear --system-site-packages ${VENV_PATH}
+  source ${VENV_PATH}/bin/activate
 
-    export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
-    export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
+  uv pip install pymech
+
+  if [ ${SYSTEM} == "crux" ]; then
+    uv pip install numpy
+    uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+    MPICC="cc -shared" uv pip install --force-reinstall --no-cache-dir --no-binary=mpi4py mpi4py
+  fi
+
+  export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
+  export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
+  if [ ${SYSTEM} == "aurora" ]; then
+    uv pip install torch_geometric==2.5.3
+  fi
+
+  if [ ${MODEL} == "sr-gnn" ]; then
     if [ ${SYSTEM} == "aurora" ]; then
-      pip install torch_geometric==2.5.3
-    fi  
-
-    if [ ${MODEL} == "sr-gnn" ]; then
-      if [ ${SYSTEM} == "aurora" ]; then
-        cwd=${PWD}
-        git clone https://github.com/rusty1s/pytorch_cluster.git ${VENV_PATH}/pytorch_cluster
-        cd ${VENV_PATH}/pytorch_cluster
-        # Need to force the install to not link with OpenMP, change lines 53-54 to if False:
-        sed -i 's/fopenmp/lgomp/' setup.py
-        CXX=$(which dpcpp) python setup.py install
-        cd ${cwd}
-      fi
-    fi
-    
-    pip install pymech
-
-    if [ "${CLIENT}" == "smartredis" ]; then
-      build_smartsim
-    fi
-  else
-    echo -e "\033[35mPython venv \"${VENV_PATH}\" already exists, reusing it ... \033[m"
-    source ${VENV_PATH}/bin/activate
-    if [ "${CLIENT}" == "smartredis" ]; then
-      if ! pip show smartsim > /dev/null 2>&1; then
-        echo -e "\033[35mRequested the smartredis backend, but SmartSim is not installed \033[m"
-        build_smartsim
-      fi
+      cwd=${PWD}
+      git clone https://github.com/rusty1s/pytorch_cluster.git ${VENV_PATH}/pytorch_cluster
+      cd ${VENV_PATH}/pytorch_cluster
+      # Need to force the install to not link with OpenMP, change lines 53-54 to if False:
+      sed -i 's/fopenmp/lgomp/' setup.py
+      CXX=$(which dpcpp) python setup.py install
+      cd ${cwd}
     fi
   fi
+
+  if [ "${CLIENT}" == "smartredis" ]; then
+    install_smartsim
+  fi
+  install_parrsb
 }
 
 function generate_script() {
@@ -337,3 +341,4 @@ setup_case
 load_modules
 setup_venv
 generate_script
+echo -e "\033[35mExecute \"run.sh\" script from a compute node to run the example.\033[m"
