@@ -587,17 +587,22 @@ class NekRSMLOnlineTest(NekRSMLTest):
                 f'    executable: "{os.path.join(self.get_gnn_dir(), "main.py")}"\n'
             )
             f.write('    affinity: ""\n')
+
+            arg_str = (
+                "    arguments: "
+                '"halo_swap_mode=all_to_all_opt layer_norm=True online=True verbose=True '
+                f"consistency=True target_loss={args['target_loss']} "
+                f"device_skip={sim_rpn} time_dependency={args['time_dependency']} "
+            )
             if self.ml_args["client"] == "smartredis":
-                f.write(
-                    (
-                        "    arguments: "
-                        '"halo_swap_mode=all_to_all_opt layer_norm=True online=True verbose=True '
-                        f"consistency=True client.db_nodes={args['db_nodes']} target_loss={args['target_loss']} "
-                        f'device_skip={sim_rpn} time_dependency={args["time_dependency"]}"\n'
-                    )
-                )
+                arg_str += f'client.db_nodes={args["db_nodes"]}" '
             elif self.ml_args["client"] == "adios":
-                pass
+                arg_str += (
+                    "client.backend=adios client.adios_transport=WAN "
+                    "online_update_freq=500 hidden_channels=32 n_mlp_hidden_layers=5 n_messagePassing_layers=4 "
+                )
+            f.write(arg_str + "\n")
+
             if self.ml_args["client"] == "smartredis":
                 f.write("    copy_files: []\n")
                 f.write('    link_files: ["./affinity_ml.sh"]\n')
