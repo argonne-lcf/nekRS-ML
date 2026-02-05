@@ -523,9 +523,12 @@ class NekRSMLOnlineTest(NekRSMLTest):
         ids = self.current_partition.extras["cpu_bind_list"].split(":")
         sim_ids, ml_ids = ids[:sim_rpn], ids[sim_rpn:]
 
-        config_yaml = os.path.join(self.stagedir, "ssim_config.yaml.reframe")
-        with open(config_yaml, "w") as f:
-            if self.ml_args["client"] == "smartredis":
+        base_yml = (
+            "ssim_config.yaml" if client == "smartredis" else "config.yaml"
+        )
+        yml = os.path.join(self.stagedir, base_yml + ".reframe")
+        with open(yml, "w") as f:
+            if client == "smartredis":
                 f.write("###################\n")
                 f.write("# Database config #\n")
                 f.write("###################\n")
@@ -618,7 +621,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             self.source_cmd(),
             *self.setup_torch_env_vars(),
             # FIXME: Temporary workaround.
-            list_to_cmd(["mv", "ssim_config.yaml.reframe", "ssim_config.yaml"]),
+            list_to_cmd(["mv", f"{base_yml}.reframe", base_yml]),
             self.nekrs_cmd(extra_args=[f"--build-only {self.get_sim_ranks()}"]),
         ]
 
