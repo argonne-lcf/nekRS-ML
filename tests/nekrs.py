@@ -630,7 +630,12 @@ class NekRSMLOnlineTest(NekRSMLTest):
         self.executable_opts = []
         self.executable = list_to_cmd([
             "python",
-            os.path.join(f"{self.stagedir}", "ssim_driver.py"),
+            os.path.join(
+                f"{self.stagedir}",
+                "ssim_driver.py"
+                if self.ml_args["client"] == "smartredis"
+                else "driver.py",
+            ),
         ])
 
     def set_launcher_options(self):
