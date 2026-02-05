@@ -124,7 +124,7 @@ class NekRSBuild(CompileOnlyTest):
         self.binary_path = os.path.join(self.install_path, "bin")
         self.build_system.config_opts = [
             f"-DCMAKE_INSTALL_PREFIX={self.install_path}",
-            "-DENABLE_ADIOS=OFF",
+            "-DENABLE_ADIOS=ON",
             "-DENABLE_SMARTREDIS=ON",
             f"-DSMARTREDIS_INSTALL_DIR={self.smartredis_build.get_install_path()}",
         ]
