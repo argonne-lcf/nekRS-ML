@@ -520,6 +520,15 @@ class NekRSMLOnlineTest(NekRSMLTest):
             "export SR_SOCKET_TIMEOUT=10000",
         ]
 
+    def setup_adios_env_vars(self):
+        return [
+            "py_version=`python --version`",
+            "parsed_version=$(echo ${py_version#Python } | awk -F. '{print $1\".\"$2}')",
+            "export PYTHONPATH=$PYTHONPATH:${NEKRS_HOME}/lib/python${parsed_version}/site-packages",
+            "export OMP_PROC_BIND=spread",
+            "export OMP_PLACES=threads",
+        ]
+
     def create_traj_config(self):
         args = self.ml_args
 
@@ -632,6 +641,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             ),
             self.source_cmd(),
             *self.setup_torch_env_vars(),
+            *self.setup_adios_env_vars(),
             # FIXME: Temporary workaround.
             list_to_cmd(["mv", f"{self.base_yml}.reframe", self.base_yml]),
             self.nekrs_cmd(extra_args=[f"--build-only {self.get_sim_ranks()}"]),
