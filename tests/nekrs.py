@@ -613,7 +613,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
                 arg_str += f'client.db_nodes={args["db_nodes"]}" '
             elif client == "adios":
                 arg_str += (
-                    "client.backend=adios client.adios_transport=WAN "
+                    f"client.backend=adios client.adios_transport={self.current_partition.extras['adios_transport']} "
                     'online_update_freq=500 hidden_channels=32 n_mlp_hidden_layers=5 n_messagePassing_layers=4" '
                 )
             f.write(arg_str + "\n")
