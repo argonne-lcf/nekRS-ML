@@ -101,8 +101,9 @@ done
 
 # Environment variables
 # =====================
-export PYTHONPATH=`pwd`:${PYTHONPATH}
-export PATH=$HOME/.local/bin/:$PATH
+# FIXME: Currently, this is needed. Otherwise `uv python find` find Python from the venv.
+rm -rf .venv 2>/dev/null
+export NEKRS_ML_CMAKE_Python_ROOT_DIR=$(dirname `uv --no-managed-python python find`)/..
 
 # ReFrame command guide
 # =====================
@@ -117,7 +118,7 @@ export PATH=$HOME/.local/bin/:$PATH
 # --checkpath: https://reframe-hpc.readthedocs.io/en/stable/manpage.html#cmdoption-c
 # --tag: https://reframe-hpc.readthedocs.io/en/stable/manpage.html#cmdoption-t
 # --run: https://reframe-hpc.readthedocs.io/en/stable/manpage.html#cmdoption-r
-CMD="uv run reframe --save-log-files --config-file sites.py --system ${SYSTEM}"
+CMD="uv --no-managed-python run reframe --save-log-files --config-file sites.py --system ${SYSTEM}"
 CMD="${CMD} -S queue=${QUEUE} -S project=${PROJECT} -S filesystems=${FS} -S commit=${COMMIT}"
 CMD="${CMD} --keep-stage-files --timestamp --prefix=${PREFIX} --checkpath tests.py"
 if [ "${LIST_TAGS}" -eq 1 ]; then

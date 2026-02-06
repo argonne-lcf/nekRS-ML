@@ -9,7 +9,7 @@ license = "MIT"
 authors = [
     { name = "Thilina Ratnayaka", email = "tratnayaka@anl.gov" },
 ]
-requires-python = "==3.13.*"
+requires-python = ">=3.10"
 
 [tool.ruff]
 preview = true
