@@ -107,6 +107,14 @@ class NekRSBuild(CompileOnlyTest):
         self.descr = "nekRS-ML build"
         self.maintainers = ["kris.rowe@anl.gov", "tratnayaka@anl.gov"]
 
+        # This has to be set as uv somehow pollutes the Python seen by
+        # CMake.
+        self.python_root_dir = os.getenv("NEKRS_ML_CMAKE_Python_ROOT_DIR")
+        if self.python_root_dir is None:
+            sys.exit(
+                "Environment variable 'NEKRS_ML_CMAKE_Python_ROOT_DIR' is not defined."
+            )
+
     @run_before("compile")
     def configure_build(self):
         self.sourcesdir = "https://github.com/argonne-lcf/nekRS-ML.git"
@@ -126,6 +134,7 @@ class NekRSBuild(CompileOnlyTest):
             f"-DCMAKE_INSTALL_PREFIX={self.install_path}",
             "-DENABLE_ADIOS=ON",
             "-DENABLE_SMARTREDIS=ON",
+            f"-DPython_ROOT_DIR={self.python_root_dir}"
             f"-DSMARTREDIS_INSTALL_DIR={self.smartredis_build.get_install_path()}",
         ]
 
