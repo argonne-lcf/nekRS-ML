@@ -195,14 +195,14 @@ class NekRSTest(RunOnlyTest):
             gpu_bind_list = self.current_partition.extras["gpu_bind_list"]
             self.job.launcher.options += [f"--gpu-bind=list:{gpu_bind_list}"]
 
-    def get_nekrs_executable_options(self):
+    def get_nekrs_executable_options(self, zero_dev_flag=False):
         backend = self.current_partition.extras["occa_backend"]
         exec_opts = [
             f"--setup {self.nekrs_case_name}",
             f"--backend {backend}",
         ]
 
-        if "gpu_bind_list" in self.current_partition.extras:
+        if ("gpu_bind_list" in self.current_partition.extras) or zero_dev_flag:
             exec_opts += ["--device-id 0"]
 
         return exec_opts
@@ -584,7 +584,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write("sim:\n")
             f.write(f'    executable: "{self.nekrs_binary}"\n')
             f.write(
-                f'    arguments: "{list_to_cmd(self.get_nekrs_executable_options())}"\n'
+                f'    arguments: "{list_to_cmd(self.get_nekrs_executable_options(zero_dev_flag=True))}"\n'
             )
             f.write(f'    affinity: "./affinity_nrs.sh"\n')
             if client == "smartredis":
