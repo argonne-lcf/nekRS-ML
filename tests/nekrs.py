@@ -533,10 +533,10 @@ class NekRSMLOnlineTest(NekRSMLTest):
         ids = self.current_partition.extras["cpu_bind_list"].split(":")
         sim_ids, ml_ids = ids[:sim_rpn], ids[sim_rpn:]
 
-        base_yml = (
+        self.base_yml = (
             "ssim_config.yaml" if client == "smartredis" else "config.yaml"
         )
-        yml = os.path.join(self.stagedir, base_yml + ".reframe")
+        yml = os.path.join(self.stagedir, self.base_yml + ".reframe")
         with open(yml, "w") as f:
             if client == "smartredis":
                 f.write("###################\n")
@@ -555,7 +555,9 @@ class NekRSMLOnlineTest(NekRSMLTest):
                 f.write("###################\n")
                 f.write("# Workflow config #\n")
                 f.write("###################\n")
-                f.write(f"scheduler: {self.current_partition.scheduler}\n")
+                f.write(
+                    f"scheduler: {self.current_partition.scheduler.registered_name}\n"
+                )
                 f.write(f'deployment: "{args["deployment"]}"\n')
             f.write("\n")
 
@@ -612,7 +614,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             elif client == "adios":
                 arg_str += (
                     "client.backend=adios client.adios_transport=WAN "
-                    "online_update_freq=500 hidden_channels=32 n_mlp_hidden_layers=5 n_messagePassing_layers=4 "
+                    'online_update_freq=500 hidden_channels=32 n_mlp_hidden_layers=5 n_messagePassing_layers=4" '
                 )
             f.write(arg_str + "\n")
 
@@ -631,7 +633,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             self.source_cmd(),
             *self.setup_torch_env_vars(),
             # FIXME: Temporary workaround.
-            list_to_cmd(["mv", f"{base_yml}.reframe", base_yml]),
+            list_to_cmd(["mv", f"{self.base_yml}.reframe", self.base_yml]),
             self.nekrs_cmd(extra_args=[f"--build-only {self.get_sim_ranks()}"]),
         ]
 
