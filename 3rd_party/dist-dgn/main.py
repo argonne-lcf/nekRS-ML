@@ -141,7 +141,7 @@ def train(cfg: DictConfig,
                     log.info(f"t_backwardPass: {t_backwardPass:.4g} sec [{n_nodes_local/t_backwardPass:.4e} nodes/sec]")
                     log.info(f"t_optimizerStep: {t_optimizerStep:.4g} sec")
                 if cfg.statistics:
-                    log.info(f"grad norm: {grad_norm[0]:.6g}")
+                    log.info(f"grad norm: {grad_norm:.6g}")
 
             # Checkpoint  
             if trainer.iteration % cfg.ckptfreq == 0:

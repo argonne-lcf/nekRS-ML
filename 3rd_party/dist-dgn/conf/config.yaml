@@ -20,10 +20,14 @@ device_skip: 0 # temporary workaround to skip GPU on a node
 # DGN specific parameters
 num_diffusion_steps: 100
 emb_width: 128
+diffusion_process_schedule: "linear" # {linear, cosine}
 diffusion_step_sampler: "uniform" # {uniform, adaptive_exponential}
 num_gen_samples: 1
 input_node_features: 3
 learnable_variance: True
+prediction_type: "epsilon" # {epsilon, x0}
+loss_weighting: "uniform" # {uniform, min_snr}
+min_snr_gamma: 5.0 # gamma for min-SNR weighting (only used when loss_weighting=min_snr)
 
 # Modeling task
 model_task: "train"

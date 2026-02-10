@@ -115,19 +115,24 @@ class DiffusionProcess:
             torch.Tensor: The field after 'r' diffusion steps, defined on the nodes of a graph. Dimensions: [num_nodes, num_fields].
             torch.Tensor: The (normalised Gaussian) noise employed to diffuse 'field_start'. Dimensions: [num_nodes, num_fields].
         """
+        device = field_start.device
         if dirichlet_mask is not None:
             noise = torch.randn_like(field_start) * (~dirichlet_mask) # (num_nodes, num_fields)
         else:
             noise = torch.randn_like(field_start) # (num_nodes, num_fields)
         if batch is None:
-            batch = torch.zeros(field_start.size(0), device=field_start.device, dtype=torch.long)
+            batch = torch.zeros(field_start.size(0), device=device, dtype=torch.long)
         
         # Get the coefficients for the diffusion process
         sqrt_alphas_cumprod_t = self.get_index_from_list(self.sqrt_alphas_cumprod, batch, r) # Dimensions: (num_nodes, 1)
         sqrt_one_minus_alphas_cumprod_t = self.get_index_from_list(self.sqrt_one_minus_alphas_cumprod, batch, r) # Dimensions: (num_nodes, 1)
+        sig_to_noise_ratio_t = (sqrt_alphas_cumprod_t / sqrt_one_minus_alphas_cumprod_t) ** 2 # Dimensions: (num_nodes, 1)
+        idx = torch.cat([torch.tensor([0], device=device),(batch[1:] != batch[:-1]).nonzero(as_tuple=True)[0] + 1])
+        sig_to_noise_ratio_t = sig_to_noise_ratio_t[idx] # Dimensions: (batch_size,)
+        
         # Apply the diffusion process. The coefficients are shared across the field dimension.
         field_r = sqrt_alphas_cumprod_t * field_start + sqrt_one_minus_alphas_cumprod_t * noise
-        return field_r, noise # Dimensions: (num_nodes, num_fields), (num_nodes, num_fields)
+        return field_r, noise, sig_to_noise_ratio_t.squeeze(-1) # Dimensions: (num_nodes, num_fields), (num_nodes, num_fields), (batch_size)
 
     def sample_r(
         self,
@@ -144,6 +149,54 @@ class DiffusionProcess:
         """
         return torch.randint(0, self.num_steps, (batch_size,), device=device).long() # Dimensions: [batch_size]
         
+
+    def predict_x0_from_noise(
+        self,
+        field_r:    torch.Tensor,
+        noise:      torch.Tensor,
+        r:          torch.Tensor,
+        batch:      torch.Tensor
+    ) -> torch.Tensor:
+        r"""Recovers the clean field x_0 from the noisy field x_t and the noise.
+
+        Uses the relationship: x_0 = (x_t - sigma_t * eps) / alpha_bar_t
+
+        Args:
+            field_r (torch.Tensor): The noisy field x_t. Dimensions: [num_nodes, num_fields].
+            noise (torch.Tensor): The noise eps. Dimensions: [num_nodes, num_fields].
+            r (torch.Tensor): The diffusion step indices. Dimensions: [batch_size].
+            batch (torch.Tensor): The batch indices of the nodes. Dimensions: [num_nodes].
+
+        Returns:
+            torch.Tensor: The predicted clean field x_0. Dimensions: [num_nodes, num_fields].
+        """
+        sqrt_alphas_cumprod_t = self.get_index_from_list(self.sqrt_alphas_cumprod, batch, r)
+        sqrt_one_minus_alphas_cumprod_t = self.get_index_from_list(self.sqrt_one_minus_alphas_cumprod, batch, r)
+        return (field_r - sqrt_one_minus_alphas_cumprod_t * noise) / sqrt_alphas_cumprod_t
+
+    def predict_noise_from_x0(
+        self,
+        field_r:     torch.Tensor,
+        field_start: torch.Tensor,
+        r:           torch.Tensor,
+        batch:       torch.Tensor
+    ) -> torch.Tensor:
+        r"""Recovers the noise eps from the noisy field x_t and the clean field x_0.
+
+        Uses the relationship: eps = (x_t - alpha_bar_t * x_0) / sigma_t
+
+        Args:
+            field_r (torch.Tensor): The noisy field x_t. Dimensions: [num_nodes, num_fields].
+            field_start (torch.Tensor): The clean field x_0. Dimensions: [num_nodes, num_fields].
+            r (torch.Tensor): The diffusion step indices. Dimensions: [batch_size].
+            batch (torch.Tensor): The batch indices of the nodes. Dimensions: [num_nodes].
+
+        Returns:
+            torch.Tensor: The predicted noise eps. Dimensions: [num_nodes, num_fields].
+        """
+        sqrt_alphas_cumprod_t = self.get_index_from_list(self.sqrt_alphas_cumprod, batch, r)
+        sqrt_one_minus_alphas_cumprod_t = self.get_index_from_list(self.sqrt_one_minus_alphas_cumprod, batch, r)
+        return (field_r - sqrt_alphas_cumprod_t * field_start) / sqrt_one_minus_alphas_cumprod_t
 
     def get_posterior_mean_and_variance(
         self,

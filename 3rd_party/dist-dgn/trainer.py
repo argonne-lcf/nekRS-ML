@@ -116,6 +116,10 @@ class DGNTrainer:
         if not self.cfg.consistency:
             assert self.cfg.halo_swap_mode == 'none', \
                 "For inconsistent model, set halo_swap_mode=none"
+        assert self.cfg.prediction_type in ['epsilon', 'x0'], \
+            f"Invalid prediction_type '{self.cfg.prediction_type}'. Must be 'epsilon' or 'x0'."
+        assert self.cfg.loss_weighting in ['uniform', 'min_snr'], \
+            f"Invalid loss_weighting '{self.cfg.loss_weighting}'. Must be 'uniform' or 'min_snr'."
         if self.cfg.online:
             log.warning('Online backends not implemented for this model yet')
             COMM.Abort(1)
@@ -258,7 +262,7 @@ class DGNTrainer:
             sys.exit('Invalid diffusion step sampler')
 
         # ~~~~ Set diffusion process
-        self.diffusion_process = DiffusionProcess(self.cfg.num_diffusion_steps)
+        self.diffusion_process = DiffusionProcess(self.cfg.num_diffusion_steps, self.cfg.diffusion_process_schedule)
 
         # ~~~~ Wrap model in DDP
         if WITH_DDP and SIZE > 1:
@@ -909,14 +913,15 @@ class DGNTrainer:
         # ~~~~ Populate the data loader
         # No need for distributed sampler -- create standard dataset loader  
         # We can use the standard pytorch dataloader on (x,y) 
-        if (RANK == 0):
-            log.info(f"shape of x: {data['train'][0]['x'].shape}")
         train_data_scaled = []
         for item in  data['train']:
             train_data_scaled.append(Data(x=((item['x'][:,:self.cfg.input_node_features] - stats['x'][0])/(stats['x'][1] + SMALL)).to(self.torch_dtype)))
         train_loader = DataLoader(train_data_scaled,
                                   batch_size=self.cfg.batch_size,
                                   shuffle=True)
+        if (RANK == 0):
+            train_loader_example = train_loader.dataset[0]
+            log.info(f"shape of x: {train_loader_example.x.shape}")
 
         val_data_scaled = data['validation'].copy()
         if val_data_scaled[0]:
@@ -1053,6 +1058,7 @@ class DGNTrainer:
         """Compute the posterior mean and variance from the model output.
 
             Adapthed from https://github.com/tum-pbs/dgn4cfd/blob/main/dgn4cfd/nn/diffusion/diffusion_model.py
+            Supports both epsilon and x0 prediction types.
         """
         if batch is None:
             batch = torch.zeros(field_r.size(0), dtype=torch.long)
@@ -1063,12 +1069,9 @@ class DGNTrainer:
         else:
             assert not self.cfg.learnable_variance, 'The model output is not a tuple, but learnable_variance=True'
         
-        # Pre-compute needed coefficients
-        betas_r = dp.get_index_from_list(dp.betas, batch, r)
-        sqrt_one_minus_alphas_cumprod_r = dp.get_index_from_list(dp.sqrt_one_minus_alphas_cumprod, batch, r)
-        sqrt_recip_alphas_r = dp.get_index_from_list(dp.sqrt_recip_alphas, batch, r)
+        # Extract model prediction and learnable variance
         if self.cfg.learnable_variance:
-            eps, v = model_output
+            model_pred, v = model_output
             v = (v + 1) / 2
             # For min_log we use the clipped posterior variance to avoid nan values in the backward pass
             min_log = dp.get_index_from_list(dp.posterior_log_variance_clipped, batch, r)
@@ -1076,9 +1079,22 @@ class DGNTrainer:
             log_variance = v * max_log + (1 - v) * min_log
             variance = torch.exp(log_variance)
         else:
-            eps = model_output
+            model_pred = model_output
             variance = dp.get_index_from_list(dp.posterior_variance, batch, r)
-        mean =  sqrt_recip_alphas_r * (field_r - betas_r * eps/sqrt_one_minus_alphas_cumprod_r)
+
+        # Compute posterior mean based on prediction type
+        if self.cfg.prediction_type == "x0":
+            # model_pred is the predicted clean field x_0
+            # Posterior mean: coef1 * x_0_pred + coef2 * x_t
+            posterior_mean_coef1 = dp.get_index_from_list(dp.posterior_mean_coef1, batch, r)
+            posterior_mean_coef2 = dp.get_index_from_list(dp.posterior_mean_coef2, batch, r)
+            mean = posterior_mean_coef1 * model_pred + posterior_mean_coef2 * field_r
+        else:
+            # model_pred is the predicted noise eps (epsilon prediction, default)
+            betas_r = dp.get_index_from_list(dp.betas, batch, r)
+            sqrt_one_minus_alphas_cumprod_r = dp.get_index_from_list(dp.sqrt_one_minus_alphas_cumprod, batch, r)
+            sqrt_recip_alphas_r = dp.get_index_from_list(dp.sqrt_recip_alphas, batch, r)
+            mean = sqrt_recip_alphas_r * (field_r - betas_r * model_pred / sqrt_one_minus_alphas_cumprod_r)
         return mean, variance
 
     def train_step(self, data: Data) -> Tensor:
@@ -1121,10 +1137,12 @@ class DGNTrainer:
 
         # Diffuse the solution/target field
         BC_mask = None # no BCs for now
-        field_r, noise = self.diffusion_process.forward(data.x[:,:self.cfg.input_node_features],
-                                                        r, 
-                                                        batch=data.batch, 
-                                                        dirichlet_mask=BC_mask)
+        field_r, noise, snr = self.diffusion_process.forward(data.x[:,:self.cfg.input_node_features],
+                                                             r, 
+                                                             batch=data.batch, 
+                                                             dirichlet_mask=BC_mask)
+        if self.cfg.verbose and RANK == 0: 
+                log.info(f"SNR: {snr.cpu().numpy().tolist()}")
         #if self.cfg.postprocess and self.iteration%100 == 0:
         #if self.cfg.postprocess and ((r == 10).any() or (r == 60).any()):
         if self.cfg.postprocess:
@@ -1139,7 +1157,7 @@ class DGNTrainer:
         
         # Prediction
         tic = time.time()
-        model_noise, model_var = self.model(
+        model_pred, model_var = self.model(
                              field_r = field_r,
                              r = r,
                              edge_index = graph.edge_index,
@@ -1159,7 +1177,7 @@ class DGNTrainer:
                 index = torch.where(r == 10)[0].item()
             elif (r == 60).any():
                 index = torch.where(r == 60)[0].item()
-            postprocess.plot_2d_field(COMM, graph.pos, model_noise[data.batch==index].detach().cpu().numpy(), f'model_noise_r{r[index]}_iter{self.iteration}.png')
+            postprocess.plot_2d_field(COMM, graph.pos, model_pred[data.batch==index].detach().cpu().numpy(), f'model_pred_r{r[index]}_iter{self.iteration}.png')
             postprocess.plot_2d_field(COMM, graph.pos, noise[data.batch==index].cpu().numpy(), f'noise_r{r[index]}_iter{self.iteration}.png')
             COMM.Barrier()
         if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
@@ -1168,7 +1186,14 @@ class DGNTrainer:
         tic = time.time()
         n_nodes_local = graph.n_nodes_local
         if SIZE == 1 or not self.cfg.consistency:
-            mse_term = batch_wise_mean((model_noise - noise)**2, data.batch) # Dimension (batch_size)
+            # MSE loss: target depends on prediction type
+            if self.cfg.prediction_type == "x0":
+                # x0-prediction: model predicts the clean field directly
+                mse_target = data.x[:,:self.cfg.input_node_features]
+            else:
+                # epsilon-prediction (default): model predicts the noise
+                mse_target = noise
+            mse_term = batch_wise_mean((model_pred - mse_target)**2, data.batch) # Dimension (batch_size)
             loss = mse_term
             if self.cfg.learnable_variance:
                 # Hybrid loss function for diffusion models from the paper 
@@ -1183,7 +1208,7 @@ class DGNTrainer:
                                                         r)
                 model_posterior_mean, model_posterior_variance = \
                         self.get_posterior_mean_and_variance_from_output(
-                            (model_noise.detach(), model_var), 
+                            (model_pred.detach(), model_var), 
                             field_r, 
                             r, 
                             batch=data.batch)
@@ -1199,8 +1224,21 @@ class DGNTrainer:
                     if RANK == 0:
                         log.info(f"MSE loss term: {mse_term.detach().cpu().numpy().tolist()}, mean = {mse_term.detach().cpu().mean().numpy().tolist()}")
                         log.info(f"VLB loss term: {vlb_term.detach().cpu().numpy().tolist()}, mean = {vlb_term.detach().cpu().mean().numpy().tolist()}")
-            #loss = (loss * importance_weights).mean() # this undoes bias of sampling, not what we want generally
-            loss = loss.mean()
+            # Apply loss weighting
+            if self.cfg.loss_weighting == "min_snr":
+                # Min-SNR-gamma weighting from "Efficient Diffusion Training via Min-SNR Weighting Strategy"
+                # (Hang et al., 2023, https://arxiv.org/abs/2303.09556)
+                # For epsilon-prediction: w(t) = min(SNR(t), gamma) 
+                # For x0-prediction:      w(t) = min(SNR(t), gamma) / SNR(t)
+                clamped_snr = torch.clamp(snr, max=self.cfg.min_snr_gamma) # Dimension (batch_size)
+                if self.cfg.prediction_type == "x0":
+                    min_snr_weights = clamped_snr / snr
+                else:
+                    min_snr_weights = clamped_snr
+                loss = (loss * min_snr_weights).mean()
+            else:
+                # Uniform weighting (default)
+                loss = loss.mean()
         else: # custom consistent loss
             # TODO: Custom parallel and consistent loss function to be implemented here
             if RANK == 0: log.error('Custom parallel and consistent loss not yet implemented')
@@ -1270,7 +1308,7 @@ class DGNTrainer:
             if RANK == 0: log.info(f"Performing de-noise step {step}")
             r = torch.tensor([step], device=self.device)
             tic = time.time()
-            model_noise, model_var = self.model(
+            model_pred, model_var = self.model(
                                 field_r = field_r,
                                 r = r,
                                 edge_index = graph.edge_index,
@@ -1288,17 +1326,12 @@ class DGNTrainer:
             if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
 
             # Get the posterior mean and variance from the model output
+            # get_posterior_mean_and_variance_from_output handles both epsilon and x0 prediction types
             model_posterior_mean, model_posterior_variance = \
                         self.get_posterior_mean_and_variance_from_output(
-                            (model_noise.detach(), model_var), 
+                            (model_pred.detach(), model_var), 
                             field_r, 
                             r)
-            #betas_r = diff_process.get_index_from_list(diff_process.betas, graph.batch, r)
-            #sqrt_one_minus_alphas_cumprod_r = diff_process.get_index_from_list(diff_process.sqrt_one_minus_alphas_cumprod, graph.batch, r)
-            #sqrt_recip_alphas_r = diff_process.get_index_from_list(diff_process.sqrt_recip_alphas, graph.batch, r)
-            #variance = diff_process.get_index_from_list(diff_process.posterior_variance, graph.batch, r)
-            #mean =  sqrt_recip_alphas_r * (field_r - betas_r * model_noise/sqrt_one_minus_alphas_cumprod_r)
-            ##mean, variance = self.get_posterior_mean_and_variance_from_output(model_noise, graph, diff_process)
 
             # Update field_r
             gaussian_noise = torch.randn_like(model_posterior_mean)
@@ -1349,13 +1382,13 @@ class DGNTrainer:
         torch.save(a, savepath + '/%s.tar' %(model.get_save_header())) 
 
     def grad_norm(self):
-        """ Do some analytics on the gradients""" 
-        # Get gradient norm 
+        """ Do some analytics on the gradients
+        """ 
         grads = [
             param.grad.detach().flatten()
             for param in self.model.parameters()
             if param.grad is not None
         ]
         gradnorm = torch.cat(grads).norm()
-        dist.barrier()
-        return [gradnorm]
+        COMM.Barrier()
+        return gradnorm
