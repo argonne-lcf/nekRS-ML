@@ -126,7 +126,6 @@ def plot_training_loss(log_file: str):
     plt.ylabel('Loss')
     plt.title('Loss Components vs Iterations')
     plt.grid(True, alpha=0.3)
-    plt.xlim(-100,2000)
     plt.legend(loc='upper right')
     plt.tight_layout()
     plt.savefig('loss_plot.png', dpi=150)

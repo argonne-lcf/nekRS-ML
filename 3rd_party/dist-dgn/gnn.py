@@ -4,6 +4,7 @@ import torch
 from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint as activation_checkpoint
 import torch_geometric.nn as tgnn
 from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.typing import Adj, OptTensor, PairTensor
@@ -98,8 +99,21 @@ class DistributedDGN(torch.nn.Module):
         self.dropout_rate = arch['dropout_rate']
         self.emb_width = arch.get('emb_width', self.mlp_hidden_channels * 4)
         self.learnable_variance = arch.get('learnable_variance', False)
+        self.activation_checkpointing = arch.get('activation_checkpointing', False)
         self.output_node_features = self.input_node_features * 2 if self.learnable_variance else self.input_node_features
         self.name = arch['name']
+
+    def _maybe_checkpoint(self, fn, *args):
+        """Wrap a module call with activation checkpointing if enabled and training.
+        Args:
+            fn (torch.nn.Module): The module to wrap.
+            *args: The arguments to pass to the module.
+        Returns:
+            The output of the module.
+        """
+        if self.activation_checkpointing and self.training:
+            return activation_checkpoint(fn, *args, use_reentrant=False)
+        return fn(*args)
 
     def forward(
             self,
@@ -127,7 +141,7 @@ class DistributedDGN(torch.nn.Module):
 
         # ~~~~ Node encoder
         x = torch.cat([field_r, cond_node_features], dim=1) if cond_node_features is not None else field_r
-        x = self.node_encoder(x) # Shape (num_nodes, mlp_hidden_channels)
+        x = self._maybe_checkpoint(self.node_encoder, x) # Shape (num_nodes, mlp_hidden_channels)
 
         # ~~~~ Encode the diffusion step embedding into the node features
         emb_proj = self.diffusion_step_encoder[0](emb) # Shape (batch_size, mlp_hidden_channels)
@@ -136,11 +150,13 @@ class DistributedDGN(torch.nn.Module):
             x = layer(x) # Shape (num_nodes, mlp_hidden_channels)
 
         # ~~~~ Edge encoder
-        e = self.edge_encoder(edge_attr) # Shape (num_edges, mlp_hidden_channels)
+        e = self._maybe_checkpoint(self.edge_encoder, edge_attr) # Shape (num_edges, mlp_hidden_channels)
 
         # ~~~~ Processor
         for i in range(self.n_messagePassing_layers):
-            x , _ = self.processor[i](x,
+            x, _ = self._maybe_checkpoint(
+                                      self.processor[i],
+                                      x,
                                       e,
                                       emb,
                                       edge_index,
@@ -156,7 +172,7 @@ class DistributedDGN(torch.nn.Module):
             )
 
         # ~~~~ Node decoder
-        x = self.node_decoder(x) # Shape (num_nodes, output_node_features)
+        x = self._maybe_checkpoint(self.node_decoder, x) # Shape (num_nodes, output_node_features)
 
         # Return the output
         if self.learnable_variance:
@@ -296,8 +312,10 @@ class DistributedMessagePassingLayer(torch.nn.Module):
         batch_size = torch.max(batch) + 1
 
         # ~~~~ Project the diffusion-step embedding to the node embedding space
+        # NOTE: Use out-of-place ops (x = x + ..., not x += ...) to avoid mutating
+        # input tensors, which is required for activation checkpointing.
         if self.emb_features > 0:
-            x += self.node_emb_linear(emb)[batch] # Shape (num_nodes, mlp_hidden_channels)
+            x = x + self.node_emb_linear(emb)[batch] # Shape (num_nodes, mlp_hidden_channels)
         
         # Loop over batches so processing is done on each batch
         edge_weight = edge_weight.unsqueeze(1)
@@ -308,7 +326,7 @@ class DistributedMessagePassingLayer(torch.nn.Module):
             # ~~~~ Edge update 
             x_send = x_batch[edge_index[0,:],:] # Shape (num_edges, mlp_hidden_channels)
             x_recv = x_batch[edge_index[1,:],:] # Shape (num_edges, mlp_hidden_channels)
-            e += self.edge_updater(
+            e = e + self.edge_updater(
                     torch.cat((x_send, x_recv, e), dim=1)
                     )
             
@@ -332,11 +350,11 @@ class DistributedMessagePassingLayer(torch.nn.Module):
                 edge_agg.index_add_(0, idx_recv, edge_agg.index_select(0, idx_send))
 
             # ~~~~ Node update 
-            x[batch == b,:] += self.node_updater(
+            x[batch == b,:] = x_batch + self.node_updater(
                     torch.cat((x_batch, edge_agg), dim=1)
                     )
 
-        return x,e  
+        return x, e
 
     def halo_swap(self,
                   input_tensor,

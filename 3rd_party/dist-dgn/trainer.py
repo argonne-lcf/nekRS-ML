@@ -346,6 +346,7 @@ class DGNTrainer:
             'dropout_rate': self.cfg.dropout_rate,
             'emb_width': self.cfg.emb_width,
             'learnable_variance': self.cfg.learnable_variance,
+            'activation_checkpointing': self.cfg.activation_checkpointing,
             'name': 'POLY_%d_SIZE_%d_SEED_%d' %(poly,SIZE,self.cfg.seed)
         }
         # TODO: this is where things like Re, num_pins, distance to wall, etc. would go
