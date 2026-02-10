@@ -101,9 +101,15 @@ def plot_training_loss(log_file: str):
                 vlb_losses.append(vlb_loss_mean)
                 # Extract the list of loss values
                 loss_list_str = vlb_loss_match.group(1)
-                loss_values = [float(x.strip()) for x in loss_list_str.split(',')]
+                loss_values = [abs(float(x.strip())) for x in loss_list_str.split(',')]
                 for step, loss_val in zip(steps, loss_values):
                     per_step_vlb_losses[step].append(loss_val)
+
+    # Adjust the lengths of the loss lists to match the number of iterations
+    if len(mse_losses) > len(iterations):
+        mse_losses.pop(-1)
+    if len(vlb_losses) > len(iterations):
+        vlb_losses.pop(-1)
 
     # Plot loss vs iterations
     plt.figure(figsize=(12, 6))

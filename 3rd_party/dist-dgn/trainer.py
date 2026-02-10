@@ -116,8 +116,8 @@ class DGNTrainer:
         if not self.cfg.consistency:
             assert self.cfg.halo_swap_mode == 'none', \
                 "For inconsistent model, set halo_swap_mode=none"
-        assert self.cfg.prediction_type in ['epsilon', 'x0'], \
-            f"Invalid prediction_type '{self.cfg.prediction_type}'. Must be 'epsilon' or 'x0'."
+        assert self.cfg.prediction_type in ['epsilon', 'x0', 'v'], \
+            f"Invalid prediction_type '{self.cfg.prediction_type}'. Must be 'epsilon', 'x0', or 'v'."
         assert self.cfg.loss_weighting in ['uniform', 'min_snr'], \
             f"Invalid loss_weighting '{self.cfg.loss_weighting}'. Must be 'uniform' or 'min_snr'."
         if self.cfg.online:
@@ -1084,18 +1084,21 @@ class DGNTrainer:
             variance = dp.get_index_from_list(dp.posterior_variance, batch, r)
 
         # Compute posterior mean based on prediction type
+        # All prediction types ultimately need x_0 to compute the posterior mean:
+        #   posterior_mean = coef1 * x_0 + coef2 * x_t
         if self.cfg.prediction_type == "x0":
-            # model_pred is the predicted clean field x_0
-            # Posterior mean: coef1 * x_0_pred + coef2 * x_t
-            posterior_mean_coef1 = dp.get_index_from_list(dp.posterior_mean_coef1, batch, r)
-            posterior_mean_coef2 = dp.get_index_from_list(dp.posterior_mean_coef2, batch, r)
-            mean = posterior_mean_coef1 * model_pred + posterior_mean_coef2 * field_r
+            # model_pred is the predicted clean field x_0 directly
+            x_0_pred = model_pred
+        elif self.cfg.prediction_type == "v":
+            # model_pred is the predicted v; recover x_0 from v
+            x_0_pred = dp.predict_x0_from_v(field_r, model_pred, r, batch)
         else:
-            # model_pred is the predicted noise eps (epsilon prediction, default)
-            betas_r = dp.get_index_from_list(dp.betas, batch, r)
-            sqrt_one_minus_alphas_cumprod_r = dp.get_index_from_list(dp.sqrt_one_minus_alphas_cumprod, batch, r)
-            sqrt_recip_alphas_r = dp.get_index_from_list(dp.sqrt_recip_alphas, batch, r)
-            mean = sqrt_recip_alphas_r * (field_r - betas_r * model_pred / sqrt_one_minus_alphas_cumprod_r)
+            # epsilon prediction (default): model_pred is predicted noise eps; recover x_0
+            x_0_pred = dp.predict_x0_from_noise(field_r, model_pred, r, batch)
+
+        posterior_mean_coef1 = dp.get_index_from_list(dp.posterior_mean_coef1, batch, r)
+        posterior_mean_coef2 = dp.get_index_from_list(dp.posterior_mean_coef2, batch, r)
+        mean = posterior_mean_coef1 * x_0_pred + posterior_mean_coef2 * field_r
         return mean, variance
 
     def train_step(self, data: Data) -> Tensor:
@@ -1191,6 +1194,10 @@ class DGNTrainer:
             if self.cfg.prediction_type == "x0":
                 # x0-prediction: model predicts the clean field directly
                 mse_target = data.x[:,:self.cfg.input_node_features]
+            elif self.cfg.prediction_type == "v":
+                # v-prediction: model predicts v = sqrt(alpha_bar)*eps - sqrt(1-alpha_bar)*x_0
+                mse_target = self.diffusion_process.get_v_target(
+                    data.x[:,:self.cfg.input_node_features], noise, r, data.batch)
             else:
                 # epsilon-prediction (default): model predicts the noise
                 mse_target = noise
@@ -1231,9 +1238,12 @@ class DGNTrainer:
                 # (Hang et al., 2023, https://arxiv.org/abs/2303.09556)
                 # For epsilon-prediction: w(t) = min(SNR(t), gamma) 
                 # For x0-prediction:      w(t) = min(SNR(t), gamma) / SNR(t)
+                # For v-prediction:       w(t) = min(SNR(t), gamma) / (SNR(t) + 1)
                 clamped_snr = torch.clamp(snr, max=self.cfg.min_snr_gamma) # Dimension (batch_size)
                 if self.cfg.prediction_type == "x0":
                     min_snr_weights = clamped_snr / snr
+                elif self.cfg.prediction_type == "v":
+                    min_snr_weights = clamped_snr / (snr + 1)
                 else:
                     min_snr_weights = clamped_snr
                 loss = (loss * min_snr_weights).mean()

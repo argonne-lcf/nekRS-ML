@@ -198,6 +198,80 @@ class DiffusionProcess:
         sqrt_one_minus_alphas_cumprod_t = self.get_index_from_list(self.sqrt_one_minus_alphas_cumprod, batch, r)
         return (field_r - sqrt_alphas_cumprod_t * field_start) / sqrt_one_minus_alphas_cumprod_t
 
+    def get_v_target(
+        self,
+        field_start: torch.Tensor,
+        noise:       torch.Tensor,
+        r:           torch.Tensor,
+        batch:       torch.Tensor
+    ) -> torch.Tensor:
+        r"""Computes the v-prediction target: v = sqrt(alpha_bar) * eps - sqrt(1 - alpha_bar) * x_0.
+
+        This is the target for v-prediction as defined in
+        "Progressive Distillation for Fast Sampling of Diffusion Models"
+        (Salimans & Ho, 2022, https://arxiv.org/abs/2202.00512).
+
+        Args:
+            field_start (torch.Tensor): The clean field x_0. Dimensions: [num_nodes, num_fields].
+            noise (torch.Tensor): The noise eps. Dimensions: [num_nodes, num_fields].
+            r (torch.Tensor): The diffusion step indices. Dimensions: [batch_size].
+            batch (torch.Tensor): The batch indices of the nodes. Dimensions: [num_nodes].
+
+        Returns:
+            torch.Tensor: The v-prediction target. Dimensions: [num_nodes, num_fields].
+        """
+        sqrt_alphas_cumprod_t = self.get_index_from_list(self.sqrt_alphas_cumprod, batch, r)
+        sqrt_one_minus_alphas_cumprod_t = self.get_index_from_list(self.sqrt_one_minus_alphas_cumprod, batch, r)
+        return sqrt_alphas_cumprod_t * noise - sqrt_one_minus_alphas_cumprod_t * field_start
+
+    def predict_x0_from_v(
+        self,
+        field_r: torch.Tensor,
+        v:       torch.Tensor,
+        r:       torch.Tensor,
+        batch:   torch.Tensor
+    ) -> torch.Tensor:
+        r"""Recovers the clean field x_0 from the noisy field x_t and the predicted v.
+
+        Uses the relationship: x_0 = sqrt(alpha_bar) * x_t - sqrt(1 - alpha_bar) * v
+
+        Args:
+            field_r (torch.Tensor): The noisy field x_t. Dimensions: [num_nodes, num_fields].
+            v (torch.Tensor): The predicted v. Dimensions: [num_nodes, num_fields].
+            r (torch.Tensor): The diffusion step indices. Dimensions: [batch_size].
+            batch (torch.Tensor): The batch indices of the nodes. Dimensions: [num_nodes].
+
+        Returns:
+            torch.Tensor: The predicted clean field x_0. Dimensions: [num_nodes, num_fields].
+        """
+        sqrt_alphas_cumprod_t = self.get_index_from_list(self.sqrt_alphas_cumprod, batch, r)
+        sqrt_one_minus_alphas_cumprod_t = self.get_index_from_list(self.sqrt_one_minus_alphas_cumprod, batch, r)
+        return sqrt_alphas_cumprod_t * field_r - sqrt_one_minus_alphas_cumprod_t * v
+
+    def predict_noise_from_v(
+        self,
+        field_r: torch.Tensor,
+        v:       torch.Tensor,
+        r:       torch.Tensor,
+        batch:   torch.Tensor
+    ) -> torch.Tensor:
+        r"""Recovers the noise eps from the noisy field x_t and the predicted v.
+
+        Uses the relationship: eps = sqrt(1 - alpha_bar) * x_t + sqrt(alpha_bar) * v
+
+        Args:
+            field_r (torch.Tensor): The noisy field x_t. Dimensions: [num_nodes, num_fields].
+            v (torch.Tensor): The predicted v. Dimensions: [num_nodes, num_fields].
+            r (torch.Tensor): The diffusion step indices. Dimensions: [batch_size].
+            batch (torch.Tensor): The batch indices of the nodes. Dimensions: [num_nodes].
+
+        Returns:
+            torch.Tensor: The predicted noise eps. Dimensions: [num_nodes, num_fields].
+        """
+        sqrt_alphas_cumprod_t = self.get_index_from_list(self.sqrt_alphas_cumprod, batch, r)
+        sqrt_one_minus_alphas_cumprod_t = self.get_index_from_list(self.sqrt_one_minus_alphas_cumprod, batch, r)
+        return sqrt_one_minus_alphas_cumprod_t * field_r + sqrt_alphas_cumprod_t * v
+
     def get_posterior_mean_and_variance(
         self,
         field_start: torch.Tensor,
