@@ -130,7 +130,8 @@ def plot_training_loss(log_file: str):
     plt.grid(True, alpha=0.3)
     plt.legend(loc='upper right')
     plt.title('Training Loss vs Iterations')
-    #plt.yscale('log')
+    if np.max(losses) / np.min(losses) > 10:
+        plt.yscale('log')
     plt.subplot(1, 2, 2)
     if len(mse_losses) > 0:
         plt.plot(iterations, mse_losses, label='MSE Loss', linewidth=1)
@@ -145,42 +146,40 @@ def plot_training_loss(log_file: str):
     plt.savefig('loss_plot.png', dpi=150)
 
     # Plot loss vs diffusion steps 
-    # Make subplots for MSE and weighted MSE (or VLB) losses
+    # Make subplots for weighted MSE and VLB losses
     has_weighted = any(len(v) > 0 for v in per_step_weighted_mse_losses.values())
     has_vlb = any(len(v) > 0 for v in per_step_vlb_losses.values())
     plt.figure(figsize=(12, 6))
+
     plt.subplot(1, 2, 1)
-    mse_steps = sorted([s for s in per_step_mse_losses.keys() if len(per_step_mse_losses[s]) > 0])
-    # Filter to plot only every 10th step
-    mse_steps_to_plot = mse_steps[::10]
-    for step in mse_steps_to_plot:
-        plt.plot(range(len(per_step_mse_losses[step])), per_step_mse_losses[step], label=f'{step}', linewidth=1)
-    plt.xlabel('Instances in training')
-    plt.ylabel('MSE Loss')
-    plt.title('MSE Loss for Diffusion Steps')
-    plt.grid(True, alpha=0.3)
-    plt.legend(loc='upper right')
-    plt.yscale('log')
-    plt.subplot(1, 2, 2)
     if has_weighted:
-        # Plot weighted MSE (actual gradient contribution per step)
         w_steps = sorted([s for s in per_step_weighted_mse_losses.keys() if len(per_step_weighted_mse_losses[s]) > 0])
         w_steps_to_plot = w_steps[::10]
         for step in w_steps_to_plot:
             plt.plot(range(len(per_step_weighted_mse_losses[step])), per_step_weighted_mse_losses[step], label=f'{step}', linewidth=1)
-        plt.xlabel('Instances in training')
         plt.ylabel('Weighted MSE Loss')
         plt.title('Weighted MSE Loss for Diffusion Steps')
-    elif has_vlb:
-        vlb_steps = sorted([s for s in per_step_vlb_losses.keys() if len(per_step_vlb_losses[s]) > 0])
-        vlb_steps_to_plot = vlb_steps[::10]
-        for step in vlb_steps_to_plot:
-            plt.plot(range(len(per_step_vlb_losses[step])), per_step_vlb_losses[step], label=f'{step}', linewidth=1)
-        plt.xlabel('Instances in training')
-        plt.ylabel('VLB Loss')
-        plt.title('VLB Loss for Diffusion Steps')
+    else:
+        mse_steps = sorted([s for s in per_step_mse_losses.keys() if len(per_step_mse_losses[s]) > 0])
+        mse_steps_to_plot = mse_steps[::10]
+        for step in mse_steps_to_plot:
+            plt.plot(range(len(per_step_mse_losses[step])), per_step_mse_losses[step], label=f'{step}', linewidth=1)
+        plt.ylabel('MSE Loss')
+        plt.title('MSE Loss for Diffusion Steps')
+    plt.xlabel('Instances in training')
     plt.grid(True, alpha=0.3)
     plt.legend(loc='upper right')
+    plt.yscale('log')
+    plt.subplot(1, 2, 2)
+    vlb_steps = sorted([s for s in per_step_vlb_losses.keys() if len(per_step_vlb_losses[s]) > 0])
+    vlb_steps_to_plot = vlb_steps[::10]
+    for step in vlb_steps_to_plot:
+        plt.plot(range(len(per_step_vlb_losses[step])), per_step_vlb_losses[step], label=f'{step}', linewidth=1)
+    plt.xlabel('Instances in training')
+    plt.ylabel('VLB Loss')
+    plt.title('VLB Loss for Diffusion Steps')
+    plt.grid(True, alpha=0.3)
+    #plt.legend(loc='upper right')
     plt.yscale('log')
     
     plt.tight_layout()

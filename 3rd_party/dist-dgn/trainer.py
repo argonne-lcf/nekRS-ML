@@ -1138,8 +1138,8 @@ class DGNTrainer:
         # Sample a batch of random diffusion steps
         batch_size = torch.max(data.batch) + 1
         r, importance_weights = self.step_sampler.sample(batch_size=batch_size)
-        if self.cfg.verbose:
-            if RANK == 0: log.info(f"Sampled diffusion steps: {r.cpu().numpy().tolist()} with importance weights {importance_weights.cpu().numpy().tolist()} for batch size {batch_size}")
+        if self.cfg.verbose and RANK == 0:
+            log.info(f"Sampled diffusion steps: {r.cpu().numpy().tolist()}")
 
         # Diffuse the solution/target field
         BC_mask = None # no BCs for now
