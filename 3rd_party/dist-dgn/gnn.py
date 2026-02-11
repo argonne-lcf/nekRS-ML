@@ -24,12 +24,12 @@ class DistributedDGN(torch.nn.Module):
 
         # ~~~~ Diffusion-step embedding
         freq_width = max(self.mlp_hidden_channels, 128)
-        emb_width = max(self.mlp_hidden_channels, freq_width*2)
+        emb_width = max(self.emb_width, freq_width * 4)
         self.diffusion_step_embedding = nn.Sequential(
             SinusoidalPositionEmbedding(freq_width),
-            nn.Linear(freq_width, 2 * emb_width),
+            nn.Linear(freq_width, emb_width),
             nn.SiLU(),
-            nn.Linear(2 * emb_width, emb_width),
+            nn.Linear(emb_width, emb_width),
             nn.SiLU()
         )
 
@@ -97,7 +97,7 @@ class DistributedDGN(torch.nn.Module):
         self.halo_swap_mode = arch['halo_swap_mode']
         self.layer_norm = arch['layer_norm']
         self.dropout_rate = arch['dropout_rate']
-        self.emb_width = arch.get('emb_width', self.mlp_hidden_channels * 4)
+        self.emb_width = arch.get('emb_width', 128)
         self.learnable_variance = arch.get('learnable_variance', False)
         self.activation_checkpointing = arch.get('activation_checkpointing', False)
         self.output_node_features = self.input_node_features * 2 if self.learnable_variance else self.input_node_features
@@ -318,21 +318,24 @@ class DistributedMessagePassingLayer(torch.nn.Module):
             x = x + self.node_emb_linear(emb)[batch] # Shape (num_nodes, mlp_hidden_channels)
         
         # Loop over batches so processing is done on each batch
+        # NOTE: e is the shared encoded edge features for the mesh.
+        # Each batch element must get its own independent edge update
+        # (e_b) to avoid cross-batch contamination.
         edge_weight = edge_weight.unsqueeze(1)
         for b in range(batch_size):
             # ~~~~ Get the current batch
             x_batch = x[batch == b,:]
 
-            # ~~~~ Edge update 
+            # ~~~~ Edge update (per-batch, starting from shared e)
             x_send = x_batch[edge_index[0,:],:] # Shape (num_edges, mlp_hidden_channels)
             x_recv = x_batch[edge_index[1,:],:] # Shape (num_edges, mlp_hidden_channels)
-            e = e + self.edge_updater(
+            e_b = e + self.edge_updater(
                     torch.cat((x_send, x_recv, e), dim=1)
                     )
             
             # ~~~~ Edge aggregation
-            e = e * edge_weight
-            edge_agg = self.edge_aggregator(x_batch, edge_index, e)
+            e_b = e_b * edge_weight
+            edge_agg = self.edge_aggregator(x_batch, edge_index, e_b)
 
             if SIZE > 1 and self.halo_swap_mode != 'none':
                 # ~~~~ Halo exchange: swap the edge aggregates. This populates the halo nodes  

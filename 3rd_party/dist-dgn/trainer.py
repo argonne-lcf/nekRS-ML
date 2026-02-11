@@ -715,7 +715,7 @@ class DGNTrainer:
             halo_info = torch.zeros(1, dtype=self.torch_dtype)
             n_nodes_local = self.data_reduced.pos.shape[0]
             n_nodes_halo = 0
-            edge_weight = torch.zeros(1, dtype=self.torch_dtype)
+            edge_weight = torch.ones(1, dtype=self.torch_dtype)
             node_degree = torch.zeros(1, dtype=self.torch_dtype)
 
         self.data_reduced.n_nodes_local = torch.tensor(n_nodes_local, dtype=torch.int64)
@@ -1065,14 +1065,13 @@ class DGNTrainer:
             batch = torch.zeros(field_r.size(0), dtype=torch.long)
 
         dp = self.diffusion_process if diffusion_process is None else diffusion_process
-        if isinstance(model_output, tuple):
-            assert self.cfg.learnable_variance, 'The model output is a tuple, but learnable_variance=False'
-        else:
-            assert not self.cfg.learnable_variance, 'The model output is not a tuple, but learnable_variance=True'
         
         # Extract model prediction and learnable variance
         if self.cfg.learnable_variance:
-            model_pred, v = model_output
+            if isinstance(model_output, tuple):
+                model_pred, v = model_output
+            else:
+                raise ValueError("Expected tuple output when learnable_variance=True")
             v = (v + 1) / 2
             # For min_log we use the clipped posterior variance to avoid nan values in the backward pass
             min_log = dp.get_index_from_list(dp.posterior_log_variance_clipped, batch, r)
@@ -1080,7 +1079,10 @@ class DGNTrainer:
             log_variance = v * max_log + (1 - v) * min_log
             variance = torch.exp(log_variance)
         else:
-            model_pred = model_output
+            if isinstance(model_output, tuple):
+                model_pred = model_output[0]
+            else:
+                model_pred = model_output
             variance = dp.get_index_from_list(dp.posterior_variance, batch, r)
 
         # Compute posterior mean based on prediction type
@@ -1228,11 +1230,14 @@ class DGNTrainer:
                     r) # Dimension (batch_size)
                 vlb_term *= lambda_vlb
                 loss += vlb_term # Dimension (batch_size)
-                if self.cfg.verbose: 
-                    if RANK == 0:
-                        log.info(f"MSE loss term: {mse_term.detach().cpu().numpy().tolist()}, mean = {mse_term.detach().cpu().mean().numpy().tolist()}")
-                        log.info(f"VLB loss term: {vlb_term.detach().cpu().numpy().tolist()}, mean = {vlb_term.detach().cpu().mean().numpy().tolist()}")
+            # Log unweighted per-step losses (always, regardless of learnable_variance)
+            if self.cfg.verbose and RANK == 0:
+                log.info(f"MSE loss term: {mse_term.detach().cpu().numpy().tolist()}, mean = {mse_term.detach().cpu().mean().numpy().tolist()}")
+                if self.cfg.learnable_variance:
+                    log.info(f"VLB loss term: {vlb_term.detach().cpu().numpy().tolist()}, mean = {vlb_term.detach().cpu().mean().numpy().tolist()}")
             # Apply loss weighting
+            # 1) Min-SNR weights (only on MSE, not VLB — VLB has correct per-step weighting from the KL)
+            # 2) Importance weights from the step sampler (corrects for non-uniform sampling)
             if self.cfg.loss_weighting == "min_snr":
                 # Min-SNR-gamma weighting from "Efficient Diffusion Training via Min-SNR Weighting Strategy"
                 # (Hang et al., 2023, https://arxiv.org/abs/2303.09556)
@@ -1246,7 +1251,15 @@ class DGNTrainer:
                     min_snr_weights = clamped_snr / (snr + 1)
                 else:
                     min_snr_weights = clamped_snr
-                loss = (loss * min_snr_weights).mean()
+                # Apply min-SNR only to MSE term, then add VLB separately
+                weighted_mse = mse_term * min_snr_weights
+                if self.cfg.learnable_variance:
+                    loss = (weighted_mse + vlb_term).mean()
+                else:
+                    loss = weighted_mse.mean()
+                # Log weighted per-step losses (actual gradient contribution)
+                if self.cfg.verbose and RANK == 0:
+                    log.info(f"Weighted MSE loss: {weighted_mse.detach().cpu().numpy().tolist()}, mean = {weighted_mse.detach().cpu().mean().numpy().tolist()}")
             else:
                 # Uniform weighting (default)
                 loss = loss.mean()
