@@ -243,6 +243,7 @@ class NekRSMLTest(NekRSTest):
         )
 
         # Initialize missing arguments with default values from setup_case script.
+        kwargs["rpn"] = super().get_ranks_per_node()
         self.ml_args = init_missing_args(kwargs)
         self.descr = f"NekRS-ML {self.ml_args['test_type']} test"
         self.tags = {"all", self.ml_args["model"]}
