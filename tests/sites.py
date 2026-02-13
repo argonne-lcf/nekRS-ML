@@ -143,9 +143,8 @@ site_configuration = {
         {
             "name": "PrgEnv-Polaris",
             "prepare_cmds": [
+                "module reset",
                 "module restore",
-                "module load libfabric",
-                "module load PrgEnv-gnu",
                 "module use /soft/modulefiles/",
                 "module load conda",
                 "conda activate",

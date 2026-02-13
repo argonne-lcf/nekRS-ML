@@ -101,9 +101,10 @@ done
 
 # Environment variables
 # =====================
-# FIXME: Currently, this is needed. Otherwise `uv python find` find Python from the venv.
+# FIXME: Really ugly hack to load the programming environment automatically before running
+# uv. If we don't load this, ADIOS won't find the correct Python version.
 rm -rf .venv 2>/dev/null
-export NEKRS_ML_CMAKE_Python_ROOT_DIR=$(dirname `uv --no-managed-python python find`)/..
+export NEKRS_ML_CMAKE_Python_ROOT_DIR=$(dirname `uv python find`)/..
 
 # ReFrame command guide
 # =====================
