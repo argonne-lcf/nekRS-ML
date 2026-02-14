@@ -327,6 +327,27 @@ class NekRSMLOfflineTest(NekRSMLTest):
         order = self.get_gnn_order()
         return os.path.join(self.stagedir, f"gnn_outputs_poly_{order}")
 
+    @cache
+    def get_check_input_files_path(self):
+        return os.path.join(self.get_gnn_dir(), "check_input_files.py")
+
+    @cache
+    def get_traj_root(self):
+        order = self.get_gnn_order()
+        return os.path.join(f"traj_poly_{order}", "tinit_0.000000_dtfactor_10")
+
+    @cache
+    def get_traj_dir(self):
+        return os.path.join(self.stagedir, self.get_traj_root())
+
+    @cache
+    def set_sr_gnn_target_and_input_list(self):
+        tlist = f"{self.nekrs_case_name}_p{self.get_sim_order() * 10}*"
+        ilist = f"{self.nekrs_case_name}_p{self.get_gnn_order() * 10}*"
+        return list_to_cmd([
+            f"target_list=`ls {tlist}`; input_list=`ls {ilist}`"
+        ])
+
     def check_halo_info_cmd(self):
         halo_info = [
             "python",
@@ -338,10 +359,6 @@ class NekRSMLOfflineTest(NekRSMLTest):
         ]
         return list_to_cmd(self.get_mpiexec() + halo_info)
 
-    @cache
-    def get_check_input_files_path(self):
-        return os.path.join(self.get_gnn_dir(), "check_input_files.py")
-
     def check_input_files_cmd(self):
         return list_to_cmd([
             "python",
@@ -351,15 +368,6 @@ class NekRSMLOfflineTest(NekRSMLTest):
             "--PATH",
             self.get_gnn_output_dir(),
         ])
-
-    @cache
-    def get_traj_root(self):
-        order = self.get_gnn_order()
-        return os.path.join(f"traj_poly_{order}", "tinit_0.000000_dtfactor_10")
-
-    @cache
-    def get_traj_dir(self):
-        return os.path.join(self.stagedir, self.get_traj_root())
 
     def check_traj_cmd(self):
         # Return if the case is not a `traj` case.
@@ -382,13 +390,6 @@ class NekRSMLOfflineTest(NekRSMLTest):
             ])
             cmds.append(cmd)
         return cmds
-
-    def set_sr_gnn_target_and_input_list(self):
-        tlist = f"{self.nekrs_case_name}_p{self.get_sim_order() * 10}*"
-        ilist = f"{self.nekrs_case_name}_p{self.get_gnn_order() * 10}*"
-        return list_to_cmd([
-            f"target_list=`ls {tlist}`; input_list=`ls {ilist}`"
-        ])
 
     def generate_sr_gnn_data_cmd(self):
         train_sr = [
@@ -424,7 +425,6 @@ class NekRSMLOfflineTest(NekRSMLTest):
             ]
 
     def set_executable_options(self):
-        main_path = self.get_gnn_dir()
         self.executable = list_to_cmd([
             "python",
             os.path.join(self.get_gnn_dir(), "main.py"),
@@ -643,8 +643,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             self.source_cmd(),
             *self.setup_torch_env_vars(),
             *self.setup_adios_env_vars(),
-            # FIXME: Temporary workaround.
-            list_to_cmd(["mv", f"{self.base_yml}.reframe", self.base_yml]),
+            list_to_cmd(["cp", f"{self.base_yml}.reframe", self.base_yml]),
             self.nekrs_cmd(extra_args=[f"--build-only {self.get_sim_ranks()}"]),
         ]
 
