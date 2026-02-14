@@ -285,8 +285,8 @@ class NekRSMLTest(NekRSTest):
 
     def nekrs_cmd(self, extra_args=[]):
         # Set nekrs executable options used in NekRSTest class.
-        super().set_executable_options()
-        super().set_launcher_options()
+        self.set_executable_options()
+        self.set_launcher_options()
         return list_to_cmd(
             self.get_mpiexec()
             + [self.executable]
@@ -477,8 +477,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
 
     @run_before("run")
     def setup_run(self):
-        super().set_environment()
-        super().set_launcher_options()
+        super().setup_run()
         self.set_prerun_cmds()
         self.set_executable_options()
         self.set_postrun_cmds()
@@ -663,12 +662,9 @@ class NekRSMLOnlineTest(NekRSMLTest):
             ),
         ])
 
-    def set_launcher_options(self):
-        self.job.launcher.options = ["-np 1", "-ppn 1"]
-
     @run_before("run")
     def setup_run(self):
-        super().set_environment()
+        super().setup_run()
         self.create_traj_config()
         self.set_prerun_cmds()
         self.set_launcher_options(nn=1, rpn=1)
