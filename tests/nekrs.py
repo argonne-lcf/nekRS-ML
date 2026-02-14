@@ -126,9 +126,6 @@ class NekRSBuild(CompileOnlyTest):
         self.build_system.flags_from_environ = False
         self.build_system.builddir = "build"
 
-        sites_py = os.path.join(Path(__file__).parent.resolve(), "sites.py")
-        cfg = config.load_config(sites_py)
-
         self.build_system.make_opts = ["install"]
         self.install_path = os.path.join(f"{self.stagedir}", "install")
         self.binary_path = os.path.join(self.install_path, "bin")
@@ -139,11 +136,15 @@ class NekRSBuild(CompileOnlyTest):
             f"-DPython_ROOT_DIR={self.python_root_dir}"
             f"-DSMARTREDIS_INSTALL_DIR={self.smartredis_build.get_install_path()}",
         ]
+
         self.build_system.max_concurrency = self.current_partition.extras[
             "ranks_per_node"
         ]
         # Update the concurrency from login partition if that exists.
         system = self.current_partition.fullname.split(":")[0]
+        cfg = config.load_config(
+            os.path.join(Path(__file__).parent.resolve(), "sites.py")
+        )
         for sys in cfg["systems"]:
             if sys["name"] == system:
                 for part in sys["partitions"]:
@@ -201,7 +202,7 @@ class NekRSTest(RunOnlyTest):
         nn_ = nn if nn is not None else self.num_nodes
         self.job.launcher.options = [
             f"-np {nn_ * rpn_}",
-            f"-ppn {ranks_per_node}",
+            f"-ppn {rpn_}",
             f"--cpu-bind=list:{cpu_bind_list}",
         ]
 
@@ -224,6 +225,14 @@ class NekRSTest(RunOnlyTest):
     def set_executable_options(self):
         self.executable = f"{self.nekrs_binary}"
         self.executable_opts = self.get_nekrs_executable_options()
+
+    def nekrs_cmd(self, extra_args=[]):
+        return list_to_cmd(
+            self.get_mpiexec()
+            + [str(self.nekrs_binary)]
+            + self.get_nekrs_executable_options()
+            + extra_args
+        )
 
     def get_gnn_dir(self):
         return os.path.join(
@@ -297,17 +306,6 @@ class NekRSMLTest(NekRSTest):
             rpn = int(rpn / 2)
         return self.ml_args["nn"] * rpn
 
-    def nekrs_cmd(self, extra_args=[]):
-        # Set nekrs executable options used in NekRSTest class.
-        self.set_executable_options()
-        self.set_launcher_options()
-        return list_to_cmd(
-            self.get_mpiexec()
-            + [self.executable]
-            + self.executable_opts
-            + extra_args
-        )
-
     def setup_case_cmd(self, extra_args=[]):
         return list_to_cmd([
             os.path.join(Path(self.nekrs_home), "bin", "setup_case"),
@@ -332,7 +330,7 @@ class NekRSMLTest(NekRSTest):
     def setup_run(self):
         super().setup_run()
         self.set_scheduler_options()
-        self.ml_args["rpn"] = self.get_ranks_per_node()
+        self.ml_args["rpn"] = self.rpn
 
 
 class NekRSMLOfflineTest(NekRSMLTest):

@@ -279,8 +279,8 @@ class RunOnlyTest(rfm.RunOnlyRegressionTest):
 
             warnings.warn(
                 f"Requested ranks per node ({self._rpn}) is larger than "
-                "the maximum value of the system ({max_rpn}). Setting ranks per "
-                "node to {max_rpn}.",
+                f"the maximum value of the system ({max_rpn}). Setting ranks "
+                f"per node to {max_rpn}.",
                 RuntimeWarning,
             )
             self.num_tasks_per_node = max_rpn
@@ -288,7 +288,6 @@ class RunOnlyTest(rfm.RunOnlyRegressionTest):
             self.num_tasks_per_node = self._rpn
 
         self.num_nodes = self._nn
-        self.num_tasks_per_node = self._rpn
         self.num_tasks = self.num_nodes * self.num_tasks_per_node
         self.num_cpus_per_task = 1
 
@@ -299,12 +298,11 @@ class RunOnlyTest(rfm.RunOnlyRegressionTest):
             f"-l filesystems={self.filesystems}",
         ]
 
-    def get_num_nodes(self):
-        return self.num_nodes
-
-    def get_ranks_per_node(self):
+    @property
+    def rpn(self):
         return self.num_tasks_per_node
 
     # https://github.com/reframe-hpc/reframe/pull/2993
-    def get_job_exit_code(self):
+    @property
+    def job_exit_code(self):
         return self._current_partition.scheduler._query_exit_code(self.job)
