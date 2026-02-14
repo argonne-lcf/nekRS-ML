@@ -181,12 +181,12 @@ class NekRSTest(RunOnlyTest):
             "NEKRS_HOME": self.nekrs_home,
         }
 
-    def set_launcher_options(self):
+    def set_launcher_options(self, nn=None, rpn=None):
         cpu_bind_list = self.current_partition.extras["cpu_bind_list"]
-        ranks_per_node = self.num_tasks_per_node
-        total_ranks = self.num_nodes * ranks_per_node
+        rpn_ = rpn if rpn is not None else self.num_tasks_per_node
+        nn_ = nn if nn is not None else self.num_nodes
         self.job.launcher.options = [
-            f"-np {total_ranks}",
+            f"-np {nn_ * rpn_}",
             f"-ppn {ranks_per_node}",
             f"--cpu-bind=list:{cpu_bind_list}",
         ]
@@ -668,7 +668,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
         super().set_environment()
         self.create_traj_config()
         self.set_prerun_cmds()
-        self.set_launcher_options()
+        self.set_launcher_options(nn=1, rpn=1)
         self.set_executable_options()
 
     @sanity_function
