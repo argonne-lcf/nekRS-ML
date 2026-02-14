@@ -223,7 +223,7 @@ class NekRSTest(RunOnlyTest):
         self.set_executable_options()
 
     @sanity_function
-    def check_exit_code(self):
+    def check_nekrs_exit_code(self):
         return sn.assert_found(
             r"finished with exit code 0",
             self.stdout,
@@ -485,7 +485,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
 
     @sanity_function
     def check_run(self):
-        nekrs_ok = super().check_exit_code()
+        nekrs_ok = self.check_nekrs_exit_code()
 
         pattern = (
             r"Total training time: \S+ seconds"
@@ -676,7 +676,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
 
     @sanity_function
     def check_run(self):
-        nekrs_ok = super().check_exit_code()
+        nekrs_ok = self.check_nekrs_exit_code()
 
         train_out = os.path.join(
             self.stagedir, self.nekrs_ml_experiment, "train", "train.out"
