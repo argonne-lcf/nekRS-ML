@@ -1,5 +1,6 @@
 import subprocess
 import reframe as rfm
+import reframe.core.config as config
 import reframe.utility.sanity as sn
 from pathlib import Path
 from functools import cache
@@ -124,9 +125,10 @@ class NekRSBuild(CompileOnlyTest):
         self.build_system.ftn = self.current_environ.ftn
         self.build_system.flags_from_environ = False
         self.build_system.builddir = "build"
-        self.build_system.max_concurrency = self.current_partition.extras[
-            "ranks_per_node"
-        ]
+
+        sites_py = os.path.join(Path(__file__).parent.resolve(), "sites.py")
+        cfg = config.load_config(sites_py)
+
         self.build_system.make_opts = ["install"]
         self.install_path = os.path.join(f"{self.stagedir}", "install")
         self.binary_path = os.path.join(self.install_path, "bin")
@@ -137,6 +139,18 @@ class NekRSBuild(CompileOnlyTest):
             f"-DPython_ROOT_DIR={self.python_root_dir}"
             f"-DSMARTREDIS_INSTALL_DIR={self.smartredis_build.get_install_path()}",
         ]
+        self.build_system.max_concurrency = self.current_partition.extras[
+            "ranks_per_node"
+        ]
+        # Update the concurrency from login partition if that exists.
+        system = self.current_partition.fullname.split(":")[0]
+        for sys in cfg["systems"]:
+            if sys["name"] == system:
+                for part in sys["partitions"]:
+                    if part["name"] == "login":
+                        self.build_system.max_concurrency = part["extras"][
+                            "ranks_per_node"
+                        ]
 
         self.prebuild_cmds += [
             "git fetch",

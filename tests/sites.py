@@ -71,9 +71,7 @@ site_configuration = {
                         "PrgEnv-Polaris",
                     ],
                     "extras": {
-                        # The NekRS build on Polaris fails with >= 12 parallel
-                        # threads on Polaris. Maybe running out of memory?
-                        "ranks_per_node": 10,
+                        "ranks_per_node": 16,
                     },
                 },
                 {
