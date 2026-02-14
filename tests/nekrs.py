@@ -232,21 +232,25 @@ class NekRSTest(RunOnlyTest):
 
 
 class NekRSMLTest(NekRSTest):
-    def __init__(self, **kwargs):
+    def __init__(self, **args):
         required_args = ["case", "directory", "nn", "rpn", "time_dependency"]
         for arg in required_args:
-            if arg not in kwargs:
+            if arg not in args:
                 raise KeyError(f"Required kwarg {arg} was not found.")
 
         super().__init__(
-            kwargs["case"], kwargs["directory"], kwargs["nn"], kwargs["rpn"]
+            args["case"], args["directory"], args["nn"], args["rpn"]
         )
 
-        # Initialize missing arguments with default values from setup_case script.
-        kwargs["rpn"] = super().get_ranks_per_node()
-        self.ml_args = init_missing_args(kwargs)
+        # Init missing arguments with default values from setup_case script.
+        self.ml_args = init_missing_args(args)
         self.descr = f"NekRS-ML {self.ml_args['test_type']} test"
-        self.tags = {"all", self.ml_args["model"]}
+        self.tags = {
+            "all",
+            self.ml_args["model"],
+            self.ml_args["case"],
+            self.ml_args["time_dependency"],
+        }
 
     @cache
     def get_mpiexec(self):
@@ -310,11 +314,11 @@ class NekRSMLTest(NekRSTest):
             os.path.join(self.get_venv_path(), "bin", "activate"),
         ])
 
-    def set_environment(self):
-        super().set_environment()
-
-    def set_launcher_options(self):
-        super().set_launcher_options()
+    @run_before("run")
+    def setup_run(self):
+        super().setup_run()
+        self.set_scheduler_options()
+        self.ml_args["rpn"] = self.get_ranks_per_node()
 
 
 class NekRSMLOfflineTest(NekRSMLTest):
