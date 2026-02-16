@@ -108,14 +108,6 @@ class NekRSBuild(CompileOnlyTest):
         self.descr = "nekRS-ML build"
         self.maintainers = ["kris.rowe@anl.gov", "tratnayaka@anl.gov"]
 
-        # This has to be set as uv somehow pollutes the Python seen by
-        # CMake.
-        self.python_root_dir = os.getenv("NEKRS_ML_CMAKE_Python_ROOT_DIR")
-        if self.python_root_dir is None:
-            sys.exit(
-                "Environment variable 'NEKRS_ML_CMAKE_Python_ROOT_DIR' is not defined."
-            )
-
     @run_before("compile")
     def configure_build(self):
         self.sourcesdir = "https://github.com/argonne-lcf/nekRS-ML.git"
@@ -131,10 +123,11 @@ class NekRSBuild(CompileOnlyTest):
         self.binary_path = os.path.join(self.install_path, "bin")
         self.build_system.config_opts = [
             f"-DCMAKE_INSTALL_PREFIX={self.install_path}",
-            "-DENABLE_ADIOS=ON",
             "-DENABLE_SMARTREDIS=ON",
-            f"-DPython_ROOT_DIR={self.python_root_dir}"
             f"-DSMARTREDIS_INSTALL_DIR={self.smartredis_build.get_install_path()}",
+            "-DENABLE_ADIOS=ON",
+            "-DPython_ROOT_DIR=${python_root}"
+            "-DADIOS2_INSTALL_DIR=${adios2_root}",
         ]
 
         self.build_system.max_concurrency = self.current_partition.extras[
@@ -159,6 +152,8 @@ class NekRSBuild(CompileOnlyTest):
             f"export CC={self.build_system.cc}",
             f"export CXX={self.build_system.cxx}",
             f"export FC={self.build_system.ftn}",
+            "export python_root=${PYTHON_ROOT:-$(dirname $(dirname $(realpath `which python3`)))}",
+            'export adios2_root=${ADIOS2_ROOT:-""}',
         ]
 
     @sanity_function

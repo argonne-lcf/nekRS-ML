@@ -99,13 +99,6 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# Environment variables
-# =====================
-# FIXME: Really ugly hack to load the programming environment automatically before running
-# uv. If we don't load this, ADIOS won't find the correct Python version.
-rm -rf .venv 2>/dev/null
-export NEKRS_ML_CMAKE_Python_ROOT_DIR=$(dirname `uv python find`)/..
-
 # ReFrame command guide
 # =====================
 # --config-file: https://reframe-hpc.readthedocs.io/en/stable/manpage.html#cmdoption-C
