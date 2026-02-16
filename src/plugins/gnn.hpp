@@ -60,6 +60,8 @@ private:
     int size;
 
     // nekrs objects 
+    mesh_t *nekMesh;      // fine (nekRS) mesh, needed for minDistance when GNN mesh is coarser
+    dlong nekFieldOffset;  // fine mesh field offset, needed for interpolation
     ogs_t *ogs;
 
     // Graph attributes
@@ -110,6 +112,16 @@ private:
 
     // model features
     bool multiscale = false;
+
+    // conditional node features
+    bool hasCondFeatures = false;
+    int nCondFeatures = 0;
+    std::vector<std::string> condFeatureNames;
+    dfloat *cond_node_features = nullptr;
+
+    void get_cond_node_features();
+    void get_wall_distance(dfloat* dest);
+    void get_inflow_distance(dfloat* dest);
 };
 
 #endif

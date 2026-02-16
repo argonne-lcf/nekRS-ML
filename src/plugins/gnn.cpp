@@ -6,8 +6,10 @@
 #include "meshNekReader.hpp"
 #include "ogsInterface.h"
 #include "gnn.hpp"
+#include "bcMap.hpp"
 #include <cstdlib>
 #include <filesystem>
+#include <sstream>
 
 template <typename T>
 void writeToFile(const std::string& filename, T* data, int nRows, int nCols)
@@ -70,6 +72,8 @@ gnn_t::gnn_t(nrs_t *nrs_, int poly_order, bool log_verbose)
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &size);
 
+    nekMesh = nrs_->mesh;
+    nekFieldOffset = nrs_->fieldOffset;
     verbose = log_verbose;
 
     // parse poly_order value
@@ -123,11 +127,35 @@ gnn_t::gnn_t(nrs_t *nrs_, int poly_order, bool log_verbose)
     graphNodes = (graphNode_t*) calloc(N, sizeof(graphNode_t)); // full domain
     graphNodes_element = (graphNode_t*) calloc(mesh->Np, sizeof(graphNode_t)); // a single element
 
+    // Parse conditional node features from config
+    std::string condFeatStr;
+    platform->options.getArgs("GNN COND FEATURES", condFeatStr);
+    if (condFeatStr != "none" && !condFeatStr.empty()) {
+        hasCondFeatures = true;
+        // Parse comma-separated feature names
+        std::stringstream ss(condFeatStr);
+        std::string token;
+        while (std::getline(ss, token, ',')) {
+            // Trim whitespace
+            size_t start = token.find_first_not_of(" \t");
+            size_t end = token.find_last_not_of(" \t");
+            if (start != std::string::npos) {
+                condFeatureNames.push_back(token.substr(start, end - start + 1));
+            }
+        }
+        nCondFeatures = condFeatureNames.size();
+    }
+
     if (verbose) {
         printf("\n[RANK %d] -- Finished instantiating gnn_t object\n", rank);
         printf("[RANK %d] -- The polynomial degree of the GNN mesh is %d \n", rank, gnnMeshPOrder);
         printf("[RANK %d] -- The number of elements of the GNN mesh is %d \n", rank, mesh->Nelements);
         printf("[RANK %d] -- The number of nodes of the GNN mesh is %d \n", rank, N);
+        if (hasCondFeatures) {
+            printf("[RANK %d] -- Conditional features:", rank);
+            for (const auto& f : condFeatureNames) printf(" %s", f.c_str());
+            printf("\n");
+        }
         fflush(stdout);
     }
 }
@@ -147,6 +175,7 @@ gnn_t::~gnn_t()
     free(haloNodes);
     free(graphNodes);
     free(graphNodes_element);
+    if (cond_node_features) delete[] cond_node_features;
 }
 
 void gnn_t::gnnSetup()
@@ -169,6 +198,9 @@ void gnn_t::gnnSetup()
     get_edge_index();
     get_edge_index_element_local();
     get_edge_index_element_local_vertex();
+
+    // Compute conditional node features if requested in [ML] section
+    if (hasCondFeatures) get_cond_node_features();
 }
 
 void gnn_t::gnnWrite()
@@ -210,6 +242,17 @@ void gnn_t::gnnWrite()
     // Writing element-local edge index as text file (small)
     if (rank == 0) writeToFile(writePath + "/edge_index_element_local", edge_index_local, num_edges_local, 2);
     if (rank == 0) writeToFile(writePath + "/edge_index_element_local_vertex", edge_index_local_vertex, num_vertices_local, 2);
+
+    // Write stacked conditional node features (N x nCondFeatures) if computed
+    if (cond_node_features) {
+        writeToFileBinary(writePath + "/cond_node_features" + irank + nranks + ".bin",
+                          cond_node_features, N, nCondFeatures);
+        if (rank == 0) {
+            printf("Wrote cond_node_features (%d features:", nCondFeatures);
+            for (const auto& f : condFeatureNames) printf(" %s", f.c_str());
+            printf(") to %s\n", writePath.c_str());
+        }
+    }
 }
 
 #ifdef NEKRS_ENABLE_SMARTREDIS
@@ -981,6 +1024,105 @@ void gnn_t::write_edge_index_element_local_vertex_binary(const std::string& file
             file_cpu.write(reinterpret_cast<const char*>(&idx_nei), sizeof(dlong));
             file_cpu.write(reinterpret_cast<const char*>(&idx_own), sizeof(dlong));
         }
+    }
+}
+
+void gnn_t::get_wall_distance(dfloat* dest)
+{
+    MPI_Comm &comm = platform->comm.mpiComm;
+
+    // Auto-detect wall boundary IDs from the velocity boundary type map
+    const int nBIDs = bcMap::size("velocity");
+    std::vector<dlong> wallBIDs;
+    for (int bid = 1; bid <= nBIDs; bid++) {
+        if (bcMap::id(bid, "velocity") == bcMap::bcTypeW) {
+            wallBIDs.push_back(bid);
+        }
+    }
+
+    if (wallBIDs.empty()) {
+        if (rank == 0) printf("WARNING: wallDistance requested but no wall boundaries (bcTypeW) found.\n");
+        for (dlong i = 0; i < N; i++) dest[i] = 0.0;
+        return;
+    }
+
+    if (rank == 0) {
+        printf("Computing wall distance (wall BIDs:");
+        for (auto b : wallBIDs) printf(" %lld", (long long)b);
+        printf(") ...\n");
+    }
+
+    // Compute on the fine (nekRS) mesh — it has EToB, vmapM, and distance kernels
+    auto dist_host = nekMesh->minDistance(wallBIDs, "cheap_dist");
+
+    if (gnnMeshPOrder == nekMeshPOrder) {
+        // Same mesh: copy directly
+        for (dlong i = 0; i < N; i++) dest[i] = dist_host[i];
+    } else {
+        // Interpolate from fine mesh to coarser GNN mesh
+        std::vector<dfloat> dist_padded(nekFieldOffset, 0.0);
+        for (dlong i = 0; i < (dlong)dist_host.size(); i++) dist_padded[i] = dist_host[i];
+
+        auto o_dist = platform->device.malloc<dfloat>(nekFieldOffset);
+        o_dist.copyFrom(dist_padded.data(), nekFieldOffset);
+
+        auto o_tmp = platform->deviceMemoryPool.reserve<dfloat>(fieldOffset);
+        nekMesh->interpolate(o_dist, mesh, o_tmp);
+
+        dfloat* tmp = new dfloat[fieldOffset]();
+        o_tmp.copyTo(tmp, fieldOffset);
+        for (dlong i = 0; i < N; i++) dest[i] = tmp[i];
+
+        o_dist.free();
+        delete[] tmp;
+    }
+
+    if (rank == 0) printf("Done computing wall distance.\n");
+}
+
+void gnn_t::get_inflow_distance(dfloat* dest)
+{
+    MPI_Comm &comm = platform->comm.mpiComm;
+
+    if (rank == 0) printf("Computing inflow distance (x - x_min) ...\n");
+
+    // x-coordinates are stored at pos_node[0 .. N-1] (column-major layout)
+    dfloat x_min_local = pos_node[0];
+    for (dlong i = 1; i < N; i++) {
+        if (pos_node[i] < x_min_local) x_min_local = pos_node[i];
+    }
+    dfloat x_min;
+    MPI_Allreduce(&x_min_local, &x_min, 1, MPI_DOUBLE, MPI_MIN, comm);
+
+    for (dlong i = 0; i < N; i++) {
+        dest[i] = pos_node[i] - x_min;
+    }
+
+    if (rank == 0) printf("Done computing inflow distance (x_min = %.6f).\n", x_min);
+}
+
+void gnn_t::get_cond_node_features()
+{
+    if (rank == 0) {
+        printf("Computing conditional node features:");
+        for (const auto& f : condFeatureNames) printf(" %s", f.c_str());
+        printf("\n");
+    }
+
+    // Allocate stacked array: N rows x nCondFeatures columns (column-major)
+    cond_node_features = new dfloat[N * nCondFeatures]();
+
+    int col = 0;
+    for (const auto& feat : condFeatureNames) {
+        dfloat* dest = cond_node_features + col * N; // pointer to column
+        if (feat == "wallDistance") {
+            get_wall_distance(dest);
+        } else if (feat == "inflowDistance") {
+            get_inflow_distance(dest);
+        } else {
+            if (rank == 0) printf("WARNING: Unknown conditional feature '%s', skipping.\n", feat.c_str());
+        }
+        col++;
     }
 }
 

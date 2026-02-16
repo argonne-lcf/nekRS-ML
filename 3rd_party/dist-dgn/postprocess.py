@@ -129,6 +129,7 @@ def plot_training_loss(log_file: str):
     plt.ylabel('Loss')
     plt.grid(True, alpha=0.3)
     plt.legend(loc='upper right')
+    #plt.xlim(-100,4100)
     plt.title('Training Loss vs Iterations')
     if np.max(losses) / np.min(losses) > 10:
         plt.yscale('log')

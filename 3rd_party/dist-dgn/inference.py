@@ -132,15 +132,15 @@ def infer(cfg: DictConfig,
     # Sampling loop
     local_time = []
     local_throughput = []
-    n_features = cfg.input_node_features
     for i in range(cfg.num_gen_samples):
         # Initialize new random field and generate sample prediction
-        field_r = torch.randn(pos.size(0), n_features, dtype=trainer.torch_dtype)
+        field_r = torch.randn(pos.size(0), cfg.input_node_features, dtype=trainer.torch_dtype)
         pred = trainer.sample(field_r)
         pred = pred.cpu().numpy()
         
         # Undo scaling
         pred = pred * stats['x_std'] + stats['x_mean']
+        log.info(f"Normalization stats: mean = {stats['x_mean']}, std = {stats['x_std']}")
 
         # Postprocess the data
         if cfg.postprocess:

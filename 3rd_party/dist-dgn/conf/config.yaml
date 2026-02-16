@@ -29,6 +29,7 @@ learnable_variance: True
 loss_weighting: "uniform" # {uniform, min_snr}
 min_snr_gamma: 5.0 # gamma for min-SNR weighting (only used when loss_weighting=min_snr)
 activation_checkpointing: False 
+cond_node_features: False
 
 # Modeling task
 model_task: "train"

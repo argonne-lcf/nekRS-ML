@@ -337,6 +337,7 @@ class DGNTrainer:
         # Model architecture
         arch = {
             'input_node_features': self.cfg.input_node_features,
+            'cond_node_features': 0 if not self.cfg.cond_node_features else graph.cond_node_features.shape[1],
             'input_edge_features': graph.edge_attr.shape[1],
             'mlp_hidden_channels': self.cfg.mlp_hidden_channels,
             'n_mlp_hidden_layers': self.cfg.n_mlp_hidden_layers,
@@ -349,8 +350,6 @@ class DGNTrainer:
             'activation_checkpointing': self.cfg.activation_checkpointing,
             'name': 'POLY_%d_SIZE_%d_SEED_%d' %(poly,SIZE,self.cfg.seed)
         }
-        # TODO: this is where things like Re, num_pins, distance to wall, etc. would go
-        arch['cond_node_features'] = 0
 
         model = gnn.DistributedDGN(arch)
         return model
@@ -372,8 +371,11 @@ class DGNTrainer:
 
     def setup_torch(self):
         # Random seeds
-        torch.manual_seed(self.cfg.seed)
-        np.random.seed(self.cfg.seed)
+        seed = self.cfg.seed
+        if self.cfg.model_task == 'inference':
+            seed += self.rank
+        torch.manual_seed(seed)
+        np.random.seed(seed)
 
         # Device and intra-op threads
         if WITH_CUDA:
@@ -627,21 +629,27 @@ class DGNTrainer:
             #halo_unique_mask = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_unique_halo + ".bin", dtype=np.int32)
             halo_unique_mask = self.load_data(path_to_unique_halo,dtype=np.int32,extension='.bin')
 
-        return pos, gli, ei, local_unique_mask, halo_unique_mask
+        # Conditional node features
+        cond_node_features = np.array([])
+        if self.cfg.cond_node_features:
+            path_to_cond_node_features = main_path + 'cond_node_features_rank_%d_size_%d' %(RANK,SIZE)
+            cond_node_features = self.load_data(path_to_cond_node_features,extension='.bin').reshape((pos.shape[0],-1))
+
+        return pos, gli, ei, local_unique_mask, halo_unique_mask, cond_node_features
 
     def setup_local_graph(self):
         """
         Setup the local graph
         """
         # ~~~~ Read the graph data structures
-        pos, gli, ei, local_unique_mask, halo_unique_mask = self.load_graph_data()
+        pos, gli, ei, local_unique_mask, halo_unique_mask, cond_node_features = self.load_graph_data()
 
         # We are only periodic in z for the BFS. so we do the following:  
         pos = pos.astype(NP_FLOAT_DTYPE)
         pos_orig = np.copy(pos)
-        L_z = 2. 
+        #L_z = 2. 
         # pos[:,2] = np.cos(2.*np.pi*pos[:,2]/L_z) # cosine
-        pos[:,2] = np.abs((pos[:,2] % L_z) - L_z / 2) # piecewise linear 
+        #pos[:,2] = np.abs((pos[:,2] % L_z) - L_z / 2) # piecewise linear 
 
         # ~~~~ Make the full graph: 
         if self.cfg.verbose: log.info('[RANK %d]: Making the FULL GLL-based graph with overlapping nodes' %(RANK))
@@ -651,7 +659,8 @@ class DGNTrainer:
                          pos = torch.tensor(pos), 
                          global_ids = torch.tensor(gli.squeeze()), 
                          local_unique_mask = torch.tensor(local_unique_mask), 
-                         halo_unique_mask = torch.tensor(halo_unique_mask)
+                         halo_unique_mask = torch.tensor(halo_unique_mask),
+                         cond_node_features = torch.tensor(cond_node_features)
         )
         data_full.edge_index = pyg_utils.remove_self_loops(data_full.edge_index)[0]
         data_full.edge_index = pyg_utils.coalesce(data_full.edge_index)
@@ -1062,7 +1071,7 @@ class DGNTrainer:
             Supports both epsilon and x0 prediction types.
         """
         if batch is None:
-            batch = torch.zeros(field_r.size(0), dtype=torch.long)
+            batch = torch.zeros(field_r.size(0), dtype=torch.long, device=self.device)
 
         dp = self.diffusion_process if diffusion_process is None else diffusion_process
         
@@ -1098,6 +1107,10 @@ class DGNTrainer:
             # epsilon prediction (default): model_pred is predicted noise eps; recover x_0
             x_0_pred = dp.predict_x0_from_noise(field_r, model_pred, r, batch)
 
+        # Clip x_0 prediction to prevent error accumulation during reverse sampling.
+        # For z-normalized data, values beyond ±5 sigma are extremely unlikely.
+        x_0_pred = x_0_pred.clamp(-5.0, 5.0)
+
         posterior_mean_coef1 = dp.get_index_from_list(dp.posterior_mean_coef1, batch, r)
         posterior_mean_coef2 = dp.get_index_from_list(dp.posterior_mean_coef2, batch, r)
         mean = posterior_mean_coef1 * x_0_pred + posterior_mean_coef2 * field_r
@@ -1115,6 +1128,8 @@ class DGNTrainer:
             graph.halo_info = graph.halo_info.to(self.device)
             graph.edge_weight = graph.edge_weight.to(self.device)
             graph.node_degree = graph.node_degree.to(self.device)
+            if self.cfg.conditional_features:
+                graph.cond_node_features = graph.cond_node_features.to(self.device)
             loss = loss.to(self.device)
         if self.cfg.timers: self.update_timer('dataTransfer', self.timer_step, time.time() - tic)
 
@@ -1176,7 +1191,7 @@ class DGNTrainer:
                              buffer_recv = self.buffer_recv,
                              neighboring_procs = self.neighboring_procs,
                              SIZE = SIZE,
-                             cond_node_features = None, # TODO: Add conditional node features
+                             cond_node_features = graph.cond_node_features if self.cfg.conditional_features else None,
                              batch = data.batch)
         if self.cfg.postprocess and ((r == 10).any() or (r == 60).any()):
             if (r == 10).any():
@@ -1357,9 +1372,12 @@ class DGNTrainer:
                             field_r, 
                             r)
 
-            # Update field_r
-            gaussian_noise = torch.randn_like(model_posterior_mean)
-            field_r = model_posterior_mean + torch.sqrt(model_posterior_variance) * gaussian_noise
+            # Update field_r: add noise at all steps except the final one (step 0)
+            if step > 0:
+                gaussian_noise = torch.randn_like(model_posterior_mean)
+                field_r = model_posterior_mean + torch.sqrt(model_posterior_variance) * gaussian_noise
+            else:
+                field_r = model_posterior_mean
 
         # Update timers
         self.synchronize()
