@@ -128,8 +128,9 @@ gnn_t::gnn_t(nrs_t *nrs_, int poly_order, bool log_verbose)
     graphNodes_element = (graphNode_t*) calloc(mesh->Np, sizeof(graphNode_t)); // a single element
 
     // Parse conditional node features from config
-    std::string condFeatStr;
-    platform->options.getArgs("GNN COND FEATURES", condFeatStr);
+    // Use the non-template getArgs(key) to get the full comma-separated string;
+    // the template overload getArgs(key, string&) splits on whitespace and returns only the first token.
+    std::string condFeatStr = platform->options.getArgs("GNN COND FEATURES");
     if (condFeatStr != "none" && !condFeatStr.empty()) {
         hasCondFeatures = true;
         // Parse comma-separated feature names
@@ -1046,7 +1047,7 @@ void gnn_t::get_wall_distance(dfloat* dest)
         return;
     }
 
-    if (rank == 0) {
+    if (rank == 0 && verbose) {
         printf("Computing wall distance (wall BIDs:");
         for (auto b : wallBIDs) printf(" %lld", (long long)b);
         printf(") ...\n");
@@ -1077,14 +1078,14 @@ void gnn_t::get_wall_distance(dfloat* dest)
         delete[] tmp;
     }
 
-    if (rank == 0) printf("Done computing wall distance.\n");
+    if (rank == 0 && verbose) printf("Done computing wall distance.\n");
 }
 
 void gnn_t::get_inflow_distance(dfloat* dest)
 {
     MPI_Comm &comm = platform->comm.mpiComm;
 
-    if (rank == 0) printf("Computing inflow distance (x - x_min) ...\n");
+    if (rank == 0 && verbose) printf("Computing inflow distance (x - x_min) ...\n");
 
     // x-coordinates are stored at pos_node[0 .. N-1] (column-major layout)
     dfloat x_min_local = pos_node[0];
@@ -1098,26 +1099,20 @@ void gnn_t::get_inflow_distance(dfloat* dest)
         dest[i] = pos_node[i] - x_min;
     }
 
-    if (rank == 0) printf("Done computing inflow distance (x_min = %.6f).\n", x_min);
+    if (rank == 0 && verbose) printf("Done computing inflow distance (x_min = %.6f).\n", x_min);
 }
 
 void gnn_t::get_cond_node_features()
 {
-    if (rank == 0) {
-        printf("Computing conditional node features:");
-        for (const auto& f : condFeatureNames) printf(" %s", f.c_str());
-        printf("\n");
-    }
-
     // Allocate stacked array: N rows x nCondFeatures columns (column-major)
     cond_node_features = new dfloat[N * nCondFeatures]();
 
     int col = 0;
     for (const auto& feat : condFeatureNames) {
         dfloat* dest = cond_node_features + col * N; // pointer to column
-        if (feat == "wallDistance") {
+        if (feat == "walldistance") {
             get_wall_distance(dest);
-        } else if (feat == "inflowDistance") {
+        } else if (feat == "inflowdistance") {
             get_inflow_distance(dest);
         } else {
             if (rank == 0) printf("WARNING: Unknown conditional feature '%s', skipping.\n", feat.c_str());

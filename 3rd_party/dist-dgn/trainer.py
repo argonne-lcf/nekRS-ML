@@ -660,7 +660,7 @@ class DGNTrainer:
                          global_ids = torch.tensor(gli.squeeze()), 
                          local_unique_mask = torch.tensor(local_unique_mask), 
                          halo_unique_mask = torch.tensor(halo_unique_mask),
-                         cond_node_features = torch.tensor(cond_node_features)
+                         cond_node_features = torch.tensor(cond_node_features, dtype=self.torch_dtype)
         )
         data_full.edge_index = pyg_utils.remove_self_loops(data_full.edge_index)[0]
         data_full.edge_index = pyg_utils.coalesce(data_full.edge_index)
@@ -1128,10 +1128,14 @@ class DGNTrainer:
             graph.halo_info = graph.halo_info.to(self.device)
             graph.edge_weight = graph.edge_weight.to(self.device)
             graph.node_degree = graph.node_degree.to(self.device)
-            if self.cfg.conditional_features:
+            if self.cfg.cond_node_features:
                 graph.cond_node_features = graph.cond_node_features.to(self.device)
             loss = loss.to(self.device)
         if self.cfg.timers: self.update_timer('dataTransfer', self.timer_step, time.time() - tic)
+
+        if self.cfg.postprocess and self.iteration == 0 and self.cfg.cond_node_features:
+            postprocess.plot_2d_field(COMM, graph.pos, graph.cond_node_features.cpu().numpy(), f'cond_node_features.png')
+            COMM.Barrier()
 
         self.s_optimizer.zero_grad()
 
@@ -1162,19 +1166,10 @@ class DGNTrainer:
                                                              r, 
                                                              batch=data.batch, 
                                                              dirichlet_mask=BC_mask)
-        if self.cfg.verbose and RANK == 0: 
-                log.info(f"SNR: {snr.cpu().numpy().tolist()}")
-        #if self.cfg.postprocess and self.iteration%100 == 0:
-        #if self.cfg.postprocess and ((r == 10).any() or (r == 60).any()):
-        if self.cfg.postprocess:
-            #if (r == 10).any():
-            #    index = torch.where(r == 10)[0].item()
-            #elif (r == 60).any():
-            #    index = torch.where(r == 60)[0].item()
-            for index in range(len(r)):
-                postprocess.plot_2d_field(COMM, graph.pos, field_r[data.batch==index].cpu().numpy(), f'field_r_r{r[index]}_iter{self.iteration}.png')
-                postprocess.plot_2d_field(COMM, graph.pos, data.x[data.batch==index,:self.cfg.input_node_features].cpu().numpy(), f'data_x_r{r[index]}_iter{self.iteration}.png')
-                COMM.Barrier()
+        if self.cfg.postprocess and self.iteration%100 == 0:
+            postprocess.plot_2d_field(COMM, graph.pos, field_r[data.batch==0].cpu().numpy(), f'field_r_r{r[0]}_iter{self.iteration}.png')
+            postprocess.plot_2d_field(COMM, graph.pos, data.x[data.batch==0,:self.cfg.input_node_features].cpu().numpy(), f'data_x_r{r[0]}_iter{self.iteration}.png')
+            COMM.Barrier()
         
         # Prediction
         tic = time.time()
@@ -1191,15 +1186,11 @@ class DGNTrainer:
                              buffer_recv = self.buffer_recv,
                              neighboring_procs = self.neighboring_procs,
                              SIZE = SIZE,
-                             cond_node_features = graph.cond_node_features if self.cfg.conditional_features else None,
+                             cond_node_features = graph.cond_node_features if self.cfg.cond_node_features else None,
                              batch = data.batch)
-        if self.cfg.postprocess and ((r == 10).any() or (r == 60).any()):
-            if (r == 10).any():
-                index = torch.where(r == 10)[0].item()
-            elif (r == 60).any():
-                index = torch.where(r == 60)[0].item()
-            postprocess.plot_2d_field(COMM, graph.pos, model_pred[data.batch==index].detach().cpu().numpy(), f'model_pred_r{r[index]}_iter{self.iteration}.png')
-            postprocess.plot_2d_field(COMM, graph.pos, noise[data.batch==index].cpu().numpy(), f'noise_r{r[index]}_iter{self.iteration}.png')
+        if self.cfg.postprocess and self.iteration%100 == 0:
+            postprocess.plot_2d_field(COMM, graph.pos, model_pred[data.batch==0].detach().cpu().numpy(), f'model_pred_r{r[0]}_iter{self.iteration}.png')
+            postprocess.plot_2d_field(COMM, graph.pos, noise[data.batch==0].cpu().numpy(), f'noise_r{r[0]}_iter{self.iteration}.png')
             COMM.Barrier()
         if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
 
@@ -1325,6 +1316,8 @@ class DGNTrainer:
             graph.halo_info = graph.halo_info.to(self.device)
             graph.edge_weight = graph.edge_weight.to(self.device)
             graph.node_degree = graph.node_degree.to(self.device)
+            if self.cfg.cond_node_features:
+                graph.cond_node_features = graph.cond_node_features.to(self.device)
         if self.cfg.timers: self.update_timer('dataTransfer', self.timer_step, time.time() - tic)
                 
         # re-allocate send buffer 
@@ -1360,7 +1353,7 @@ class DGNTrainer:
                                 buffer_recv = self.buffer_recv,
                                 neighboring_procs = self.neighboring_procs,
                                 SIZE = SIZE,
-                                cond_node_features = None, # TODO: Add conditional node features
+                                cond_node_features = graph.cond_node_features if self.cfg.cond_node_features else None,
                                 batch = graph.batch)
             if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
 

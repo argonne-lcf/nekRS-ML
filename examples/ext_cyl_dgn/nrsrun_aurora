@@ -40,7 +40,7 @@ echo "export TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
 echo -e "\necho Jobid: \$PBS_JOBID" >>$RFILE
 echo "echo Running on host \`hostname\`" >>$RFILE
 echo "echo Running on nodes \`cat \$PBS_NODEFILE\`" >>$RFILE
-echo "JOBID=\$(echo \$PBS_JOBID | awk '{split($1,a,\".\"); print a[1]}')" >>$RFILE
+echo "JOBID=\$(echo \$PBS_JOBID | awk '{split(\$1,a,\".\"); print a[1]}')" >>$RFILE
 
 echo "module restore" >> $RFILE
 echo "module load ${FRAMEWORKS_MODULE}" >> $RFILE
@@ -67,10 +67,9 @@ echo -e "\n# Generate the halo_info, edge_weights and node_degree files" >>$RFIL
 echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/dist-dgn/create_halo_info_par.py --POLY 3 --PATH ./gnn_outputs_poly_3" >> $RFILE
 
 echo -e "\n# Train model" >>$RFILE
-echo "head_node=\`head -1 \$PBS_NODEFILE | cut -d'.' -f1\`" >>$RFILE
-echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/dist-dgn/main.py activation_checkpointing=True prediction_type=x0 loss_weighting=min_snr diffusion_process_schedule=cosine batch_size=16 mlp_hidden_channels=128 n_mlp_hidden_layers=2 n_messagePassing_layers=6 input_node_features=2 halo_swap_mode=none consistency=False phase1_steps=300 phase2_steps=700 lr_phase23=0.00001 diffusion_step_sampler=adaptive_exponential ckptfreq=100 backend=xccl gnn_outputs_path=${PWD}/gnn_outputs_poly_3 verbose=True postprocess=False 2>&1 | tee train_\${JOBID}.log" >> $RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/dist-dgn/main.py activation_checkpointing=True prediction_type=v loss_weighting=min_snr diffusion_process_schedule=cosine diffusion_step_sampler=uniform batch_size=8 mlp_hidden_channels=128 n_mlp_hidden_layers=2 n_messagePassing_layers=6 input_node_features=2 cond_node_features=True halo_swap_mode=none consistency=False phase1_steps=300 phase2_steps=700 lr_phase23=0.00001 ckptfreq=100 backend=xccl gnn_outputs_path=${PWD}/gnn_outputs_poly_3 verbose=True postprocess=False 2>&1 | tee train_\${JOBID}.log" >> $RFILE
 
 echo -e "\n# Perform inference and generate files for visualization" >>$RFILE
-echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/dist-dgn/inference.py model_task=inference num_gen_samples=1 mlp_hidden_channels=32 n_mlp_hidden_layers=5 n_messagePassing_layers=4 input_node_features=2 halo_swap_mode=none consistency=False master_addr=\$head_node backend=xccl gnn_outputs_path=${PWD}/gnn_outputs_poly_3 ckpt_dir=${PWD}/ckpt inference_dir=${PWD}/predictions verbose=True postprocess=True 2>&1 | tee inference_\${JOBID}.log" >> $RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/dist-dgn/inference.py model_task=inference prediction_type=v diffusion_process_schedule=cosine num_gen_samples=5 mlp_hidden_channels=128 n_mlp_hidden_layers=2 n_messagePassing_layers=6 input_node_features=2 cond_node_features=True halo_swap_mode=none consistency=False backend=xccl gnn_outputs_path=${PWD}/gnn_outputs_poly_3 model_dir=${PWD}/saved_models inference_dir=${PWD}/predictions verbose=True postprocess=True 2>&1 | tee inference_\${JOBID}.log" >> $RFILE
 chmod u+x $RFILE
 
