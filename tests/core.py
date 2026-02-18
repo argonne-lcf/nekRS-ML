@@ -298,11 +298,11 @@ class RunOnlyTest(rfm.RunOnlyRegressionTest):
             f"-l filesystems={self.filesystems}",
         ]
 
-    @property
-    def rpn(self):
-        return self.num_tasks_per_node
-
     # https://github.com/reframe-hpc/reframe/pull/2993
     @property
     def job_exit_code(self):
         return self._current_partition.scheduler._query_exit_code(self.job)
+
+    @property
+    def reframe_dir(self):
+        return Path(__file__).parent.resolve()

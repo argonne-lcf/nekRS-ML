@@ -45,8 +45,6 @@ def init_missing_args(args):
     )
     init_value("client", "posix")
     init_value("db_nodes", 1)
-    init_value("sim_nodes", 1)
-    init_value("train_nodes", 1)
 
     return args
 
@@ -90,14 +88,14 @@ class SmartRedisBuild(CompileOnlyTest):
         # For SmartRedis, actual build parallelization is set with `NRPOC` environment variable.
         self.build_system.max_concurrency = 1
         self.build_system.options = ["lib"]
-        self.install_path = os.path.join(f"{self.stagedir}", "install")
 
         self.prebuild_cmds += [
             f"export NPROC={self.current_partition.extras['ranks_per_node']}"
         ]
 
-    def get_install_path(self):
-        return self.install_path
+    @property
+    def install_path(self):
+        return os.path.join(f"{self.stagedir}", "install")
 
 
 class NekRSBuild(CompileOnlyTest):
@@ -109,6 +107,14 @@ class NekRSBuild(CompileOnlyTest):
         self.descr = "nekRS-ML build"
         self.maintainers = ["kris.rowe@anl.gov", "tratnayaka@anl.gov"]
 
+    @property
+    def install_path(self):
+        return os.path.join(f"{self.stagedir}", "install")
+
+    @property
+    def binary_path(self):
+        return os.path.join(self.install_path, "bin")
+
     @run_before("compile")
     def configure_build(self):
         self.sourcesdir = "https://github.com/argonne-lcf/nekRS-ML.git"
@@ -118,14 +124,11 @@ class NekRSBuild(CompileOnlyTest):
         self.build_system.ftn = self.current_environ.ftn
         self.build_system.flags_from_environ = False
         self.build_system.builddir = "build"
-
         self.build_system.make_opts = ["install"]
-        self.install_path = os.path.join(f"{self.stagedir}", "install")
-        self.binary_path = os.path.join(self.install_path, "bin")
         self.build_system.config_opts = [
             f"-DCMAKE_INSTALL_PREFIX={self.install_path}",
             "-DENABLE_SMARTREDIS=ON",
-            f"-DSMARTREDIS_INSTALL_DIR={self.smartredis_build.get_install_path()}",
+            f"-DSMARTREDIS_INSTALL_DIR={self.smartredis_build.install_path}",
             "-DENABLE_ADIOS=ON",
             "-DPython_ROOT_DIR=${python_root}"
             "-DADIOS2_INSTALL_DIR=${adios2_root}",
@@ -136,9 +139,7 @@ class NekRSBuild(CompileOnlyTest):
         ]
         # Update the concurrency from login partition if that exists.
         system = self.current_partition.fullname.split(":")[0]
-        cfg = config.load_config(
-            os.path.join(Path(__file__).parent.resolve(), "sites.py")
-        )
+        cfg = config.load_config(self.reframe_dir, "sites.py")
         for sys in cfg["systems"]:
             if sys["name"] == system:
                 for part in sys["partitions"]:
@@ -202,7 +203,9 @@ class NekRSTest(RunOnlyTest):
             f"--cpu-bind=list:{cpu_bind_list}",
         ]
 
-    def get_nekrs_exec_opts(self):
+    @cache
+    @property
+    def nekrs_exec_opts(self):
         backend = self.current_partition.extras["occa_backend"]
         return [
             f"--setup {self.case_name}",
@@ -210,19 +213,27 @@ class NekRSTest(RunOnlyTest):
             "--device-id 0",
         ]
 
+    @cache
+    @property
+    def nekrs_exec_cmd(self):
+        return f"./{self.current_system.name}_nrs.sh {self.nekrs_binary}"
+
     def set_executable_options(self):
-        self.executable = f"{self.nekrs_binary}"
-        self.executable_opts = self.get_nekrs_exec_opts()
+        self.executable = self.nekrs_exec_cmd
+        self.executable_opts = self.nekrs_exec_opts
 
     def nekrs_cmd(self, extra_args=[]):
         return lst2cmd(
-            self.get_mpiexec()
-            + [str(self.nekrs_binary)]
-            + self.get_nekrs_exec_opts()
+            self.mpiexec
+            + ["--"]
+            + self.nekrs_exec_cmd
+            + self.nekrs_exec_opts
             + extra_args
         )
 
-    def get_gnn_dir(self):
+    @cache
+    @property
+    def gnn_dir(self):
         return os.path.join(
             self.nekrs_home, "3rd_party", "gnn", self.ml_args["model"]
         )
@@ -263,10 +274,41 @@ class NekRSMLTest(NekRSTest):
         }
 
     @cache
-    def get_mpiexec(self):
+    @property
+    def time_dependency(self):
+        return self.ml_args["time_dependency"]
+
+    @cache
+    @property
+    def target_loss(self):
+        return self.ml_args["target_loss"]
+
+    @cache
+    @property
+    def model(self):
+        return self.ml_args["model"]
+
+    @cache
+    @property
+    def deployment(self):
+        return self.ml_args["deployment"]
+
+    @cache
+    @property
+    def nn(self):
+        return self.ml_args["nn"]
+
+    @cache
+    @property
+    def rpn(self):
+        return self.num_tasks_per_node
+
+    @cache
+    @property
+    def mpiexec(self):
         return self.job.launcher.command(self.job) + self.job.launcher.options
 
-    def get_order(self, p):
+    def order(self, p):
         pf = f"{self.case_name}.par"
         txt = grep(p, os.path.join(self.sourcesdir, pf))
         if txt is None:
@@ -275,13 +317,53 @@ class NekRSMLTest(NekRSTest):
 
     @cache
     @property
+    def gnn_order(self):
+        return self.order("gnnPolynomialOrder")
+
+    @cache
+    @property
+    def sim_order(self):
+        return self.order("polynomialOrder")
+
+    @cache
+    @property
     def ml_rpn(self):
-        return int(self.ml_args["rpn"] / 2)
+        return int(self.rpn / 2) if self.deployment == "colocated" else self.rpn
 
     @cache
     @property
     def sim_rpn(self):
-        return self.ml_args["rpn"] - self.ml_rpn
+        return self.rpn - self.ml_rpn
+
+    @cache
+    @property
+    def db_rpn(self):
+        return len(self.db_cpu_ids.split(","))
+
+    @cache
+    @property
+    def ml_nn(self):
+        return self.nn if self.deployment == "colocated" else int(self.nn / 2)
+
+    @cache
+    @property
+    def sim_nn(self):
+        return self.nn - self.ml_nn
+
+    @cache
+    @property
+    def db_nn(self):
+        self.ml_args["db_nodes"]
+
+    @cache
+    @property
+    def sim_ranks(self):
+        return self.sim_nn * self.sim_rpn
+
+    @cache
+    @property
+    def ml_ranks(self):
+        return self.ml_nn * self.ml_rpn
 
     @cache
     @property
@@ -298,24 +380,19 @@ class NekRSMLTest(NekRSTest):
         ]
 
     @cache
-    def get_gnn_order(self):
-        return self.get_order("gnnPolynomialOrder")
+    @property
+    def db_cpu_ids(self):
+        return self.current_partition.extras["db_bind_list"]
 
     @cache
-    def get_sim_order(self):
-        return self.get_order("polynomialOrder")
-
-    @cache
-    def get_venv_path(self):
+    @property
+    def venv_path(self):
         return os.path.join(self.stagedir, "_env")
 
     @cache
-    def get_sim_ranks(self):
-        rpn = self.ml_args["rpn"]
-        # FIXME: colocated vs clustered
-        if self.ml_args["deployment"] == "colocated":
-            rpn = int(rpn / 2)
-        return self.ml_args["nn"] * rpn
+    @property
+    def system(self):
+        return self.current_system.name
 
     def setup_case_cmd(self, extra_args=[]):
         return lst2cmd([
@@ -323,25 +400,29 @@ class NekRSMLTest(NekRSTest):
             self.current_system.name,
             self.nekrs_home,
             "--venv_path",
-            self.get_venv_path(),
+            self.venv_path,
             "--nodes",
-            str(self.ml_args["nn"]),
+            str(self.nn),
             "--model",
-            str(self.ml_args["model"]),
+            str(self.model),
             *extra_args,
         ])
 
     def source_cmd(self):
         return lst2cmd([
             "source",
-            os.path.join(self.get_venv_path(), "bin", "activate"),
+            os.path.join(self.venv_path, "bin", "activate"),
         ])
 
     @run_before("run")
     def setup_run(self):
         super().setup_run()
         self.set_scheduler_options()
-        self.ml_args["rpn"] = self.rpn
+        self.prerun_cmds += [
+            "cp",
+            os.path.join(self.reframe_dir, "affinity", f"{self.system}_nrs.sh"),
+            os.path.join(self.stagedir, f"{self.system}_nrs.sh"),
+        ]
 
 
 class NekRSMLOfflineTest(NekRSMLTest):
@@ -350,90 +431,91 @@ class NekRSMLOfflineTest(NekRSMLTest):
         super().__init__(**kwargs)
 
     @cache
-    def get_gnn_output_dir(self):
-        order = self.get_gnn_order()
-        return os.path.join(self.stagedir, f"gnn_outputs_poly_{order}")
+    @property
+    def gnn_output_dir(self):
+        return os.path.join(self.stagedir, f"gnn_outputs_poly_{self.gnn_order}")
 
     @cache
-    def get_check_input_files_path(self):
-        return os.path.join(self.get_gnn_dir(), "check_input_files.py")
+    @property
+    def check_input_files_py(self):
+        return os.path.join(self.gnn_dir, "check_input_files.py")
 
     @cache
-    def get_traj_root(self):
-        order = self.get_gnn_order()
-        return os.path.join(f"traj_poly_{order}", "tinit_0.000000_dtfactor_10")
+    @properties
+    def traj_root(self):
+        return os.path.join(
+            f"traj_poly_{self.gnn_order}", "tinit_0.000000_dtfactor_10"
+        )
 
     @cache
-    def get_traj_dir(self):
-        return os.path.join(self.stagedir, self.get_traj_root())
+    @properties
+    def traj_dir(self):
+        return os.path.join(self.stagedir, self.traj_root)
 
     @cache
     def set_sr_gnn_target_and_input_list(self):
-        tlist = f"{self.case_name}_p{self.get_sim_order() * 10}*"
-        ilist = f"{self.case_name}_p{self.get_gnn_order() * 10}*"
+        tlist = f"{self.case_name}_p{self.sim_order * 10}*"
+        ilist = f"{self.case_name}_p{self.gnn_order * 10}*"
         return lst2cmd([f"target_list=`ls {tlist}`; input_list=`ls {ilist}`"])
 
     def check_halo_info_cmd(self):
-        halo_info = [
-            "python",
-            os.path.join(self.get_gnn_dir(), "create_halo_info_par.py"),
-            "--POLY",
-            str(self.get_gnn_order()),
-            "--PATH",
-            self.get_gnn_output_dir(),
-        ]
-        return lst2cmd(self.get_mpiexec() + halo_info)
+        return lst2cmd(
+            self.mpiexec
+            + [
+                "python",
+                os.path.join(self.gnn_dir, "create_halo_info_par.py"),
+                "--POLY",
+                str(self.gnn_order),
+                "--PATH",
+                self.gnn_output_dir,
+            ]
+        )
 
     def check_input_files_cmd(self):
         return lst2cmd([
             "python",
-            self.get_check_input_files_path(),
+            self.check_input_files_py,
             "--REF",
             os.path.join(self.sourcesdir, "ref"),
             "--PATH",
-            self.get_gnn_output_dir(),
+            self.gnn_output_dir,
         ])
 
     def check_traj_cmd(self):
-        # Return if the case is not a `traj` case.
-        if self.ml_args["time_dependency"] != "time_dependent":
-            return []
-
-        ranks = self.get_sim_ranks()
         cmds = []
-        for rank in range(ranks):
-            suffix = f"data_rank_{rank}_size_{ranks}"
-            cmd = lst2cmd([
-                "python",
-                self.get_check_input_files_path(),
-                "--REF",
-                os.path.join(
-                    self.sourcesdir, "ref", self.get_traj_root(), suffix
-                ),
-                "--PATH",
-                os.path.join(self.get_traj_dir(), suffix),
-            ])
-            cmds.append(cmd)
+        if self.time_dependency == "time_dependent":
+            for rank in range(self.sim_ranks):
+                suffix = f"data_rank_{rank}_size_{self.sim_ranks}"
+                cmd = lst2cmd([
+                    "python",
+                    self.check_input_files_py,
+                    "--REF",
+                    os.path.join(
+                        self.sourcesdir, "ref", self.traj_root, suffix
+                    ),
+                    "--PATH",
+                    os.path.join(self.traj_dir, suffix),
+                ])
+                cmds.append(cmd)
         return cmds
 
     def generate_sr_gnn_data_cmd(self):
-        train_sr = [
+        return lst2cmd([
             "python",
-            os.path.join(self.get_gnn_dir(), "nek_to_pt.py"),
+            os.path.join(self.gnn_dir, "nek_to_pt.py"),
             f"--case_path {self.stagedir}",
             "--target_snap_list ${target_list}",
             "--input_snap_list ${input_list}",
-            f"--target_poly_order {self.get_sim_order()}",
-            f"--input_poly_order {self.get_gnn_order()}",
+            f"--target_poly_order {self.sim_order}",
+            f"--input_poly_order {self.gnn_order}",
             f"--n_element_neighbors {self.ml_args['n_element_neighbors']}",
-        ]
-        return lst2cmd(train_sr)
+        ])
 
     def set_prerun_cmds(self):
         self.prerun_cmds += [
             self.setup_case_cmd(),
             self.source_cmd(),
-            self.nekrs_cmd(extra_args=[f"--build-only {self.get_sim_ranks()}"]),
+            self.nekrs_cmd(extra_args=[f"--build-only {self.sim_ranks}"]),
             self.nekrs_cmd(),
         ]
 
@@ -452,7 +534,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
     def set_executable_options(self):
         self.executable = lst2cmd([
             "python",
-            os.path.join(self.get_gnn_dir(), "main.py"),
+            os.path.join(self.gnn_dir, "main.py"),
         ])
 
         args = self.ml_args
@@ -460,8 +542,8 @@ class NekRSMLOfflineTest(NekRSMLTest):
             self.executable_opts = [
                 "halo_swap_mode=all_to_all_opt",
                 "layer_norm=True",
-                f"gnn_outputs_path={self.get_gnn_output_dir()}",
-                f"traj_data_path={self.get_traj_dir()}",
+                f"gnn_outputs_path={self.gnn_output_dir}",
+                f"traj_data_path={self.traj_dir}",
                 f"target_loss={args['target_loss']}",
                 f"time_dependency={args['time_dependency']}",
             ]
@@ -482,16 +564,16 @@ class NekRSMLOfflineTest(NekRSMLTest):
             "export model=${PWD}/`ls saved_models/*.tar`",
             lst2cmd([
                 "python",
-                os.path.join(self.get_gnn_dir(), "postprocess.py"),
+                os.path.join(self.gnn_dir, "postprocess.py"),
                 "--model_path ${model}",
                 f"--case_path {self.stagedir}",
                 f"--output_name {self.case_name}",
                 f"--target_snap_list",
-                f"{self.case_name}_p{self.get_sim_order() * 10}.f00000",
+                f"{self.case_name}_p{self.sim_order * 10}.f00000",
                 f"--input_snap_list",
-                f"{self.case_name}_p{self.get_gnn_order() * 10}.f00000",
-                f"--target_poly_order {self.get_sim_order()}",
-                f"--input_poly_order {self.get_gnn_order()}",
+                f"{self.case_name}_p{self.gnn_order * 10}.f00000",
+                f"--target_poly_order {self.sim_order}",
+                f"--input_poly_order {self.gnn_order}",
                 f"--n_element_neighbors {self.ml_args['n_element_neighbors']}",
             ]),
         ]
@@ -578,10 +660,6 @@ class NekRSMLOnlineTest(NekRSMLTest):
         ]
 
     def create_traj_config(self):
-        # FIXME: This only works for colocated, not clustered.
-        db_bind_list = self.current_partition.extras["db_bind_list"]
-        db_rpn = len(db_bind_list.split(","))
-
         with open(f"{self.config_yaml}.reframe", "w") as f:
             if self.client == "smartredis":
                 f.write("###################\n")
@@ -590,7 +668,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
                 f.write("database:\n")
                 f.write("    launch: True\n")
                 f.write('    backend: "redis"\n')
-                f.write(f'    deployment: "{args["deployment"]}"\n')
+                f.write(f'    deployment: "{self.deployment}"\n')
                 f.write(f'    exp_name: "{self.experiment_name}"\n')
                 # FIXME: The following should be machine-dependent:
                 f.write("    port: 6782\n")
@@ -603,23 +681,23 @@ class NekRSMLOnlineTest(NekRSMLTest):
                 f.write(
                     f"scheduler: {self.current_partition.scheduler.registered_name}\n"
                 )
-                f.write(f'deployment: "{args["deployment"]}"\n')
+                f.write(f'deployment: "{self.deployment}"\n')
             f.write("\n")
 
             f.write("# Run config\n")
             f.write("run_args:\n")
-            f.write(f"    nodes: {args['nn']}\n")
-            f.write(f"    sim_nodes: {args['sim_nodes']}\n")
-            f.write(f"    simprocs: {args['sim_nodes'] * self.sim_rpn}\n")
+            f.write(f"    nodes: {self.nn}\n")
+            f.write(f"    sim_nodes: {self.sim_nn}\n")
+            f.write(f"    simprocs: {self.sim_ranks}\n")
             f.write(f"    simprocs_pn: {self.sim_rpn}\n")
             f.write(f'    sim_cpu_bind: "list:{":".join(self.sim_cpu_ids)}"\n')
-            f.write(f"    ml_nodes: {args['sim_nodes']}\n")
-            f.write(f"    mlprocs: {args['train_nodes'] * self.ml_rpn}\n")
+            f.write(f"    ml_nodes: {self.ml_nn}\n")
+            f.write(f"    mlprocs: {self.ml_ranks}\n")
             f.write(f"    mlprocs_pn: {self.ml_rpn}\n")
             f.write(f'    ml_cpu_bind: "list:{":".join(self.ml_cpu_ids)}"\n')
             if self.client == "smartredis":
-                f.write(f"    db_nodes: {args['db_nodes']}\n")
-                f.write(f"    dbprocs_pn: {db_rpn}\n")
+                f.write(f"    db_nodes: {self.db_nn}\n")
+                f.write(f"    dbprocs_pn: {self.db_rpn}\n")
                 f.write(f"    db_cpu_bind: [{db_bind_list}]\n")
             f.write("\n")
 
@@ -628,7 +706,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write("#####################\n")
             f.write("sim:\n")
             f.write(f'    executable: "{self.nekrs_binary}"\n')
-            f.write(f'    arguments: "{lst2cmd(self.get_nekrs_exec_opts())}"\n')
+            f.write(f'    arguments: "{lst2cmd(self.nekrs_exec_opts)}"\n')
             f.write(f'    affinity: "./affinity_nrs.sh"\n')
             if self.client == "smartredis":
                 f.write(
@@ -642,18 +720,18 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write("##################\n")
             f.write("train:\n")
             f.write(
-                f'    executable: "{os.path.join(self.get_gnn_dir(), "main.py")}"\n'
+                f'    executable: "{os.path.join(self.gnn_dir, "main.py")}"\n'
             )
             f.write('    affinity: ""\n')
 
             arg_str = (
                 "    arguments: "
                 '"halo_swap_mode=all_to_all_opt layer_norm=True online=True verbose=True '
-                f"consistency=True target_loss={args['target_loss']} "
-                f"device_skip={self.sim_rpn} time_dependency={args['time_dependency']} "
+                f"consistency=True target_loss={self.target_loss} "
+                f"device_skip={self.sim_rpn} time_dependency={self.time_dependency} "
             )
             if self.client == "smartredis":
-                arg_str += f'client.db_nodes={args["db_nodes"]}" '
+                arg_str += f'client.db_nodes={self.db_nn}" '
             elif self.client == "adios":
                 arg_str += (
                     f"client.backend=adios client.adios_transport={self.current_partition.extras['adios_transport']} "
@@ -670,7 +748,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             self.setup_case_cmd(
                 extra_args=[
                     f"--client {self.client}",
-                    f"--deployment {self.ml_args['deployment']}",
+                    f"--deployment {self.deployment}",
                 ]
             ),
             self.source_cmd(),
@@ -681,7 +759,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
                 f"{self.config_yaml}.reframe",
                 self.config_yaml,
             ]),
-            self.nekrs_cmd(extra_args=[f"--build-only {self.get_sim_ranks()}"]),
+            self.nekrs_cmd(extra_args=[f"--build-only {self.sim_ranks}"]),
         ]
 
     def set_executable_options(self):
