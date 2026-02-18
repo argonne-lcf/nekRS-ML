@@ -8,7 +8,7 @@ from core import CompileOnlyTest, RunOnlyTest
 import os.path
 
 
-def list_to_cmd(l):
+def lst2cmd(l):
     return " ".join(l)
 
 
@@ -215,7 +215,7 @@ class NekRSTest(RunOnlyTest):
         self.executable_opts = self.get_nekrs_exec_opts()
 
     def nekrs_cmd(self, extra_args=[]):
-        return list_to_cmd(
+        return lst2cmd(
             self.get_mpiexec()
             + [str(self.nekrs_binary)]
             + self.get_nekrs_exec_opts()
@@ -318,7 +318,7 @@ class NekRSMLTest(NekRSTest):
         return self.ml_args["nn"] * rpn
 
     def setup_case_cmd(self, extra_args=[]):
-        return list_to_cmd([
+        return lst2cmd([
             os.path.join(Path(self.nekrs_home), "bin", "setup_case"),
             self.current_system.name,
             self.nekrs_home,
@@ -332,7 +332,7 @@ class NekRSMLTest(NekRSTest):
         ])
 
     def source_cmd(self):
-        return list_to_cmd([
+        return lst2cmd([
             "source",
             os.path.join(self.get_venv_path(), "bin", "activate"),
         ])
@@ -371,9 +371,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
     def set_sr_gnn_target_and_input_list(self):
         tlist = f"{self.case_name}_p{self.get_sim_order() * 10}*"
         ilist = f"{self.case_name}_p{self.get_gnn_order() * 10}*"
-        return list_to_cmd([
-            f"target_list=`ls {tlist}`; input_list=`ls {ilist}`"
-        ])
+        return lst2cmd([f"target_list=`ls {tlist}`; input_list=`ls {ilist}`"])
 
     def check_halo_info_cmd(self):
         halo_info = [
@@ -384,10 +382,10 @@ class NekRSMLOfflineTest(NekRSMLTest):
             "--PATH",
             self.get_gnn_output_dir(),
         ]
-        return list_to_cmd(self.get_mpiexec() + halo_info)
+        return lst2cmd(self.get_mpiexec() + halo_info)
 
     def check_input_files_cmd(self):
-        return list_to_cmd([
+        return lst2cmd([
             "python",
             self.get_check_input_files_path(),
             "--REF",
@@ -405,7 +403,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
         cmds = []
         for rank in range(ranks):
             suffix = f"data_rank_{rank}_size_{ranks}"
-            cmd = list_to_cmd([
+            cmd = lst2cmd([
                 "python",
                 self.get_check_input_files_path(),
                 "--REF",
@@ -429,7 +427,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
             f"--input_poly_order {self.get_gnn_order()}",
             f"--n_element_neighbors {self.ml_args['n_element_neighbors']}",
         ]
-        return list_to_cmd(train_sr)
+        return lst2cmd(train_sr)
 
     def set_prerun_cmds(self):
         self.prerun_cmds += [
@@ -452,7 +450,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
             ]
 
     def set_executable_options(self):
-        self.executable = list_to_cmd([
+        self.executable = lst2cmd([
             "python",
             os.path.join(self.get_gnn_dir(), "main.py"),
         ])
@@ -482,7 +480,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
 
         self.postrun_cmds += [
             "export model=${PWD}/`ls saved_models/*.tar`",
-            list_to_cmd([
+            lst2cmd([
                 "python",
                 os.path.join(self.get_gnn_dir(), "postprocess.py"),
                 "--model_path ${model}",
@@ -630,9 +628,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write("#####################\n")
             f.write("sim:\n")
             f.write(f'    executable: "{self.nekrs_binary}"\n')
-            f.write(
-                f'    arguments: "{list_to_cmd(self.get_nekrs_exec_opts())}"\n'
-            )
+            f.write(f'    arguments: "{lst2cmd(self.get_nekrs_exec_opts())}"\n')
             f.write(f'    affinity: "./affinity_nrs.sh"\n')
             if self.client == "smartredis":
                 f.write(
@@ -680,7 +676,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             self.source_cmd(),
             *self.setup_torch_env_vars(),
             *self.setup_adios_env_vars(),
-            list_to_cmd([
+            lst2cmd([
                 "cp",
                 f"{self.config_yaml}.reframe",
                 self.config_yaml,
@@ -690,7 +686,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
 
     def set_executable_options(self):
         self.executable_opts = []
-        self.executable = list_to_cmd(["python", self.driver])
+        self.executable = lst2cmd(["python", self.driver])
 
     @run_before("run")
     def setup_run(self):
