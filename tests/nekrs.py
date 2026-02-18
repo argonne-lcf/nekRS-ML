@@ -1,11 +1,15 @@
 import subprocess
+from pathlib import Path
+import os.path
+
 import reframe as rfm
 import reframe.core.config as config
 import reframe.utility.sanity as sn
-from pathlib import Path
-from functools import cache
 from core import CompileOnlyTest, RunOnlyTest
-import os.path
+
+
+def reframe_dir():
+    return Path(__file__).parent.resolve()
 
 
 def lst2cmd(l):
@@ -130,7 +134,7 @@ class NekRSBuild(CompileOnlyTest):
             "-DENABLE_SMARTREDIS=ON",
             f"-DSMARTREDIS_INSTALL_DIR={self.smartredis_build.install_path}",
             "-DENABLE_ADIOS=ON",
-            "-DPython_ROOT_DIR=${python_root}"
+            "-DPython_ROOT=${python_root}",
             "-DADIOS2_INSTALL_DIR=${adios2_root}",
         ]
 
@@ -139,7 +143,7 @@ class NekRSBuild(CompileOnlyTest):
         ]
         # Update the concurrency from login partition if that exists.
         system = self.current_partition.fullname.split(":")[0]
-        cfg = config.load_config(self.reframe_dir, "sites.py")
+        cfg = config.load_config(os.path.join(reframe_dir(), "sites.py"))
         for sys in cfg["systems"]:
             if sys["name"] == system:
                 for part in sys["partitions"]:
@@ -203,7 +207,6 @@ class NekRSTest(RunOnlyTest):
             f"--cpu-bind=list:{cpu_bind_list}",
         ]
 
-    @cache
     @property
     def nekrs_exec_opts(self):
         backend = self.current_partition.extras["occa_backend"]
@@ -213,10 +216,9 @@ class NekRSTest(RunOnlyTest):
             "--device-id 0",
         ]
 
-    @cache
     @property
     def nekrs_exec_cmd(self):
-        return f"./{self.current_system.name}_nrs.sh {self.nekrs_binary}"
+        return [f"./{self.current_system.name}_nrs.sh {self.nekrs_binary}"]
 
     def set_executable_options(self):
         self.executable = self.nekrs_exec_cmd
@@ -231,7 +233,6 @@ class NekRSTest(RunOnlyTest):
             + extra_args
         )
 
-    @cache
     @property
     def gnn_dir(self):
         return os.path.join(
@@ -273,37 +274,30 @@ class NekRSMLTest(NekRSTest):
             self.ml_args["time_dependency"],
         }
 
-    @cache
     @property
     def time_dependency(self):
         return self.ml_args["time_dependency"]
 
-    @cache
     @property
     def target_loss(self):
         return self.ml_args["target_loss"]
 
-    @cache
     @property
     def model(self):
         return self.ml_args["model"]
 
-    @cache
     @property
     def deployment(self):
         return self.ml_args["deployment"]
 
-    @cache
     @property
     def nn(self):
         return self.ml_args["nn"]
 
-    @cache
     @property
     def rpn(self):
         return self.num_tasks_per_node
 
-    @cache
     @property
     def mpiexec(self):
         return self.job.launcher.command(self.job) + self.job.launcher.options
@@ -315,81 +309,70 @@ class NekRSMLTest(NekRSTest):
             raise ValueError(f"Expected pattern '{p}' not found in {pf}")
         return int(txt.stdout.split()[2])
 
-    @cache
     @property
     def gnn_order(self):
         return self.order("gnnPolynomialOrder")
 
-    @cache
     @property
     def sim_order(self):
         return self.order("polynomialOrder")
 
-    @cache
     @property
     def ml_rpn(self):
         return int(self.rpn / 2) if self.deployment == "colocated" else self.rpn
 
-    @cache
     @property
     def sim_rpn(self):
         return self.rpn - self.ml_rpn
 
-    @cache
     @property
     def db_rpn(self):
         return len(self.db_cpu_ids.split(","))
 
-    @cache
     @property
     def ml_nn(self):
         return self.nn if self.deployment == "colocated" else int(self.nn / 2)
 
-    @cache
     @property
     def sim_nn(self):
-        return self.nn - self.ml_nn
+        return (
+            self.nn
+            if self.deployment == "colocated"
+            else (self.nn - self.ml_nn)
+        )
 
-    @cache
     @property
     def db_nn(self):
-        self.ml_args["db_nodes"]
+        return self.ml_args["db_nodes"]
 
-    @cache
     @property
     def sim_ranks(self):
         return self.sim_nn * self.sim_rpn
 
-    @cache
     @property
     def ml_ranks(self):
         return self.ml_nn * self.ml_rpn
 
-    @cache
     @property
     def sim_cpu_ids(self):
         return self.current_partition.extras["cpu_bind_list"].split(":")[
             : self.sim_rpn
         ]
 
-    @cache
     @property
     def ml_cpu_ids(self):
         return self.current_partition.extras["cpu_bind_list"].split(":")[
             self.sim_rpn :
         ]
 
-    @cache
     @property
     def db_cpu_ids(self):
         return self.current_partition.extras["db_bind_list"]
 
-    @cache
     @property
     def venv_path(self):
         return os.path.join(self.stagedir, "_env")
 
-    @cache
     @property
     def system(self):
         return self.current_system.name
@@ -419,9 +402,13 @@ class NekRSMLTest(NekRSTest):
         super().setup_run()
         self.set_scheduler_options()
         self.prerun_cmds += [
-            "cp",
-            os.path.join(self.reframe_dir, "affinity", f"{self.system}_nrs.sh"),
-            os.path.join(self.stagedir, f"{self.system}_nrs.sh"),
+            lst2cmd([
+                "cp",
+                os.path.join(
+                    reframe_dir(), "affinity", f"{self.system}_nrs.sh"
+                ),
+                self.stagedir,
+            ])
         ]
 
 
@@ -430,29 +417,24 @@ class NekRSMLOfflineTest(NekRSMLTest):
         kwargs["test_type"] = "offline"
         super().__init__(**kwargs)
 
-    @cache
     @property
     def gnn_output_dir(self):
         return os.path.join(self.stagedir, f"gnn_outputs_poly_{self.gnn_order}")
 
-    @cache
     @property
     def check_input_files_py(self):
         return os.path.join(self.gnn_dir, "check_input_files.py")
 
-    @cache
-    @properties
+    @property
     def traj_root(self):
         return os.path.join(
             f"traj_poly_{self.gnn_order}", "tinit_0.000000_dtfactor_10"
         )
 
-    @cache
-    @properties
+    @property
     def traj_dir(self):
         return os.path.join(self.stagedir, self.traj_root)
 
-    @cache
     def set_sr_gnn_target_and_input_list(self):
         tlist = f"{self.case_name}_p{self.sim_order * 10}*"
         ilist = f"{self.case_name}_p{self.gnn_order * 10}*"
@@ -619,27 +601,22 @@ class NekRSMLOnlineTest(NekRSMLTest):
         super().__init__(**kwargs)
 
     @property
-    @cache
     def experiment_name(self):
         return f"NekRS-ML-{self.case_name}"
 
     @property
-    @cache
     def client(self):
         return self.ml_args["client"]
 
     @property
-    @cache
     def client_prefix(self):
         return "ssim_" if self.client == "smartredis" else ""
 
     @property
-    @cache
     def driver(self):
         return os.path.join(self.stagedir, self.client_prefix + "driver.py")
 
     @property
-    @cache
     def config_yaml(self):
         return os.path.join(self.stagedir, self.client_prefix + "config.yaml")
 
@@ -684,7 +661,9 @@ class NekRSMLOnlineTest(NekRSMLTest):
                 f.write(f'deployment: "{self.deployment}"\n')
             f.write("\n")
 
-            f.write("# Run config\n")
+            f.write("##############\n")
+            f.write("# Run config #\n")
+            f.write("##############\n")
             f.write("run_args:\n")
             f.write(f"    nodes: {self.nn}\n")
             f.write(f"    sim_nodes: {self.sim_nn}\n")
@@ -698,7 +677,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             if self.client == "smartredis":
                 f.write(f"    db_nodes: {self.db_nn}\n")
                 f.write(f"    dbprocs_pn: {self.db_rpn}\n")
-                f.write(f"    db_cpu_bind: [{db_bind_list}]\n")
+                f.write(f"    db_cpu_bind: [{self.db_cpu_ids}]\n")
             f.write("\n")
 
             f.write("#####################\n")
