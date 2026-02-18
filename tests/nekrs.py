@@ -134,9 +134,7 @@ class NekRSBuild(CompileOnlyTest):
         ]
         # Update the concurrency from login partition if that exists.
         system = self.current_partition.fullname.split(":")[0]
-        cfg = config.load_config(
-            os.path.join(Path(__file__).parent.resolve(), "sites.py")
-        )
+        cfg = config.load_config(self.reframe_dir, "sites.py")
         for sys in cfg["systems"]:
             if sys["name"] == system:
                 for part in sys["partitions"]:
@@ -200,7 +198,9 @@ class NekRSTest(RunOnlyTest):
             f"--cpu-bind=list:{cpu_bind_list}",
         ]
 
-    def get_nekrs_exec_opts(self):
+    @cache
+    @property
+    def nekrs_exec_opts(self):
         backend = self.current_partition.extras["occa_backend"]
         return [
             f"--setup {self.case_name}",
@@ -208,19 +208,27 @@ class NekRSTest(RunOnlyTest):
             "--device-id 0",
         ]
 
+    @cache
+    @property
+    def nekrs_exec_cmd(self):
+        return f"./{self.current_system.name}_nrs.sh {self.nekrs_binary}"
+
     def set_executable_options(self):
-        self.executable = f"{self.nekrs_binary}"
-        self.executable_opts = self.get_nekrs_exec_opts()
+        self.executable = self.nekrs_exec_cmd
+        self.executable_opts = self.nekrs_exec_opts
 
     def nekrs_cmd(self, extra_args=[]):
         return lst2cmd(
             self.mpiexec
-            + [str(self.nekrs_binary)]
-            + self.get_nekrs_exec_opts()
+            + ["--"]
+            + self.nekrs_exec_cmd
+            + self.nekrs_exec_opts
             + extra_args
         )
 
-    def get_gnn_dir(self):
+    @cache
+    @property
+    def gnn_dir(self):
         return os.path.join(
             self.nekrs_home, "3rd_party", "gnn", self.ml_args["model"]
         )
@@ -272,6 +280,11 @@ class NekRSMLTest(NekRSTest):
 
     @cache
     @property
+    def model(self):
+        return self.ml_args["model"]
+
+    @cache
+    @property
     def deployment(self):
         return self.ml_args["deployment"]
 
@@ -283,7 +296,7 @@ class NekRSMLTest(NekRSTest):
     @cache
     @property
     def rpn(self):
-        return self.ml_args["rpn"]
+        return self.num_tasks_per_node
 
     @cache
     @property
@@ -371,6 +384,11 @@ class NekRSMLTest(NekRSTest):
     def venv_path(self):
         return os.path.join(self.stagedir, "_env")
 
+    @cache
+    @property
+    def system(self):
+        return self.current_system.name
+
     def setup_case_cmd(self, extra_args=[]):
         return lst2cmd([
             os.path.join(Path(self.nekrs_home), "bin", "setup_case"),
@@ -379,9 +397,9 @@ class NekRSMLTest(NekRSTest):
             "--venv_path",
             self.venv_path,
             "--nodes",
-            str(self.ml_args["nn"]),
+            str(self.nn),
             "--model",
-            str(self.ml_args["model"]),
+            str(self.model),
             *extra_args,
         ])
 
@@ -395,7 +413,11 @@ class NekRSMLTest(NekRSTest):
     def setup_run(self):
         super().setup_run()
         self.set_scheduler_options()
-        self.ml_args["rpn"] = self.rpn
+        self.prerun_cmds += [
+            "cp",
+            os.path.join(self.reframe_dir, "affinity", f"{self.system}_nrs.sh"),
+            os.path.join(self.stagedir, f"{self.system}_nrs.sh"),
+        ]
 
 
 class NekRSMLOfflineTest(NekRSMLTest):
@@ -404,22 +426,26 @@ class NekRSMLOfflineTest(NekRSMLTest):
         super().__init__(**kwargs)
 
     @cache
-    def get_gnn_output_dir(self):
-        order = self.gnn_order
-        return os.path.join(self.stagedir, f"gnn_outputs_poly_{order}")
+    @property
+    def gnn_output_dir(self):
+        return os.path.join(self.stagedir, f"gnn_outputs_poly_{self.gnn_order}")
 
     @cache
-    def get_check_input_files_path(self):
-        return os.path.join(self.get_gnn_dir(), "check_input_files.py")
+    @property
+    def check_input_files_py(self):
+        return os.path.join(self.gnn_dir, "check_input_files.py")
 
     @cache
-    def get_traj_root(self):
-        order = self.gnn_order
-        return os.path.join(f"traj_poly_{order}", "tinit_0.000000_dtfactor_10")
+    @properties
+    def traj_root(self):
+        return os.path.join(
+            f"traj_poly_{self.gnn_order}", "tinit_0.000000_dtfactor_10"
+        )
 
     @cache
-    def get_traj_dir(self):
-        return os.path.join(self.stagedir, self.get_traj_root())
+    @properties
+    def traj_dir(self):
+        return os.path.join(self.stagedir, self.traj_root)
 
     @cache
     def set_sr_gnn_target_and_input_list(self):
@@ -428,60 +454,57 @@ class NekRSMLOfflineTest(NekRSMLTest):
         return lst2cmd([f"target_list=`ls {tlist}`; input_list=`ls {ilist}`"])
 
     def check_halo_info_cmd(self):
-        halo_info = [
-            "python",
-            os.path.join(self.get_gnn_dir(), "create_halo_info_par.py"),
-            "--POLY",
-            str(self.gnn_order),
-            "--PATH",
-            self.get_gnn_output_dir(),
-        ]
-        return lst2cmd(self.mpiexec + halo_info)
+        return lst2cmd(
+            self.mpiexec
+            + [
+                "python",
+                os.path.join(self.gnn_dir, "create_halo_info_par.py"),
+                "--POLY",
+                str(self.gnn_order),
+                "--PATH",
+                self.gnn_output_dir,
+            ]
+        )
 
     def check_input_files_cmd(self):
         return lst2cmd([
             "python",
-            self.get_check_input_files_path(),
+            self.check_input_files_py,
             "--REF",
             os.path.join(self.sourcesdir, "ref"),
             "--PATH",
-            self.get_gnn_output_dir(),
+            self.gnn_output_dir,
         ])
 
     def check_traj_cmd(self):
-        # Return if the case is not a `traj` case.
-        if self.ml_args["time_dependency"] != "time_dependent":
-            return []
-
-        ranks = self.sim_ranks
         cmds = []
-        for rank in range(ranks):
-            suffix = f"data_rank_{rank}_size_{ranks}"
-            cmd = lst2cmd([
-                "python",
-                self.get_check_input_files_path(),
-                "--REF",
-                os.path.join(
-                    self.sourcesdir, "ref", self.get_traj_root(), suffix
-                ),
-                "--PATH",
-                os.path.join(self.get_traj_dir(), suffix),
-            ])
-            cmds.append(cmd)
+        if self.time_dependency == "time_dependent":
+            for rank in range(self.sim_ranks):
+                suffix = f"data_rank_{rank}_size_{self.sim_ranks}"
+                cmd = lst2cmd([
+                    "python",
+                    self.check_input_files_py,
+                    "--REF",
+                    os.path.join(
+                        self.sourcesdir, "ref", self.traj_root, suffix
+                    ),
+                    "--PATH",
+                    os.path.join(self.traj_dir, suffix),
+                ])
+                cmds.append(cmd)
         return cmds
 
     def generate_sr_gnn_data_cmd(self):
-        train_sr = [
+        return lst2cmd([
             "python",
-            os.path.join(self.get_gnn_dir(), "nek_to_pt.py"),
+            os.path.join(self.gnn_dir, "nek_to_pt.py"),
             f"--case_path {self.stagedir}",
             "--target_snap_list ${target_list}",
             "--input_snap_list ${input_list}",
             f"--target_poly_order {self.sim_order}",
             f"--input_poly_order {self.gnn_order}",
             f"--n_element_neighbors {self.ml_args['n_element_neighbors']}",
-        ]
-        return lst2cmd(train_sr)
+        ])
 
     def set_prerun_cmds(self):
         self.prerun_cmds += [
@@ -506,7 +529,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
     def set_executable_options(self):
         self.executable = lst2cmd([
             "python",
-            os.path.join(self.get_gnn_dir(), "main.py"),
+            os.path.join(self.gnn_dir, "main.py"),
         ])
 
         args = self.ml_args
@@ -514,8 +537,8 @@ class NekRSMLOfflineTest(NekRSMLTest):
             self.executable_opts = [
                 "halo_swap_mode=all_to_all_opt",
                 "layer_norm=True",
-                f"gnn_outputs_path={self.get_gnn_output_dir()}",
-                f"traj_data_path={self.get_traj_dir()}",
+                f"gnn_outputs_path={self.gnn_output_dir}",
+                f"traj_data_path={self.traj_dir}",
                 f"target_loss={args['target_loss']}",
                 f"time_dependency={args['time_dependency']}",
             ]
@@ -536,7 +559,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
             "export model=${PWD}/`ls saved_models/*.tar`",
             lst2cmd([
                 "python",
-                os.path.join(self.get_gnn_dir(), "postprocess.py"),
+                os.path.join(self.gnn_dir, "postprocess.py"),
                 "--model_path ${model}",
                 f"--case_path {self.stagedir}",
                 f"--output_name {self.case_name}",
@@ -678,7 +701,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write("#####################\n")
             f.write("sim:\n")
             f.write(f'    executable: "{self.nekrs_binary}"\n')
-            f.write(f'    arguments: "{lst2cmd(self.get_nekrs_exec_opts())}"\n')
+            f.write(f'    arguments: "{lst2cmd(self.nekrs_exec_opts)}"\n')
             f.write(f'    affinity: "./affinity_nrs.sh"\n')
             if self.client == "smartredis":
                 f.write(
@@ -692,7 +715,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write("##################\n")
             f.write("train:\n")
             f.write(
-                f'    executable: "{os.path.join(self.get_gnn_dir(), "main.py")}"\n'
+                f'    executable: "{os.path.join(self.gnn_dir, "main.py")}"\n'
             )
             f.write('    affinity: ""\n')
 
