@@ -140,7 +140,6 @@ def infer(cfg: DictConfig,
         
         # Undo scaling
         pred = pred * stats['x_std'] + stats['x_mean']
-        log.info(f"Normalization stats: mean = {stats['x_mean']}, std = {stats['x_std']}")
 
         # Postprocess the data
         if cfg.postprocess:

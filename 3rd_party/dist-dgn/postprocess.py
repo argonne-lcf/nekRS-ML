@@ -6,10 +6,12 @@ import argparse
 import re
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.tri as tri
 
 def plot_2d_field(comm, pos: np.ndarray, field: np.ndarray, filename: str):
     """
-    Plot a 2D field (useful for the ext_cyl example)
+    Plot a 2D field as filled contours (useful for the ext_cyl example).
+    Uses Delaunay triangulation on the unstructured mesh points.
     """
     size = comm.Get_size()
     rank = comm.Get_rank()
@@ -24,26 +26,48 @@ def plot_2d_field(comm, pos: np.ndarray, field: np.ndarray, filename: str):
         global_field = field
 
     if rank == 0:
-        # sample pos and field at min_z
-        min_z = np.amin(global_pos[:,2]); max_z = np.amax(global_pos[:,2])
-        #print(f"Min z: {min_z}, Max z: {max_z}", flush=True)
-        indices = np.where(global_pos[:, 2] <= (min_z+1.0e-6))[0]
-        #print(f"Number of indeces to plot: {len(indices)}", flush=True)
-        #field_sampled = field[indices]
-        #pos_sampled = pos[indices]
-        field_sampled = global_field
-        pos_sampled = global_pos
+        # Sample pos and field at the min-z plane
+        min_z = np.amin(global_pos[:, 2])
+        indices = np.where(global_pos[:, 2] <= (min_z + 1.0e-6))[0]
+        field_sampled = global_field[indices]
+        pos_sampled = global_pos[indices]
 
-        # scatter plot of the field (x, y, z velocities) in subplots
+        x = pos_sampled[:, 0]
+        y = pos_sampled[:, 1]
+
+        # Build Delaunay triangulation and mask out large triangles (e.g. across the cylinder hole)
+        triang = tri.Triangulation(x, y)
+        # Compute characteristic edge length per triangle and mask outliers
+        triangles = triang.triangles
+        xt = x[triangles]  # (ntri, 3)
+        yt = y[triangles]
+        # Edge lengths squared for each triangle's three edges
+        d01 = (xt[:, 0] - xt[:, 1])**2 + (yt[:, 0] - yt[:, 1])**2
+        d12 = (xt[:, 1] - xt[:, 2])**2 + (yt[:, 1] - yt[:, 2])**2
+        d20 = (xt[:, 2] - xt[:, 0])**2 + (yt[:, 2] - yt[:, 0])**2
+        max_edge2 = np.maximum(np.maximum(d01, d12), d20)
+        # Mask triangles whose longest edge exceeds 4x the median edge length
+        median_edge2 = np.median(max_edge2)
+        triang.set_mask(max_edge2 > 16.0 * median_edge2)
+
+        # Contour plot of each velocity component
         n_vars = field_sampled.shape[1]
-        fig, axs = plt.subplots(n_vars, 1, figsize=(10, 10))
+        fig, axs = plt.subplots(n_vars, 1, figsize=(14, 4 * n_vars))
+        if n_vars == 1:
+            axs = [axs]
         titles = ['x velocity', 'y velocity', 'z velocity']
+        n_levels = 64
         for i, ax in enumerate(axs):
-            sc = ax.scatter(pos_sampled[:,0], pos_sampled[:, 1], 
-                            c=field_sampled[:,i], cmap='viridis', s=1.2)
+            vmin = np.percentile(field_sampled[:, i], 1)
+            vmax = np.percentile(field_sampled[:, i], 99)
+            levels = np.linspace(vmin, vmax, n_levels)
+            tc = ax.tricontourf(triang, field_sampled[:, i], levels=levels,
+                                cmap='RdBu_r', extend='both')
+            fig.colorbar(tc, ax=ax, shrink=0.8)
             ax.set_title(titles[i])
-            fig.colorbar(sc, ax=ax)
-        plt.savefig(filename)
+            ax.set_aspect('equal')
+        plt.tight_layout()
+        plt.savefig(filename, dpi=200)
         plt.close()
 
 def plot_training_loss(log_file: str):
