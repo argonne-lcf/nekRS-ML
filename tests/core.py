@@ -302,7 +302,3 @@ class RunOnlyTest(rfm.RunOnlyRegressionTest):
     @property
     def job_exit_code(self):
         return self._current_partition.scheduler._query_exit_code(self.job)
-
-    @property
-    def reframe_dir(self):
-        return Path(__file__).parent.resolve()
