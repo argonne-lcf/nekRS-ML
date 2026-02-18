@@ -283,6 +283,20 @@ class NekRSMLTest(NekRSTest):
         return self.ml_args["rpn"] - self.ml_rpn
 
     @cache
+    @property
+    def sim_cpu_ids(self):
+        return self.current_partition.extras["cpu_bind_list"].split(":")[
+            : self.sim_rpn
+        ]
+
+    @cache
+    @property
+    def ml_cpu_ids(self):
+        return self.current_partition.extras["cpu_bind_list"].split(":")[
+            self.sim_rpn :
+        ]
+
+    @cache
     def get_gnn_order(self):
         return self.get_order("gnnPolynomialOrder")
 
@@ -546,16 +560,12 @@ class NekRSMLOnlineTest(NekRSMLTest):
         ]
 
     def create_traj_config(self):
+        # FIXME: This only works for colocated, not clustered.
         args = self.ml_args
 
-        # FIXME: This only works for colocated, not clustered.
         case, client = args["case"], args["client"]
-
         db_bind_list = self.current_partition.extras["db_bind_list"]
         db_rpn = len(db_bind_list.split(","))
-
-        ids = self.current_partition.extras["cpu_bind_list"].split(":")
-        sim_ids, ml_ids = ids[: self.sim_rpn], ids[self.sim_rpn :]
 
         self.base_yml = (
             "ssim_config.yaml" if client == "smartredis" else "config.yaml"
@@ -591,11 +601,11 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write(f"    sim_nodes: {args['sim_nodes']}\n")
             f.write(f"    simprocs: {args['sim_nodes'] * self.sim_rpn}\n")
             f.write(f"    simprocs_pn: {self.sim_rpn}\n")
-            f.write(f'    sim_cpu_bind: "list:{":".join(sim_ids)}"\n')
+            f.write(f'    sim_cpu_bind: "list:{":".join(self.sim_cpu_ids)}"\n')
             f.write(f"    ml_nodes: {args['sim_nodes']}\n")
             f.write(f"    mlprocs: {args['train_nodes'] * self.ml_rpn}\n")
             f.write(f"    mlprocs_pn: {self.ml_rpn}\n")
-            f.write(f'    ml_cpu_bind: "list:{":".join(ml_ids)}"\n')
+            f.write(f'    ml_cpu_bind: "list:{":".join(self.ml_cpu_ids)}"\n')
             if client == "smartredis":
                 f.write(f"    db_nodes: {args['db_nodes']}\n")
                 f.write(f"    dbprocs_pn: {db_rpn}\n")
