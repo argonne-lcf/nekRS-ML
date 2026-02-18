@@ -243,8 +243,7 @@ class NekRSTest(RunOnlyTest):
 
 class NekRSMLTest(NekRSTest):
     def __init__(self, **args):
-        required_args = ["case", "directory", "nn", "rpn", "time_dependency"]
-        for arg in required_args:
+        for arg in ["case", "directory", "nn", "rpn", "time_dependency"]:
             if arg not in args:
                 raise KeyError(f"Required kwarg {arg} was not found.")
 
@@ -267,9 +266,10 @@ class NekRSMLTest(NekRSTest):
         return self.job.launcher.command(self.job) + self.job.launcher.options
 
     def get_order(self, p):
-        txt = grep(p, os.path.join(self.sourcesdir, f"{self.case_name}.par"))
+        pf = f"{self.case_name}.par"
+        txt = grep(p, os.path.join(self.sourcesdir, pf))
         if txt is None:
-            raise ValueError(f"Expected pattern '{pattern}' not found in {pf}")
+            raise ValueError(f"Expected pattern '{p}' not found in {pf}")
         return int(txt.stdout.split()[2])
 
     @cache
