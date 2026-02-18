@@ -273,6 +273,16 @@ class NekRSMLTest(NekRSTest):
         return int(txt.stdout.split()[2])
 
     @cache
+    @property
+    def ml_rpn(self):
+        return int(self.ml_args["rpn"] / 2)
+
+    @cache
+    @property
+    def sim_rpn(self):
+        return self.ml_args["rpn"] - self.ml_rpn
+
+    @cache
     def get_gnn_order(self):
         return self.get_order("gnnPolynomialOrder")
 
@@ -539,14 +549,13 @@ class NekRSMLOnlineTest(NekRSMLTest):
         args = self.ml_args
 
         # FIXME: This only works for colocated, not clustered.
-        case, rpn, client = args["case"], int(args["rpn"]), args["client"]
-        ml_rpn, sim_rpn = int(rpn / 2), rpn - int(rpn / 2)
+        case, client = args["case"], args["client"]
 
         db_bind_list = self.current_partition.extras["db_bind_list"]
         db_rpn = len(db_bind_list.split(","))
 
         ids = self.current_partition.extras["cpu_bind_list"].split(":")
-        sim_ids, ml_ids = ids[:sim_rpn], ids[sim_rpn:]
+        sim_ids, ml_ids = ids[: self.sim_rpn], ids[self.sim_rpn :]
 
         self.base_yml = (
             "ssim_config.yaml" if client == "smartredis" else "config.yaml"
@@ -580,12 +589,12 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write("run_args:\n")
             f.write(f"    nodes: {args['nn']}\n")
             f.write(f"    sim_nodes: {args['sim_nodes']}\n")
-            f.write(f"    simprocs: {args['sim_nodes'] * sim_rpn}\n")
-            f.write(f"    simprocs_pn: {sim_rpn}\n")
+            f.write(f"    simprocs: {args['sim_nodes'] * self.sim_rpn}\n")
+            f.write(f"    simprocs_pn: {self.sim_rpn}\n")
             f.write(f'    sim_cpu_bind: "list:{":".join(sim_ids)}"\n')
             f.write(f"    ml_nodes: {args['sim_nodes']}\n")
-            f.write(f"    mlprocs: {args['train_nodes'] * ml_rpn}\n")
-            f.write(f"    mlprocs_pn: {ml_rpn}\n")
+            f.write(f"    mlprocs: {args['train_nodes'] * self.ml_rpn}\n")
+            f.write(f"    mlprocs_pn: {self.ml_rpn}\n")
             f.write(f'    ml_cpu_bind: "list:{":".join(ml_ids)}"\n')
             if client == "smartredis":
                 f.write(f"    db_nodes: {args['db_nodes']}\n")
@@ -622,7 +631,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
                 "    arguments: "
                 '"halo_swap_mode=all_to_all_opt layer_norm=True online=True verbose=True '
                 f"consistency=True target_loss={args['target_loss']} "
-                f"device_skip={sim_rpn} time_dependency={args['time_dependency']} "
+                f"device_skip={self.sim_rpn} time_dependency={args['time_dependency']} "
             )
             if client == "smartredis":
                 arg_str += f'client.db_nodes={args["db_nodes"]}" '
