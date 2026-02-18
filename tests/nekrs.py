@@ -169,20 +169,20 @@ class NekRSTest(RunOnlyTest):
     nekrs_build = fixture(NekRSBuild, scope="environment")
 
     def __init__(self, case, directory, nn, rpn):
-        self.nekrs_case_name = case
-        self.nekrs_case_dir = directory
+        self.case_name = case
+        self.case_dir = directory
 
         super().__init__(nn, rpn)
         self.descr = "NekRS test"
         self.maintainers = ["kris.rowe@anl.gov"]
-        self.readonly_files = [f"{self.nekrs_case_name}.re2"]
+        self.readonly_files = [f"{self.case_name}.re2"]
 
     @run_after("setup")
     def set_paths_exec(self):
         self.nekrs_home = os.path.realpath(self.nekrs_build.install_path)
         self.nekrs_binary = os.path.join(self.nekrs_build.binary_path, "nekrs")
         self.sourcesdir = os.path.join(
-            self.nekrs_build.install_path, "examples", self.nekrs_case_dir
+            self.nekrs_build.install_path, "examples", self.case_dir
         )
 
     def set_environment(self):
@@ -204,7 +204,7 @@ class NekRSTest(RunOnlyTest):
     def get_nekrs_exec_opts(self):
         backend = self.current_partition.extras["occa_backend"]
         return [
-            f"--setup {self.nekrs_case_name}",
+            f"--setup {self.case_name}",
             f"--backend {backend}",
             "--device-id 0",
         ]
@@ -266,9 +266,8 @@ class NekRSMLTest(NekRSTest):
     def get_mpiexec(self):
         return self.job.launcher.command(self.job) + self.job.launcher.options
 
-    def get_order(self, pattern):
-        pf = os.path.join(self.sourcesdir, f"{self.nekrs_case_name}.par")
-        txt = grep(pattern, pf)
+    def get_order(self, p):
+        txt = grep(p, os.path.join(self.sourcesdir, f"{self.case_name}.par"))
         if txt is None:
             raise ValueError(f"Expected pattern '{pattern}' not found in {pf}")
         return int(txt.stdout.split()[2])
@@ -345,8 +344,8 @@ class NekRSMLOfflineTest(NekRSMLTest):
 
     @cache
     def set_sr_gnn_target_and_input_list(self):
-        tlist = f"{self.nekrs_case_name}_p{self.get_sim_order() * 10}*"
-        ilist = f"{self.nekrs_case_name}_p{self.get_gnn_order() * 10}*"
+        tlist = f"{self.case_name}_p{self.get_sim_order() * 10}*"
+        ilist = f"{self.case_name}_p{self.get_gnn_order() * 10}*"
         return list_to_cmd([
             f"target_list=`ls {tlist}`; input_list=`ls {ilist}`"
         ])
@@ -463,11 +462,11 @@ class NekRSMLOfflineTest(NekRSMLTest):
                 os.path.join(self.get_gnn_dir(), "postprocess.py"),
                 "--model_path ${model}",
                 f"--case_path {self.stagedir}",
-                f"--output_name {self.nekrs_case_name}",
+                f"--output_name {self.case_name}",
                 f"--target_snap_list",
-                f"{self.nekrs_case_name}_p{self.get_sim_order() * 10}.f00000",
+                f"{self.case_name}_p{self.get_sim_order() * 10}.f00000",
                 f"--input_snap_list",
-                f"{self.nekrs_case_name}_p{self.get_gnn_order() * 10}.f00000",
+                f"{self.case_name}_p{self.get_gnn_order() * 10}.f00000",
                 f"--target_poly_order {self.get_sim_order()}",
                 f"--input_poly_order {self.get_gnn_order()}",
                 f"--n_element_neighbors {self.ml_args['n_element_neighbors']}",
@@ -514,7 +513,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
         # deployment must be colocated or clustered for online cases.
         kwargs["test_type"] = "online"
         super().__init__(**kwargs)
-        self.nekrs_ml_experiment = f"NekRS-ML-{self.nekrs_case_name}"
+        self.nekrs_ml_experiment = f"NekRS-ML-{self.case_name}"
 
     def setup_torch_env_vars(self):
         return [
