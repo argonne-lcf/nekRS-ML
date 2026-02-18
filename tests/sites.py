@@ -48,7 +48,6 @@ site_configuration = {
                         "ranks_per_node": 12,
                         "cpu_bind_list": "1:8:16:24:32:40:53:60:68:76:84:92",
                         "db_bind_list": "100,101,102,103",
-                        "gpu_bind_list": "0:1:2:3:4:5:6:7:8:9:10:11",
                         "occa_backend": "DPCPP",
                         "adios_transport": "WAN",
                     },

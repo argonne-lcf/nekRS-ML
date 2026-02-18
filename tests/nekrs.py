@@ -201,31 +201,23 @@ class NekRSTest(RunOnlyTest):
             f"--cpu-bind=list:{cpu_bind_list}",
         ]
 
-        if "gpu_bind_list" in self.current_partition.extras:
-            gpu_bind_list = self.current_partition.extras["gpu_bind_list"]
-            self.job.launcher.options += [f"--gpu-bind=list:{gpu_bind_list}"]
-
-    def get_nekrs_executable_options(self, zero_dev_flag=False):
+    def get_nekrs_exec_opts(self):
         backend = self.current_partition.extras["occa_backend"]
-        exec_opts = [
+        return [
             f"--setup {self.nekrs_case_name}",
             f"--backend {backend}",
+            "--device-id 0",
         ]
-
-        if ("gpu_bind_list" in self.current_partition.extras) or zero_dev_flag:
-            exec_opts += ["--device-id 0"]
-
-        return exec_opts
 
     def set_executable_options(self):
         self.executable = f"{self.nekrs_binary}"
-        self.executable_opts = self.get_nekrs_executable_options()
+        self.executable_opts = self.get_nekrs_exec_opts()
 
     def nekrs_cmd(self, extra_args=[]):
         return list_to_cmd(
             self.get_mpiexec()
             + [str(self.nekrs_binary)]
-            + self.get_nekrs_executable_options()
+            + self.get_nekrs_exec_opts()
             + extra_args
         )
 
@@ -604,7 +596,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write("sim:\n")
             f.write(f'    executable: "{self.nekrs_binary}"\n')
             f.write(
-                f'    arguments: "{list_to_cmd(self.get_nekrs_executable_options(zero_dev_flag=True))}"\n'
+                f'    arguments: "{list_to_cmd(self.get_nekrs_exec_opts())}"\n'
             )
             f.write(f'    affinity: "./affinity_nrs.sh"\n')
             if client == "smartredis":
