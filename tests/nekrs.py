@@ -62,6 +62,7 @@ def validate_args(args):
             )
 
     if args["test_type"] == "online":
+        # deployment must be colocated or clustered for online cases.
         validate_value("deployment", ["colocated", "clustered"])
     else:
         validate_value("deployment", ["clustered", "colocated", "offline"])
@@ -534,7 +535,6 @@ class NekRSMLOfflineTest(NekRSMLTest):
 
 class NekRSMLOnlineTest(NekRSMLTest):
     def __init__(self, **kwargs):
-        # deployment must be colocated or clustered for online cases.
         kwargs["test_type"] = "online"
         super().__init__(**kwargs)
 
@@ -542,6 +542,26 @@ class NekRSMLOnlineTest(NekRSMLTest):
     @cache
     def experiment_name(self):
         return f"NekRS-ML-{self.case_name}"
+
+    @property
+    @cache
+    def client(self):
+        return self.ml_args["client"]
+
+    @property
+    @cache
+    def client_prefix(self):
+        return "ssim_" if self.client == "smartredis" else ""
+
+    @property
+    @cache
+    def driver(self):
+        return os.path.join(self.stagedir, self.client_prefix + "driver.py")
+
+    @property
+    @cache
+    def config_yaml(self):
+        return os.path.join(self.stagedir, self.client_prefix + "config.yaml")
 
     def setup_torch_env_vars(self):
         return [
@@ -561,18 +581,11 @@ class NekRSMLOnlineTest(NekRSMLTest):
 
     def create_traj_config(self):
         # FIXME: This only works for colocated, not clustered.
-        args = self.ml_args
-
-        case, client = args["case"], args["client"]
         db_bind_list = self.current_partition.extras["db_bind_list"]
         db_rpn = len(db_bind_list.split(","))
 
-        self.base_yml = (
-            "ssim_config.yaml" if client == "smartredis" else "config.yaml"
-        )
-        yml = os.path.join(self.stagedir, self.base_yml + ".reframe")
-        with open(yml, "w") as f:
-            if client == "smartredis":
+        with open(f"{self.config_yaml}.reframe", "w") as f:
+            if self.client == "smartredis":
                 f.write("###################\n")
                 f.write("# Database config #\n")
                 f.write("###################\n")
@@ -585,7 +598,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
                 f.write("    port: 6782\n")
                 f.write('    network_interface: "uds"\n')
                 f.write('    launcher: "pals"\n')
-            elif client == "adios":
+            elif self.client == "adios":
                 f.write("###################\n")
                 f.write("# Workflow config #\n")
                 f.write("###################\n")
@@ -606,7 +619,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write(f"    mlprocs: {args['train_nodes'] * self.ml_rpn}\n")
             f.write(f"    mlprocs_pn: {self.ml_rpn}\n")
             f.write(f'    ml_cpu_bind: "list:{":".join(self.ml_cpu_ids)}"\n')
-            if client == "smartredis":
+            if self.client == "smartredis":
                 f.write(f"    db_nodes: {args['db_nodes']}\n")
                 f.write(f"    dbprocs_pn: {db_rpn}\n")
                 f.write(f"    db_cpu_bind: [{db_bind_list}]\n")
@@ -621,9 +634,9 @@ class NekRSMLOnlineTest(NekRSMLTest):
                 f'    arguments: "{list_to_cmd(self.get_nekrs_exec_opts())}"\n'
             )
             f.write(f'    affinity: "./affinity_nrs.sh"\n')
-            if client == "smartredis":
+            if self.client == "smartredis":
                 f.write(
-                    f'    copy_files: ["./{case}.usr","./{case}.par","./{case}.udf","./{case}.re2"]\n'
+                    f'    copy_files: ["./{self.case_name}.usr","./{self.case_name}.par","./{self.case_name}.udf","./{self.case_name}.re2"]\n'
                 )
                 f.write('    link_files: ["./affinity_nrs.sh", ".cache"]\n')
             f.write("\n")
@@ -643,16 +656,16 @@ class NekRSMLOnlineTest(NekRSMLTest):
                 f"consistency=True target_loss={args['target_loss']} "
                 f"device_skip={self.sim_rpn} time_dependency={args['time_dependency']} "
             )
-            if client == "smartredis":
+            if self.client == "smartredis":
                 arg_str += f'client.db_nodes={args["db_nodes"]}" '
-            elif client == "adios":
+            elif self.client == "adios":
                 arg_str += (
                     f"client.backend=adios client.adios_transport={self.current_partition.extras['adios_transport']} "
                     'online_update_freq=500 hidden_channels=32 n_mlp_hidden_layers=5 n_messagePassing_layers=4" '
                 )
             f.write(arg_str + "\n")
 
-            if client == "smartredis":
+            if self.client == "smartredis":
                 f.write("    copy_files: []\n")
                 f.write('    link_files: ["./affinity_ml.sh"]\n')
 
@@ -660,28 +673,24 @@ class NekRSMLOnlineTest(NekRSMLTest):
         self.prerun_cmds += [
             self.setup_case_cmd(
                 extra_args=[
-                    f"--client {self.ml_args['client']}",
+                    f"--client {self.client}",
                     f"--deployment {self.ml_args['deployment']}",
                 ]
             ),
             self.source_cmd(),
             *self.setup_torch_env_vars(),
             *self.setup_adios_env_vars(),
-            list_to_cmd(["cp", f"{self.base_yml}.reframe", self.base_yml]),
+            list_to_cmd([
+                "cp",
+                f"{self.config_yaml}.reframe",
+                self.config_yaml,
+            ]),
             self.nekrs_cmd(extra_args=[f"--build-only {self.get_sim_ranks()}"]),
         ]
 
     def set_executable_options(self):
         self.executable_opts = []
-        self.executable = list_to_cmd([
-            "python",
-            os.path.join(
-                f"{self.stagedir}",
-                "ssim_driver.py"
-                if self.ml_args["client"] == "smartredis"
-                else "driver.py",
-            ),
-        ])
+        self.executable = list_to_cmd(["python", self.driver])
 
     @run_before("run")
     def setup_run(self):
