@@ -513,7 +513,11 @@ class NekRSMLOnlineTest(NekRSMLTest):
         # deployment must be colocated or clustered for online cases.
         kwargs["test_type"] = "online"
         super().__init__(**kwargs)
-        self.nekrs_ml_experiment = f"NekRS-ML-{self.case_name}"
+
+    @property
+    @cache
+    def experiment_name(self):
+        return f"NekRS-ML-{self.case_name}"
 
     def setup_torch_env_vars(self):
         return [
@@ -557,7 +561,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
                 f.write("    launch: True\n")
                 f.write('    backend: "redis"\n')
                 f.write(f'    deployment: "{args["deployment"]}"\n')
-                f.write(f'    exp_name: "{self.nekrs_ml_experiment}"\n')
+                f.write(f'    exp_name: "{self.experiment_name}"\n')
                 # FIXME: The following should be machine-dependent:
                 f.write("    port: 6782\n")
                 f.write('    network_interface: "uds"\n')
@@ -673,7 +677,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
         nekrs_ok = self.check_nekrs_exit_code()
 
         train_out = os.path.join(
-            self.stagedir, self.nekrs_ml_experiment, "train", "train.out"
+            self.stagedir, self.experiment_name, "train", "train.out"
         )
         train_out_present = sn.assert_true(
             os.path.isfile(train_out),
