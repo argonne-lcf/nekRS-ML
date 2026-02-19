@@ -720,18 +720,25 @@ class DGNTrainer:
                 log.info(f'[RANK {RANK}]: Found {len(self.neighboring_procs)} neighboring processes: {self.neighboring_procs}')
             else:
                 if RANK == 0: log.info(f'[RANK {RANK}]: Found {len(self.neighboring_procs)} neighboring processes: {self.neighboring_procs}')
+        
+            effective_nodes_local = torch.sum(1.0/node_degree[:n_nodes_local])
+            effective_nodes = COMM.allreduce(effective_nodes_local)
         else:
             halo_info = torch.zeros(1, dtype=self.torch_dtype)
             n_nodes_local = self.data_reduced.pos.shape[0]
             n_nodes_halo = 0
             edge_weight = torch.ones(1, dtype=self.torch_dtype)
             node_degree = torch.zeros(1, dtype=self.torch_dtype)
+            effective_nodes_local = torch.zeros(1, dtype=self.torch_dtype)
+            effective_nodes = n_nodes_local
 
         self.data_reduced.n_nodes_local = torch.tensor(n_nodes_local, dtype=torch.int64)
         self.data_reduced.n_nodes_halo = torch.tensor(n_nodes_halo, dtype=torch.int64)
         self.data_reduced.halo_info = halo_info
         self.data_reduced.edge_weight = edge_weight
         self.data_reduced.node_degree = node_degree
+        self.data_reduced.effective_nodes_local = effective_nodes_local
+        self.data_reduced.effective_nodes = effective_nodes
         return 
 
     def prepare_snapshot_data(self, data_x: np.ndarray):
@@ -1197,18 +1204,18 @@ class DGNTrainer:
         # Accumulate loss
         tic = time.time()
         n_nodes_local = graph.n_nodes_local
+        # MSE loss: target depends on prediction type
+        if self.cfg.prediction_type == "x0":
+            # x0-prediction: model predicts the clean field directly
+            mse_target = data.x[:,:self.cfg.input_node_features]
+        elif self.cfg.prediction_type == "v":
+            # v-prediction: model predicts v = sqrt(alpha_bar)*eps - sqrt(1-alpha_bar)*x_0
+            mse_target = self.diffusion_process.get_v_target(
+                data.x[:,:self.cfg.input_node_features], noise, r, data.batch)
+        else:
+            # epsilon-prediction (default): model predicts the noise
+            mse_target = noise
         if SIZE == 1 or not self.cfg.consistency:
-            # MSE loss: target depends on prediction type
-            if self.cfg.prediction_type == "x0":
-                # x0-prediction: model predicts the clean field directly
-                mse_target = data.x[:,:self.cfg.input_node_features]
-            elif self.cfg.prediction_type == "v":
-                # v-prediction: model predicts v = sqrt(alpha_bar)*eps - sqrt(1-alpha_bar)*x_0
-                mse_target = self.diffusion_process.get_v_target(
-                    data.x[:,:self.cfg.input_node_features], noise, r, data.batch)
-            else:
-                # epsilon-prediction (default): model predicts the noise
-                mse_target = noise
             mse_term = batch_wise_mean((model_pred - mse_target)**2, data.batch) # Dimension (batch_size)
             loss = mse_term
             if self.cfg.learnable_variance:
@@ -1241,38 +1248,52 @@ class DGNTrainer:
                 log.info(f"MSE loss term: {mse_term.detach().cpu().numpy().tolist()}, mean = {mse_term.detach().cpu().mean().numpy().tolist()}")
                 if self.cfg.learnable_variance:
                     log.info(f"VLB loss term: {vlb_term.detach().cpu().numpy().tolist()}, mean = {vlb_term.detach().cpu().mean().numpy().tolist()}")
-            # Apply loss weighting
-            # 1) Min-SNR weights (only on MSE, not VLB — VLB has correct per-step weighting from the KL)
-            # 2) Importance weights from the step sampler (corrects for non-uniform sampling)
-            if self.cfg.loss_weighting == "min_snr":
-                # Min-SNR-gamma weighting from "Efficient Diffusion Training via Min-SNR Weighting Strategy"
-                # (Hang et al., 2023, https://arxiv.org/abs/2303.09556)
-                # For epsilon-prediction: w(t) = min(SNR(t), gamma) 
-                # For x0-prediction:      w(t) = min(SNR(t), gamma) / SNR(t)
-                # For v-prediction:       w(t) = min(SNR(t), gamma) / (SNR(t) + 1)
-                clamped_snr = torch.clamp(snr, max=self.cfg.min_snr_gamma) # Dimension (batch_size)
-                if self.cfg.prediction_type == "x0":
-                    min_snr_weights = clamped_snr / snr
-                elif self.cfg.prediction_type == "v":
-                    min_snr_weights = clamped_snr / (snr + 1)
-                else:
-                    min_snr_weights = clamped_snr
-                # Apply min-SNR only to MSE term, then add VLB separately
-                weighted_mse = mse_term * min_snr_weights
-                if self.cfg.learnable_variance:
-                    loss = (weighted_mse + vlb_term).mean()
-                else:
-                    loss = weighted_mse.mean()
-                # Log weighted per-step losses (actual gradient contribution)
-                if self.cfg.verbose and RANK == 0:
-                    log.info(f"Weighted MSE loss: {weighted_mse.detach().cpu().numpy().tolist()}, mean = {weighted_mse.detach().cpu().mean().numpy().tolist()}")
-            else:
-                # Uniform weighting (default)
-                loss = loss.mean()
         else: # custom consistent loss
-            # TODO: Custom parallel and consistent loss function to be implemented here
-            if RANK == 0: log.error('Custom parallel and consistent loss not yet implemented')
-            COMM.Abort(1)
+            if self.cfg.learnable_variance:
+                if RANK == 0: log.error('Custom parallel and consistent loss not yet implemented for VLB term')
+                COMM.Abort(1)
+            n_output_features = model_pred.shape[1]
+            squared_errors_local = torch.pow(model_pred[:graph.n_nodes_local] - mse_target[:graph.n_nodes_local], 2)
+            squared_errors_local = squared_errors_local/graph.node_degree[:graph.n_nodes_local].unsqueeze(-1)
+            sum_squared_errors_local = squared_errors_local.sum()
+            sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
+            mse_term = (1.0/(graph.effective_nodes*n_output_features)) * sum_squared_errors
+            loss = batch_wise_mean(mse_term, data.batch) # Dimension (batch_size)
+            if self.cfg.verbose:
+                log.info(f"[RANK {RANK}] MSE loss term: {loss.detach().cpu().numpy().tolist()}, mean = {mse_term.detach().cpu().mean().numpy().tolist()}")
+
+        # Apply loss weighting
+        # 1) Min-SNR weights (only on MSE, not VLB — VLB has correct per-step weighting from the KL)
+        # 2) Importance weights from the step sampler (corrects for non-uniform sampling)
+        if self.cfg.loss_weighting == "min_snr":
+            # Min-SNR-gamma weighting from "Efficient Diffusion Training via Min-SNR Weighting Strategy"
+            # (Hang et al., 2023, https://arxiv.org/abs/2303.09556)
+            # For epsilon-prediction: w(t) = min(SNR(t), gamma) 
+            # For x0-prediction:      w(t) = min(SNR(t), gamma) / SNR(t)
+            # For v-prediction:       w(t) = min(SNR(t), gamma) / (SNR(t) + 1)
+            clamped_snr = torch.clamp(snr, max=self.cfg.min_snr_gamma) # Dimension (batch_size)
+            if self.cfg.prediction_type == "x0":
+                min_snr_weights = clamped_snr / snr
+            elif self.cfg.prediction_type == "v":
+                min_snr_weights = clamped_snr / (snr + 1)
+            else:
+                min_snr_weights = clamped_snr
+            # Apply min-SNR only to MSE term, then add VLB separately
+            weighted_mse = mse_term * min_snr_weights
+            if self.cfg.learnable_variance:
+                loss = (weighted_mse + vlb_term).mean()
+            else:
+                loss = weighted_mse.mean()
+            # Log weighted per-step losses (actual gradient contribution)
+            if self.cfg.verbose and RANK == 0:
+                log.info(f"Weighted MSE loss: {weighted_mse.detach().cpu().numpy().tolist()}, mean = {weighted_mse.detach().cpu().mean().numpy().tolist()}")
+        else:
+            # Uniform weighting (default)
+            loss = loss.mean()
+
+        print(f"[RANK {RANK}] Loss: {loss.item()}")
+        COMM.Barrier()
+            
         if self.cfg.timers: self.update_timer('loss', self.timer_step, time.time() - tic)
 
         tic = time.time()
