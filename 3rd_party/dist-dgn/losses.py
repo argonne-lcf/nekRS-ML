@@ -13,12 +13,13 @@ def batch_wise_mean(
 ) -> torch.Tensor:
     r"""Compute the batch-wise mean of a field.
         Args:
-            field (Tensor): The field to average. Dimension: (num_nodes, num_features).
+            field (Tensor): The field to average. Dimension: (num_nodes, num_features) or (num_nodes).
             batch (LongTensor): The batch vector. Dimension: (num_nodes).
         Returns:
             Tensor: The batch-wise mean. Dimension: (batch_size).
     """
-    field = field.mean(dim=1) # Dimension: (num_nodes)
+    if field.dim() == 2: 
+        field = field.mean(dim=1) # Dimension: (num_nodes)
     batch_size = batch.max().item() + 1
     return scatter(field, batch, dim=0, dim_size=batch_size, reduce='mean') # Dimension: (batch_size)
 

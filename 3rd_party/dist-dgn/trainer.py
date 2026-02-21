@@ -892,13 +892,11 @@ class DGNTrainer:
             n_features_pos = self.data_reduced.pos.shape[1]
             pos_halo = torch.zeros((n_nodes_halo, n_features_pos), dtype=self.torch_dtype)
             data_graph.pos = torch.cat((data_graph.pos, pos_halo), dim=0)
-        else:
-            data_graph.pos = data_graph.pos
-        #data_temp.node_degree = torch.cat((data_temp.node_degree, node_degree_halo), dim=0)
-        #data_temp.edge_index = torch.cat((data_temp.edge_index, edge_index_halo), dim=1)
-        #data_temp.edge_weight = torch.cat((data_temp.edge_weight, edge_weight_halo), dim=0)
-        #data_temp.edge_weight_temp = data_temp.edge_weight
-
+            if self.cfg.cond_node_features:
+                n_features_cond_node_features = self.data_reduced.cond_node_features.shape[1]
+                cond_node_features_halo = torch.zeros((n_nodes_halo, n_features_cond_node_features), dtype=self.torch_dtype)
+                data_graph.cond_node_features = torch.cat((data_graph.cond_node_features, cond_node_features_halo), dim=0)
+        
         # Populate edge_attrs
         cart = torch_geometric.transforms.Cartesian(norm=False, max_value = None, cat = False)
         dist = torch_geometric.transforms.Distance(norm = False, max_value = None, cat = True)
@@ -1203,7 +1201,6 @@ class DGNTrainer:
 
         # Accumulate loss
         tic = time.time()
-        n_nodes_local = graph.n_nodes_local
         # MSE loss: target depends on prediction type
         if self.cfg.prediction_type == "x0":
             # x0-prediction: model predicts the clean field directly
@@ -1250,17 +1247,21 @@ class DGNTrainer:
                     log.info(f"VLB loss term: {vlb_term.detach().cpu().numpy().tolist()}, mean = {vlb_term.detach().cpu().mean().numpy().tolist()}")
         else: # custom consistent loss
             if self.cfg.learnable_variance:
-                if RANK == 0: log.error('Custom parallel and consistent loss not yet implemented for VLB term')
+                if RANK == 0: log.error('Custom consistent loss not yet implemented for VLB term')
                 COMM.Abort(1)
             n_output_features = model_pred.shape[1]
-            squared_errors_local = torch.pow(model_pred[:graph.n_nodes_local] - mse_target[:graph.n_nodes_local], 2)
-            squared_errors_local = squared_errors_local/graph.node_degree[:graph.n_nodes_local].unsqueeze(-1)
-            sum_squared_errors_local = squared_errors_local.sum()
-            sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
-            mse_term = (1.0/(graph.effective_nodes*n_output_features)) * sum_squared_errors
-            loss = batch_wise_mean(mse_term, data.batch) # Dimension (batch_size)
+            mse_term = torch.zeros(batch_size, dtype=self.torch_dtype, device=self.device)
+            for batch_idx in range(batch_size):
+                model_pred_local = model_pred[data.batch == batch_idx]
+                mse_target_local = mse_target[data.batch == batch_idx]
+                squared_errors_local = torch.pow(model_pred_local[:graph.n_nodes_local] - mse_target_local[:graph.n_nodes_local], 2)
+                squared_errors_local = squared_errors_local/graph.node_degree[:graph.n_nodes_local].unsqueeze(-1)
+                sum_squared_errors_local = squared_errors_local.sum()
+                sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
+                mse_term[batch_idx] = (1.0/(graph.effective_nodes*n_output_features)) * sum_squared_errors
             if self.cfg.verbose:
-                log.info(f"[RANK {RANK}] MSE loss term: {loss.detach().cpu().numpy().tolist()}, mean = {mse_term.detach().cpu().mean().numpy().tolist()}")
+                log.info(f"[RANK {RANK}] MSE loss term: {mse_term.detach().cpu().numpy().tolist()}, mean = {mse_term.detach().cpu().mean().numpy().tolist()}")
+            loss = mse_term # Dimension (batch_size)
 
         # Apply loss weighting
         # 1) Min-SNR weights (only on MSE, not VLB — VLB has correct per-step weighting from the KL)
@@ -1285,8 +1286,8 @@ class DGNTrainer:
             else:
                 loss = weighted_mse.mean()
             # Log weighted per-step losses (actual gradient contribution)
-            if self.cfg.verbose and RANK == 0:
-                log.info(f"Weighted MSE loss: {weighted_mse.detach().cpu().numpy().tolist()}, mean = {weighted_mse.detach().cpu().mean().numpy().tolist()}")
+            if self.cfg.verbose:
+                log.info(f"[RANK {RANK}] Weighted MSE loss: {weighted_mse.detach().cpu().numpy().tolist()}, mean = {weighted_mse.detach().cpu().mean().numpy().tolist()}")
         else:
             # Uniform weighting (default)
             loss = loss.mean()
