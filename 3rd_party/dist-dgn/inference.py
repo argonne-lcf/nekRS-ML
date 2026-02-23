@@ -133,9 +133,8 @@ def infer(cfg: DictConfig,
     local_time = []
     local_throughput = []
     for i in range(cfg.num_gen_samples):
-        # Initialize new random field and generate sample prediction
-        field_r = torch.randn(pos.size(0), cfg.input_node_features, dtype=trainer.torch_dtype)
-        pred = trainer.sample(field_r)
+        # Generate sample prediction
+        pred = trainer.sample()
         pred = pred.cpu().numpy()
         
         # Undo scaling

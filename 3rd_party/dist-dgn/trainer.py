@@ -178,7 +178,7 @@ class DGNTrainer:
         self.mask_send, self.mask_recv = self.build_masks()
         if RANK == 0: log.info('Done with build_masks')
 
-        self.buffer_send, self.buffer_recv, self.n_buffer_rows = self.build_buffers(self.cfg.mlp_hidden_channels)
+        self.buffer_send, self.buffer_recv = self.build_buffers(self.cfg.mlp_hidden_channels)
         if RANK == 0: log.info('Done with build_buffers')
 
         # ~~~~ Build model and move to gpu 
@@ -226,7 +226,13 @@ class DGNTrainer:
         if self.cfg.model_task == 'inference':
             if RANK == 0: log.info(f'Loading model checkpoint from {self.model_path}')
             ckpt = torch.load(self.model_path, weights_only=False)
-            self.model.load_state_dict(ckpt['state_dict'])
+            try:
+                self.model.load_state_dict(ckpt['state_dict'])
+            except (KeyError) as e:
+                self.model.load_state_dict(ckpt['model_state_dict'])
+            else:
+                log.error('Error loading model checkpoint')
+                COMM.Abort(1)
 
         # ~~~~ Set optimizer
         self.optimizer = self.build_optimizer(self.model)
@@ -453,21 +459,21 @@ class DGNTrainer:
         return mask_send, mask_recv 
 
     def build_buffers(self, n_features):
-        n_max = 0
+        self.n_max = 0
         
         if SIZE == 1:
             buff_send = [torch.tensor([], dtype=self.torch_dtype)] * SIZE
             buff_recv = [torch.tensor([], dtype=self.torch_dtype)] * SIZE 
         else: 
             # Get the maximum number of nodes that will be exchanged (required for all_to_all halo swap)
-            n_nodes_to_exchange = torch.zeros(SIZE)
+            self.n_nodes_to_exchange = torch.zeros(SIZE)
             for i in self.neighboring_procs:
-                n_nodes_to_exchange[i] = len(self.mask_send[i])
-            n_max = n_nodes_to_exchange.max()
+                self.n_nodes_to_exchange[i] = len(self.mask_send[i])
+            self.n_max = self.n_nodes_to_exchange.max()
             if WITH_CUDA or WITH_XPU: 
-                n_max = n_max.to(self.device)
-            dist.all_reduce(n_max, op=dist.ReduceOp.MAX)
-            n_max = int(n_max)
+                self.n_max = self.n_max.to(self.device)
+            dist.all_reduce(self.n_max, op=dist.ReduceOp.MAX)
+            self.n_max = int(self.n_max)
 
             # fill the buffers -- make all buffer sizes the same (required for all_to_all) 
             if self.cfg.halo_swap_mode == "none":
@@ -477,26 +483,26 @@ class DGNTrainer:
                 buff_send = [torch.empty(0, device=DEVICE, dtype=self.torch_dtype)] * SIZE
                 buff_recv = [torch.empty(0, device=DEVICE, dtype=self.torch_dtype)] * SIZE
                 for i in range(SIZE): 
-                    buff_send[i] = torch.empty([n_max, n_features], dtype=self.torch_dtype, device=DEVICE) 
-                    buff_recv[i] = torch.empty([n_max, n_features], dtype=self.torch_dtype, device=DEVICE)
+                    buff_send[i] = torch.empty([self.n_max, n_features], dtype=self.torch_dtype, device=DEVICE) 
+                    buff_recv[i] = torch.empty([self.n_max, n_features], dtype=self.torch_dtype, device=DEVICE)
             elif self.cfg.halo_swap_mode == "all_to_all_opt":
                 buff_send = [torch.empty(0, device=DEVICE, dtype=self.torch_dtype)] * SIZE
                 buff_recv = [torch.empty(0, device=DEVICE, dtype=self.torch_dtype)] * SIZE
                 for i in self.neighboring_procs:
-                    buff_send[i] = torch.empty([int(n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE) 
-                    buff_recv[i] = torch.empty([int(n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE)
+                    buff_send[i] = torch.empty([int(self.n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE) 
+                    buff_recv[i] = torch.empty([int(self.n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE)
             elif self.cfg.halo_swap_mode == "all_to_all_opt_intel":
                 buff_send = [torch.zeros(1, device=DEVICE, dtype=self.torch_dtype)] * SIZE
                 buff_recv = [torch.zeros(1, device=DEVICE, dtype=self.torch_dtype)] * SIZE
                 for i in self.neighboring_procs:
-                    buff_send[i] = torch.zeros([int(n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE) 
-                    buff_recv[i] = torch.zeros([int(n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE)
+                    buff_send[i] = torch.zeros([int(self.n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE) 
+                    buff_recv[i] = torch.zeros([int(self.n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE)
             elif self.cfg.halo_swap_mode == "send_recv":
                 buff_send = [torch.empty(0, device=DEVICE, dtype=self.torch_dtype)] * SIZE
                 buff_recv = [torch.empty(0, device=DEVICE, dtype=self.torch_dtype)] * SIZE
                 for i in self.neighboring_procs:
-                    buff_send[i] = torch.empty([int(n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE) 
-                    buff_recv[i] = torch.empty([int(n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE)
+                    buff_send[i] = torch.empty([int(self.n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE) 
+                    buff_recv[i] = torch.empty([int(self.n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE)
 
             #for i in self.neighboring_procs:
             #    buff_send[i] = torch.empty([len(self.mask_send[i]), n_features], dtype=torch.float32, device=DEVICE_ID) 
@@ -519,14 +525,7 @@ class DGNTrainer:
                 log.info(f'[RANK {RANK}]: Send buffers of size [KB]: {buff_send_sz}')
                 log.info(f'[RANK {RANK}]: Receive buffers of size [KB]: {buff_recv_sz}')
 
-        return buff_send, buff_recv, n_max 
-
-    def init_send_buffer(self, n_buffer_rows, n_features, device):
-        buff_send = [torch.tensor([])] * SIZE
-        if SIZE > 1: 
-            for i in range(SIZE): 
-                buff_send[i] = torch.empty([n_buffer_rows, n_features], dtype=self.torch_dtype, device=device) 
-        return buff_send 
+        return buff_send, buff_recv
 
     def gather_node_tensor(self, input_tensor, dst=0, dtype=torch.float32):
         """
@@ -1193,10 +1192,6 @@ class DGNTrainer:
                              SIZE = SIZE,
                              cond_node_features = graph.cond_node_features if self.cfg.cond_node_features else None,
                              batch = data.batch)
-        if self.cfg.postprocess and self.iteration%100 == 0:
-            postprocess.plot_2d_field(COMM, graph.pos, model_pred[data.batch==0].detach().cpu().numpy(), f'model_pred_r{r[0]}_iter{self.iteration}.png')
-            postprocess.plot_2d_field(COMM, graph.pos, noise[data.batch==0].cpu().numpy(), f'noise_r{r[0]}_iter{self.iteration}.png')
-            COMM.Barrier()
         if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
 
         # Accumulate loss
@@ -1212,6 +1207,10 @@ class DGNTrainer:
         else:
             # epsilon-prediction (default): model predicts the noise
             mse_target = noise
+        if self.cfg.postprocess and self.iteration%100 == 0:
+            postprocess.plot_2d_field(COMM, graph.pos, model_pred[data.batch==0].detach().cpu().numpy(), f'model_pred_r{r[0]}_iter{self.iteration}.png')
+            postprocess.plot_2d_field(COMM, graph.pos, mse_target[data.batch==0].cpu().numpy(), f'target_r{r[0]}_iter{self.iteration}.png')
+            COMM.Barrier()
         if SIZE == 1 or not self.cfg.consistency:
             mse_term = batch_wise_mean((model_pred - mse_target)**2, data.batch) # Dimension (batch_size)
             loss = mse_term
@@ -1259,7 +1258,7 @@ class DGNTrainer:
                 sum_squared_errors_local = squared_errors_local.sum()
                 sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
                 mse_term[batch_idx] = (1.0/(graph.effective_nodes*n_output_features)) * sum_squared_errors
-            if self.cfg.verbose:
+            if self.cfg.verbose and RANK == 0:
                 log.info(f"[RANK {RANK}] MSE loss term: {mse_term.detach().cpu().numpy().tolist()}, mean = {mse_term.detach().cpu().mean().numpy().tolist()}")
             loss = mse_term # Dimension (batch_size)
 
@@ -1286,13 +1285,13 @@ class DGNTrainer:
             else:
                 loss = weighted_mse.mean()
             # Log weighted per-step losses (actual gradient contribution)
-            if self.cfg.verbose:
+            if self.cfg.verbose and RANK == 0:
                 log.info(f"[RANK {RANK}] Weighted MSE loss: {weighted_mse.detach().cpu().numpy().tolist()}, mean = {weighted_mse.detach().cpu().mean().numpy().tolist()}")
         else:
             # Uniform weighting (default)
             loss = loss.mean()
 
-        print(f"[RANK {RANK}] Loss: {loss.item()}")
+        print(f"[RANK {RANK}] Loss: {loss.item()}", flush=True)
         COMM.Barrier()
             
         if self.cfg.timers: self.update_timer('loss', self.timer_step, time.time() - tic)
@@ -1314,9 +1313,8 @@ class DGNTrainer:
         return loss
     
     @torch.no_grad()
-    def sample(self, field_r: Tensor, steps: list[int] = None) -> Tensor:
+    def sample(self, steps: list[int] = None) -> Tensor:
         self.model.eval()
-        graph = self.data['graph']
 
         # Assert step list is all integers and is sorted
         if steps is not None:
@@ -1325,21 +1323,28 @@ class DGNTrainer:
         else:
             steps = list(range(self.cfg.num_diffusion_steps))
 
+        # Initialize sample field
+        n_nodes = self.data['graph'].pos_orig.size(0)
+        n_nodes_halo = self.data['graph'].n_nodes_halo if self.cfg.consistency and SIZE > 1 else 0
+        n_nodes_total = n_nodes + n_nodes_halo
+        field_r = torch.randn(n_nodes_total, self.cfg.input_node_features, dtype=self.torch_dtype)
+
         # initialize the diffusion process
         diff_process = self.diffusion_process
 
+        # Offload data to device
         tic = time.time()
         batch = torch.zeros(field_r.size(0), dtype=torch.long)
         if WITH_CUDA or WITH_XPU:
             field_r = field_r.to(self.device)
-            graph.edge_index = graph.edge_index.to(self.device)
-            graph.edge_attr = graph.edge_attr.to(self.device)
-            graph.batch = batch.to(self.device)
-            graph.halo_info = graph.halo_info.to(self.device)
-            graph.edge_weight = graph.edge_weight.to(self.device)
-            graph.node_degree = graph.node_degree.to(self.device)
+            self.data['graph'].edge_index = self.data['graph'].edge_index.to(self.device)
+            self.data['graph'].edge_attr = self.data['graph'].edge_attr.to(self.device)
+            self.data['graph'].batch = batch.to(self.device)
+            self.data['graph'].halo_info = self.data['graph'].halo_info.to(self.device)
+            self.data['graph'].edge_weight = self.data['graph'].edge_weight.to(self.device)
+            self.data['graph'].node_degree = self.data['graph'].node_degree.to(self.device)
             if self.cfg.cond_node_features:
-                graph.cond_node_features = graph.cond_node_features.to(self.device)
+                self.data['graph'].cond_node_features = self.data['graph'].cond_node_features.to(self.device)
         if self.cfg.timers: self.update_timer('dataTransfer', self.timer_step, time.time() - tic)
                 
         # re-allocate send buffer 
@@ -1356,6 +1361,11 @@ class DGNTrainer:
             self.buffer_send = None
             self.buffer_recv = None
         if self.cfg.timers: self.update_timer('bufferInit', self.timer_step, time.time() - tic)
+
+        # Sync halo nodes of the initial noise
+        postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig, field_r.cpu().numpy(), f"field_r_step{100}.png")
+        field_r = self.sync_halo_nodes(field_r)
+        postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig, field_r.cpu().numpy(), f"field_r_con_step{100}.png")
         
         # Prediction (de-noise step by step)
         for step in diff_process.steps[::-1]:
@@ -1365,20 +1375,23 @@ class DGNTrainer:
             model_pred, model_var = self.model(
                                 field_r = field_r,
                                 r = r,
-                                edge_index = graph.edge_index,
-                                edge_attr = graph.edge_attr,
-                                edge_weight = graph.edge_weight,
-                                halo_info = graph.halo_info,
+                                edge_index = self.data['graph'].edge_index,
+                                edge_attr = self.data['graph'].edge_attr,
+                                edge_weight = self.data['graph'].edge_weight,
+                                halo_info = self.data['graph'].halo_info,
                                 mask_send = self.mask_send,
                                 mask_recv = self.mask_recv,
                                 buffer_send = self.buffer_send,
                                 buffer_recv = self.buffer_recv,
                                 neighboring_procs = self.neighboring_procs,
                                 SIZE = SIZE,
-                                cond_node_features = graph.cond_node_features if self.cfg.cond_node_features else None,
-                                batch = graph.batch)
+                                cond_node_features = self.data['graph'].cond_node_features if self.cfg.cond_node_features else None,
+                                batch = self.data['graph'].batch)
             if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
-
+            if self.cfg.postprocess and step%10 == 0:
+                postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig, model_pred.cpu().numpy(), f"model_pred_step{step}.png")
+                COMM.Barrier()
+            
             # Get the posterior mean and variance from the model output
             # get_posterior_mean_and_variance_from_output handles both epsilon and x0 prediction types
             model_posterior_mean, model_posterior_variance = \
@@ -1394,6 +1407,16 @@ class DGNTrainer:
             else:
                 field_r = model_posterior_mean
 
+            # Sync halo nodes after the update so owner rank's field values
+            # overwrite the stale halo copies.  Without this, each rank's
+            # independent noise causes field_r to diverge at sub-graph
+            # boundaries, and the errors accumulate through subsequent steps.
+            if step%10 == 0:
+                postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig, field_r.cpu().numpy(), f"field_r_step{step}.png")
+            field_r = self.sync_halo_nodes(field_r)
+            if step%10 == 0:
+                postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig, field_r.cpu().numpy(), f"field_r_con_step{step}.png")
+
         # Update timers
         self.synchronize()
         if self.cfg.timers:
@@ -1402,6 +1425,44 @@ class DGNTrainer:
                 self.timer_step += 1
 
         return field_r
+
+    @torch.no_grad()
+    def sync_halo_nodes(self, field: Tensor) -> Tensor:
+        """Synchronize halo node values between ranks.
+        """
+        if SIZE <= 1 or not self.cfg.consistency:
+            return field
+
+        n_features = field.shape[1]
+        if self.cfg.halo_swap_mode == "none":
+            buff_send = [torch.empty(0, device=self.device, dtype=self.torch_dtype)] * SIZE
+            buff_recv = [torch.empty(0, device=self.device, dtype=self.torch_dtype)] * SIZE
+        elif self.cfg.halo_swap_mode == "all_to_all":
+            buff_send = [torch.empty(0, device=self.device, dtype=self.torch_dtype)] * SIZE
+            buff_recv = [torch.empty(0, device=self.device, dtype=self.torch_dtype)] * SIZE
+            for i in range(SIZE): 
+                buff_send[i] = torch.empty([self.n_max, n_features], dtype=self.torch_dtype, device=self.device) 
+                buff_recv[i] = torch.empty([self.n_max, n_features], dtype=self.torch_dtype, device=self.device)
+        elif self.cfg.halo_swap_mode == "all_to_all_opt":
+            buff_send = [torch.empty(0, device=self.device, dtype=self.torch_dtype)] * SIZE
+            buff_recv = [torch.empty(0, device=self.device, dtype=self.torch_dtype)] * SIZE
+            for i in self.neighboring_procs:
+                buff_send[i] = torch.empty([int(self.n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE) 
+                buff_recv[i] = torch.empty([int(self.n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE)
+        
+        for i in self.neighboring_procs:
+            n_send = len(self.mask_send[i])
+            buff_send[i][:n_send,:] = field[self.mask_send[i]]
+
+        # Perform all_to_all
+        dist.all_to_all(buff_recv, buff_send)
+
+        # Fill halo nodes
+        for i in self.neighboring_procs:
+            n_recv = len(self.mask_recv[i])
+            field[self.mask_recv[i]] = buff_recv[i][:n_recv,:]
+
+        return field
 
     def writeGraphStatistics(self):
         if RANK == 0: log.info(f"In writeGraphStatistics")

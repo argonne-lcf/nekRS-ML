@@ -80,7 +80,8 @@ class DistributedDGN(torch.nn.Module):
                                      n_mlp_hidden_layers = self.n_mlp_hidden_layers,
                                      halo_swap_mode = self.halo_swap_mode, 
                                      layer_norm = self.layer_norm,
-                                     dropout_rate = self.dropout_rate
+                                     dropout_rate = self.dropout_rate,
+                                     activation_checkpointing = self.activation_checkpointing
                         )
             )
 
@@ -157,9 +158,13 @@ class DistributedDGN(torch.nn.Module):
         e = self._maybe_checkpoint(self.edge_encoder, edge_attr) # Shape (num_edges, mlp_hidden_channels)
 
         # ~~~~ Processor
+        # NOTE: Processor layers are NOT wrapped in _maybe_checkpoint at this level
+        # because the halo exchange inside each layer involves MPI collectives and
+        # shared mutable buffers that are incompatible with checkpoint recomputation.
+        # Instead, each DistributedMessagePassingLayer internally checkpoints only
+        # its MLPs (edge_updater, node_updater), which are the memory-heavy parts.
         for i in range(self.n_messagePassing_layers):
-            x, _ = self._maybe_checkpoint(
-                                      self.processor[i],
+            x, _ = self.processor[i](
                                       x,
                                       e,
                                       emb,
@@ -256,9 +261,11 @@ class DistributedMessagePassingLayer(torch.nn.Module):
                  n_mlp_hidden_layers: int,
                  halo_swap_mode: str,
                  layer_norm: Optional[bool] = False,
-                 dropout_rate: Optional[float] = 0.0
+                 dropout_rate: Optional[float] = 0.0,
+                 activation_checkpointing: Optional[bool] = False
     ) -> None:
         super().__init__()
+        self.activation_checkpointing = activation_checkpointing
 
         self.edge_aggregator = EdgeAggregation(aggr='add')
         self.channels = channels
@@ -294,7 +301,13 @@ class DistributedMessagePassingLayer(torch.nn.Module):
 
         self.reset_parameters()
 
-        return 
+        return
+
+    def _maybe_checkpoint(self, fn, *args):
+        """Wrap an MLP call with activation checkpointing if enabled and training."""
+        if self.activation_checkpointing and self.training:
+            return activation_checkpoint(fn, *args, use_reentrant=False)
+        return fn(*args)
 
     def forward(self,
             x: Tensor,
@@ -333,7 +346,8 @@ class DistributedMessagePassingLayer(torch.nn.Module):
             # ~~~~ Edge update (per-batch, starting from shared e)
             x_send = x_batch[edge_index[0,:],:] # Shape (num_edges, mlp_hidden_channels)
             x_recv = x_batch[edge_index[1,:],:] # Shape (num_edges, mlp_hidden_channels)
-            e_b = e + self.edge_updater(
+            e_b = e + self._maybe_checkpoint(
+                    self.edge_updater,
                     torch.cat((x_send, x_recv, e), dim=1)
                     )
             
@@ -356,8 +370,9 @@ class DistributedMessagePassingLayer(torch.nn.Module):
                 idx_send = halo_info[:,1]
                 edge_agg.index_add_(0, idx_recv, edge_agg.index_select(0, idx_send))
 
-            # ~~~~ Node update 
-            x[batch == b,:] = x_batch + self.node_updater(
+            # ~~~~ Node update MLP (checkpointable — pure compute, no communication)
+            x[batch == b,:] = x_batch + self._maybe_checkpoint(
+                    self.node_updater,
                     torch.cat((x_batch, edge_agg), dim=1)
                     )
 
