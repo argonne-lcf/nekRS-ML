@@ -718,8 +718,8 @@ class Trainer:
             halo_info = torch.zeros(1, dtype=self.torch_dtype)
             n_nodes_local = self.data_reduced.pos.shape[0]
             n_nodes_halo = 0
-            edge_weight = torch.zeros(1, dtype=self.torch_dtype)
-            node_degree = torch.zeros(1, dtype=self.torch_dtype)
+            edge_weight = torch.ones(1, dtype=self.torch_dtype)
+            node_degree = torch.ones(1, dtype=self.torch_dtype)
 
         self.data_reduced.n_nodes_local = torch.tensor(n_nodes_local, dtype=torch.int64)
         self.data_reduced.n_nodes_halo = torch.tensor(n_nodes_halo, dtype=torch.int64)

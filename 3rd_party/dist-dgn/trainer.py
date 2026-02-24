@@ -1192,6 +1192,11 @@ class DGNTrainer:
                              SIZE = SIZE,
                              cond_node_features = graph.cond_node_features if self.cfg.cond_node_features else None,
                              batch = data.batch)
+        log.info(f"out_gnn shape: {model_pred.shape}")
+        log.info(f"graph.pos shape: {graph.pos.shape}")
+        log.info(f"graph.n_nodes_local: {graph.n_nodes_local}")
+        np.save(f'pos_reduced_rank_{RANK}_size_{SIZE}.npy', graph.pos[:graph.n_nodes_local].cpu().numpy())
+        np.save(f'out_gnn_rank_{RANK}_size_{SIZE}.npy', model_pred[:graph.n_nodes_local].detach().cpu().numpy())
         if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
 
         # Accumulate loss
@@ -1429,15 +1434,29 @@ class DGNTrainer:
     @torch.no_grad()
     def sync_halo_nodes(self, field: Tensor) -> Tensor:
         """Synchronize halo node values between ranks.
+
+        Shared boundary nodes (original halo nodes in the edge_index)
+        are present on multiple ranks.  During iterative denoising each
+        rank independently updates ``field_r`` at these positions, causing
+        the values to diverge.  This method:
+
+        1. Exchanges each rank's halo-node field values via all-to-all,
+           writing the received values into the *new* halo exchange slots
+           (tier-3 nodes beyond the edge_index).
+        2. Averages the original halo nodes (tier-2 nodes IN the
+           edge_index) with the received neighbour values so that every
+           rank agrees on a single consistent value at each shared node.
+
+        The averaging uses ``node_degree`` (number of ranks sharing each
+        node) which is precomputed in ``setup_halo``.
         """
         if SIZE <= 1 or not self.cfg.consistency:
             return field
+        if self.cfg.halo_swap_mode == "none":
+            return field
 
         n_features = field.shape[1]
-        if self.cfg.halo_swap_mode == "none":
-            buff_send = [torch.empty(0, device=self.device, dtype=self.torch_dtype)] * SIZE
-            buff_recv = [torch.empty(0, device=self.device, dtype=self.torch_dtype)] * SIZE
-        elif self.cfg.halo_swap_mode == "all_to_all":
+        if self.cfg.halo_swap_mode == "all_to_all":
             buff_send = [torch.empty(0, device=self.device, dtype=self.torch_dtype)] * SIZE
             buff_recv = [torch.empty(0, device=self.device, dtype=self.torch_dtype)] * SIZE
             for i in range(SIZE): 
@@ -1447,20 +1466,34 @@ class DGNTrainer:
             buff_send = [torch.empty(0, device=self.device, dtype=self.torch_dtype)] * SIZE
             buff_recv = [torch.empty(0, device=self.device, dtype=self.torch_dtype)] * SIZE
             for i in self.neighboring_procs:
-                buff_send[i] = torch.empty([int(self.n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE) 
-                buff_recv[i] = torch.empty([int(self.n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=DEVICE)
-        
+                buff_send[i] = torch.empty([int(self.n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=self.device) 
+                buff_recv[i] = torch.empty([int(self.n_nodes_to_exchange[i]), n_features], dtype=self.torch_dtype, device=self.device)
+
+        # --- Step 1: exchange halo-node field values ---
         for i in self.neighboring_procs:
             n_send = len(self.mask_send[i])
             buff_send[i][:n_send,:] = field[self.mask_send[i]]
 
-        # Perform all_to_all
         dist.all_to_all(buff_recv, buff_send)
 
-        # Fill halo nodes
+        # Write received values into the new halo exchange slots
         for i in self.neighboring_procs:
             n_recv = len(self.mask_recv[i])
             field[self.mask_recv[i]] = buff_recv[i][:n_recv,:]
+
+        # --- Step 2: average original halo nodes with received values ---
+        # halo_info[:,0] = original halo node indices (in edge_index, tier 2)
+        # halo_info[:,1] = new halo slot indices     (beyond edge_index, tier 3)
+        # After index_add_:  field[halo_idx] += sum of neighbour values
+        # After dividing by node_degree: field[halo_idx] = average across all ranks
+        halo_info = self.data['graph'].halo_info
+        idx_recv = halo_info[:,0].long()
+        idx_send = halo_info[:,1].long()
+        field.index_add_(0, idx_recv, field.index_select(0, idx_send))
+
+        node_degree = self.data['graph'].node_degree
+        unique_halo_idx = torch.unique(idx_recv)
+        field[unique_halo_idx] = field[unique_halo_idx] / node_degree[unique_halo_idx].unsqueeze(1)
 
         return field
 

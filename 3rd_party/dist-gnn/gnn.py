@@ -389,14 +389,14 @@ class DistributedMessagePassingLayer(torch.nn.Module):
         # ~~~~ Edge update 
         x_send = x[edge_index[0,:],:]
         x_recv = x[edge_index[1,:],:]
-        e += self.edge_updater(
+        e = e + self.edge_updater(
                 torch.cat((x_send, x_recv, e), dim=1)
                 )
         
         # ~~~~ Edge aggregation
         edge_weight = edge_weight.unsqueeze(1)
-        e = e * edge_weight
-        edge_agg = self.edge_aggregator(x, edge_index, e)
+        e_weighted = e * edge_weight
+        edge_agg = self.edge_aggregator(x, edge_index, e_weighted)
 
         if SIZE > 1 and self.halo_swap_mode != 'none':
             # ~~~~ Halo exchange: swap the edge aggregates. This populates the halo nodes  
@@ -414,11 +414,11 @@ class DistributedMessagePassingLayer(torch.nn.Module):
             edge_agg.index_add_(0, idx_recv, edge_agg.index_select(0, idx_send))
 
         # ~~~~ Node update 
-        x += self.node_updater(
+        x = x + self.node_updater(
                 torch.cat((x, edge_agg), dim=1)
                 )
 
-        return x,e  
+        return x, e
 
     def halo_swap(self,
                   input_tensor,
