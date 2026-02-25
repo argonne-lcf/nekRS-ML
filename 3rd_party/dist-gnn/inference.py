@@ -25,8 +25,10 @@ import torch
 
 # Local imports
 import utils
-from trainer import Trainer
 from client import OnlineClient
+# NOTE: 'Trainer' is lazy-imported inside inference()/inference_rollout()
+# to avoid loading torch_geometric before ADIOS2 is initialized.
+# See main.py for detailed explanation.
 
 log = logging.getLogger(__name__)
 
@@ -146,6 +148,11 @@ def gather_wrapper(temp: NDArray[np.float32]) -> NDArray[np.float32]:
 def inference(cfg: DictConfig) -> None:
     """Perform 'a-priori' inference from a set of loaded input files
     """
+    _root_logger = logging.getLogger()
+    _prev_level = _root_logger.level
+    _root_logger.setLevel(logging.WARNING)
+    from trainer import Trainer
+    _root_logger.setLevel(_prev_level)
     trainer = Trainer(cfg, COMM)
     trainer.writeGraphStatistics()
 
@@ -207,6 +214,11 @@ def inference_rollout(cfg: DictConfig,
     ) -> None:
     """Perform 'a-posteriori' inference by rolling out in time an initial condition
     """
+    _root_logger = logging.getLogger()
+    _prev_level = _root_logger.level
+    _root_logger.setLevel(logging.WARNING)
+    from trainer import Trainer
+    _root_logger.setLevel(_prev_level)
     trainer = Trainer(cfg, COMM, client=client)
     trainer.writeGraphStatistics()
 

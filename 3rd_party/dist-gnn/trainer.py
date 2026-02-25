@@ -711,17 +711,20 @@ class Trainer:
                     if self.rank ==0: log.info('[RANK %d]: computed halo info in %f sec' %(self.rank,time.time()-tic))
                     halo_info = halo_info_glob[self.rank]
                     self.client.put_array(f'halo_info_rank_{self.rank}_size_{self.size}', halo_info.numpy())
+                    self.comm.Barrier()
 
                     tic = time.time()
                     node_degree = create_halo_info_par.get_node_degree(self.data_reduced, halo_info)
                     if self.rank ==0: log.info('[RANK %d]: computed node degree in %f sec' %(self.rank,time.time()-tic))
                     self.client.put_array(f'node_degree_rank_{self.rank}_size_{self.size}', node_degree.numpy())
+                    self.comm.Barrier()
 
                     tic = time.time()
                     edge_freq = create_halo_info_par.get_edge_weights(self.data_reduced, halo_info_glob)
                     edge_weight = (1.0/edge_freq).to(self.torch_dtype)
                     if self.rank ==0: log.info('[RANK %d]: computed edge weights in %f sec' %(self.rank,time.time()-tic))
                     self.client.put_array(f'edge_weight_rank_{self.rank}_size_{self.size}', edge_weight.to(torch.float32).numpy())
+                    self.comm.Barrier()
 
             self.neighboring_procs = np.unique(halo_info[:,3])
             n_nodes_local = self.data_reduced.pos.shape[0]

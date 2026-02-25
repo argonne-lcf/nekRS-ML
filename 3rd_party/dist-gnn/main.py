@@ -21,8 +21,11 @@ import torch
 
 # Local imports
 import utils
-from trainer import Trainer
 from client import OnlineClient
+# NOTE: 'Trainer' is lazy-imported inside train() to avoid loading
+# torch_geometric (and its C++ extensions) before ADIOS2 is initialized.
+# On multi-node runs, torch_geometric's native extensions can exhaust
+# CXI network endpoints, preventing ADIOS2 from opening its transport.
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +67,13 @@ else:
 def train(cfg: DictConfig,
           client: Optional[OnlineClient] = None
     ) -> None:
+    # Temporarily suppress root logger to hide compiler probe messages
+    # emitted by torch_geometric's C++ extension loading
+    _root_logger = logging.getLogger()
+    _prev_level = _root_logger.level
+    _root_logger.setLevel(logging.WARNING)
+    from trainer import Trainer
+    _root_logger.setLevel(_prev_level)
     trainer = Trainer(cfg, COMM, client=client)
     trainer.writeGraphStatistics()
     n_nodes_local = trainer.data_reduced.n_nodes_local.item()

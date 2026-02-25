@@ -53,6 +53,7 @@ adios_client_t::adios_client_t(MPI_Comm& comm) : _comm(comm)
         _stream_io.SetParameters(_params);
 
         _write_io = _adios->DeclareIO("writeIO");
+        _write_io.SetEngine("BP5");
     } 
     catch (std::exception &e)
     {
