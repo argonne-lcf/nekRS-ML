@@ -122,18 +122,18 @@ int adios_client_t::check_run()
 // Open the solution transfer stream
 void adios_client_t::openStream()
 {
+    if (_rank == 0) std::cout << "Opening ADIOS2 solutionStream ... " << std::endl;
     try
     {
-        if (_rank == 0) std::cout << "Opening ADIOS2 solutionStream ... " << std::endl;
         _solWriter = _stream_io.Open("solutionStream", adios2::Mode::Write);
-        MPI_Barrier(_comm);
-        if (_rank == 0) std::cout << "Done ... " << std::endl;
     }
     catch (std::exception &e)
     {
         std::cout << "Error opening ADIOS2 solutionStream, STOPPING PROGRAM from rank " << _rank << "\n";
         std::cout << e.what() << "\n";
     }
+    MPI_Barrier(_comm);
+    if (_rank == 0) std::cout << "All done!" << std::endl;
 }
 
 // Close the solution transfer stream

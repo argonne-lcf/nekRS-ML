@@ -407,6 +407,11 @@ configure_file(${CMAKE_CURRENT_LIST_DIR}/cmake/install_examples.cmake.in
         ${CMAKE_CURRENT_BINARY_DIR}/install_examples.cmake @ONLY)
 install(SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/install_examples.cmake)
 
+# Fix ADIOS2 CMake target files if ADIOS2 was built from source
+if (ENABLE_ADIOS AND ADIOS2_BUILT_FROM_SOURCE)
+  install(SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/cmake/fix_adios2_targets.cmake)
+endif()
+
 message(NOTICE "")
 message(NOTICE "----------------- Summary -----------------")
 message(NOTICE "Installation directory: ${CMAKE_INSTALL_PREFIX}")

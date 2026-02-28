@@ -36,7 +36,9 @@ echo "    module load adios2/git.86a48b9-cpu" >>$SFILE
 echo "    export FABRIC_PROVIDER=cxi" >>$SFILE
 echo "    export FABRIC_IFACE=cxi0" >>$SFILE
 echo "elif [ \"\$ADIOS2_LIBS\" = "NEKRS" ]; then" >>$SFILE
-echo "    export PYTHONPATH=\$PYTHONPATH:${NEKRS_HOME}/lib/python3.10/site-packages" >> $SFILE
+py_version=`python --version`
+parsed_version=$(echo ${py_version#Python } | awk -F. '{print $1"."$2}')
+echo "    export PYTHONPATH=\$PYTHONPATH:${NEKRS_HOME}/lib/python${parsed_version}/site-packages" >> $SFILE
 echo "fi" >> $SFILE
 echo "module load ${FRAMEWORKS_MODULE}" >> $SFILE
 echo "module list" >> $SFILE

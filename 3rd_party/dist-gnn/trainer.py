@@ -45,7 +45,7 @@ from scheduler import ScheduledOptim
 import gnn
 import graph_connectivity as gcon
 from client import OnlineClient
-import create_halo_info_par
+from create_halo_info_par import get_reduced_halo_ids, get_halo_info_fast, get_node_degree, get_edge_weights
 
 log = logging.getLogger(__name__)
 Tensor = torch.Tensor
@@ -86,7 +86,7 @@ class Trainer:
 
         # ~~~ Initialize torch distributed
         self.init_process_group(self.cfg.master_addr, self.cfg.master_port)
-        
+
         # ~~~~ Init torch stuff 
         self.setup_torch()
 
@@ -167,7 +167,7 @@ class Trainer:
             ckpt = torch.load(self.model_path, weights_only=False)
             self.model.load_state_dict(ckpt['state_dict'])
 
-        # ~~~~ Wrap model in DDP
+        # ~~~ Wrap model in DDP 
         if self.size > 1:
             self.model = DDP(self.model, broadcast_buffers=False, gradient_as_bucket_view=True)
 
@@ -466,11 +466,10 @@ class Trainer:
             n_nodes_to_exchange = torch.zeros(self.size)
             for i in self.neighboring_procs:
                 n_nodes_to_exchange[i] = len(self.mask_send[i])
-            n_max = n_nodes_to_exchange.max()
-            if self.with_cuda or self.with_xpu: 
-                n_max = n_max.to(self.device)
-            dist.all_reduce(n_max, op=dist.ReduceOp.MAX)
-            n_max = int(n_max)
+            n_max_local = int(n_nodes_to_exchange.max().item())
+            n_max = np.zeros(1, dtype=np.int32)
+            self.comm.Allreduce(np.array([n_max_local], dtype=np.int32), n_max, op=MPI.MAX)
+            n_max = n_max[0]
 
             # fill the buffers -- make all buffer sizes the same (required for all_to_all) 
             if self.cfg.halo_swap_mode == "none":
@@ -706,21 +705,21 @@ class Trainer:
                     edge_weight = torch.tensor(self.client.get_array(f'edge_weight_rank_{self.rank}_size_{self.size}'))
                 else:
                     tic = time.time()
-                    halo_ids = create_halo_info_par.get_reduced_halo_ids(self.data_reduced)
-                    halo_info_glob = create_halo_info_par.get_halo_info_fast(self.data_reduced, halo_ids)
+                    halo_ids = get_reduced_halo_ids(self.comm, self.rank, self.size, self.data_reduced)
+                    halo_info_glob = get_halo_info_fast(self.comm, self.rank, self.size, self.data_reduced, halo_ids)
                     if self.rank ==0: log.info('[RANK %d]: computed halo info in %f sec' %(self.rank,time.time()-tic))
                     halo_info = halo_info_glob[self.rank]
                     self.client.put_array(f'halo_info_rank_{self.rank}_size_{self.size}', halo_info.numpy())
                     self.comm.Barrier()
 
                     tic = time.time()
-                    node_degree = create_halo_info_par.get_node_degree(self.data_reduced, halo_info)
+                    node_degree = get_node_degree(self.comm, self.rank, self.size, self.data_reduced, halo_info)
                     if self.rank ==0: log.info('[RANK %d]: computed node degree in %f sec' %(self.rank,time.time()-tic))
                     self.client.put_array(f'node_degree_rank_{self.rank}_size_{self.size}', node_degree.numpy())
                     self.comm.Barrier()
 
                     tic = time.time()
-                    edge_freq = create_halo_info_par.get_edge_weights(self.data_reduced, halo_info_glob)
+                    edge_freq = get_edge_weights(self.comm, self.rank, self.size, self.data_reduced, halo_info_glob)
                     edge_weight = (1.0/edge_freq).to(self.torch_dtype)
                     if self.rank ==0: log.info('[RANK %d]: computed edge weights in %f sec' %(self.rank,time.time()-tic))
                     self.client.put_array(f'edge_weight_rank_{self.rank}_size_{self.size}', edge_weight.to(torch.float32).numpy())
@@ -735,7 +734,8 @@ class Trainer:
                 if self.rank == 0: log.info(f'[RANK {self.rank}]: Found {len(self.neighboring_procs)} neighboring processes: {self.neighboring_procs}')
             
             effective_nodes_local = torch.sum(1.0/node_degree[:n_nodes_local])
-            effective_nodes = self.comm.allreduce(effective_nodes_local)
+            effective_nodes = torch.zeros(1, dtype=effective_nodes_local.dtype)
+            self.comm.Allreduce(effective_nodes_local, effective_nodes, op=MPI.SUM)
         else:
             halo_info = torch.zeros(1, dtype=self.torch_dtype)
             n_nodes_local = self.data_reduced.pos.shape[0]
@@ -1098,10 +1098,12 @@ class Trainer:
         data_graph = dist(data_graph) # adds euclidean distance
         data_graph = data_graph.to(device_for_loading)
 
-        # Normalize edge_attrs by length of the longest edge 
+        # Normalize edge_attrs by length of the longest edge
         distance = data_graph.edge_attr[:,-1]
-        distance_max_ = distance.max().to(self.device)
-        distance_max = distnn.all_reduce(distance_max_, op=distnn.ReduceOp.MAX).to(device_for_loading)
+        distance_max_local = distance.max().item()
+        distance_max_global = np.zeros(1, dtype=np.float32)
+        self.comm.Allreduce(np.array([distance_max_local], dtype=np.float32), distance_max_global, op=MPI.MAX)
+        distance_max = torch.tensor(distance_max_global, dtype=self.torch_dtype)
         data_graph.edge_attr = (data_graph.edge_attr/distance_max).to(self.torch_dtype)
 
         if (self.rank == 0):
@@ -1353,6 +1355,7 @@ class Trainer:
             graph.halo_info = graph.halo_info.to(self.device)
             graph.edge_weight = graph.edge_weight.to(self.device)
             graph.node_degree = graph.node_degree.to(self.device)
+            graph.effective_nodes = graph.effective_nodes.to(self.device)
             loss = loss.to(self.device)
         if self.cfg.timers: self.update_timer('dataTransfer', self.timer_step, time.time() - tic)
         if self.cfg.mem_profile: self.check_memory_stats('After data offload')
@@ -1430,7 +1433,7 @@ class Trainer:
             if self.timer_step < self.timer_step_max - 1:
                 self.update_timer_stats()
                 self.timer_step += 1
-        return loss
+        return loss.item()
     
     def inference_step(self, x) -> Tensor:
         if self.cfg.mem_profile: self.check_memory_stats('Before inference step')

@@ -13,6 +13,10 @@ import math
 from omegaconf import DictConfig, OmegaConf
 
 try:
+    import mpi4py.rc
+    mpi4py.rc.initialize = False
+    mpi4py.rc.threads = True
+    mpi4py.rc.thread_level = 'multiple'
     from mpi4py import MPI
 except ModuleNotFoundError as e:
     sys.exit('MPI is required! Please install MPI and try again.')
@@ -21,15 +25,13 @@ import torch
 
 # Local imports
 import utils
+from trainer import Trainer
 from client import OnlineClient
-# NOTE: 'Trainer' is lazy-imported inside train() to avoid loading
-# torch_geometric (and its C++ extensions) before ADIOS2 is initialized.
-# On multi-node runs, torch_geometric's native extensions can exhaust
-# CXI network endpoints, preventing ADIOS2 from opening its transport.
 
 log = logging.getLogger(__name__)
 
 # Get MPI:
+thread_level = MPI.Init_thread(MPI.THREAD_MULTIPLE)
 COMM = MPI.COMM_WORLD
 SIZE = COMM.Get_size()
 RANK = COMM.Get_rank()
@@ -67,13 +69,6 @@ else:
 def train(cfg: DictConfig,
           client: Optional[OnlineClient] = None
     ) -> None:
-    # Temporarily suppress root logger to hide compiler probe messages
-    # emitted by torch_geometric's C++ extension loading
-    _root_logger = logging.getLogger()
-    _prev_level = _root_logger.level
-    _root_logger.setLevel(logging.WARNING)
-    from trainer import Trainer
-    _root_logger.setLevel(_prev_level)
     trainer = Trainer(cfg, COMM, client=client)
     trainer.writeGraphStatistics()
     n_nodes_local = trainer.data_reduced.n_nodes_local.item()
@@ -93,8 +88,8 @@ def train(cfg: DictConfig,
             if trainer.iteration > 0:
                 local_time.append(t_step)
                 local_throughput.append(n_nodes_local/t_step/1.0e6)
-            trainer.loss_hist_train[trainer.iteration] = loss.item() 
-            loss_window.append(loss.item())
+            trainer.loss_hist_train[trainer.iteration] = loss 
+            loss_window.append(loss)
             running_loss = sum(loss_window) / len(loss_window)
             trainer.iteration += 1 
             
@@ -149,12 +144,12 @@ def train(cfg: DictConfig,
     
     # Correctness validation
     if cfg.target_loss != 0:
-        if math.isclose(cfg.target_loss,loss.item(),rel_tol=0.001):
+        if math.isclose(cfg.target_loss,loss,rel_tol=0.001):
             if RANK==0: print('\n\nSUCCESS! GNN training validated!\n\n')
         else:
             if RANK==0: 
                 print('\n\nWARNING! GNN training failed validation!')
-                print(f'Target loss: {cfg.target_loss}, obtained loss: {loss.item()}\n\n')
+                print(f'Target loss: {cfg.target_loss}, obtained loss: {loss}\n\n')
     
     # Save model
     trainer.save_model()

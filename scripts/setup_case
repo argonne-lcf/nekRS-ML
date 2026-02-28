@@ -283,7 +283,7 @@ function setup_venv() {
     export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
     export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
     if [ ${SYSTEM} == "aurora" ]; then
-      pip install torch_geometric==2.5.3
+      pip install torch_geometric
     fi  
 
     if [ ${MODEL} == "sr-gnn" ]; then
