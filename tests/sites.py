@@ -114,7 +114,6 @@ site_configuration = {
             "prepare_cmds": [
                 "module restore",
                 "module load frameworks",
-                "module load adios2",
                 "module list",
             ],
             "env_vars": [
