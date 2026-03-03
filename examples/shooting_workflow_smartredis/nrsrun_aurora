@@ -60,24 +60,6 @@ chk_case $TOTAL_RANKS
 # Generate the affinity scripts
 SAFF_FILE=affinity_nrs.sh
 TAFF_FILE=affinity_ml.sh
-echo "#!/bin/bash" > $SAFF_FILE
-echo "num_gpus=\$1" >> $SAFF_FILE
-echo "shift" >> $SAFF_FILE
-echo "gpu_id=\$((PALS_LOCAL_RANKID % \${num_gpus} ))" >> $SAFF_FILE
-echo "export ZE_FLAT_DEVICE_HIERARCHY=FLAT" >> $SAFF_FILE
-echo "export ZE_AFFINITY_MASK=\$gpu_id" >> $SAFF_FILE
-echo "exec \"\$@\"" >> $SAFF_FILE
-
-echo "#!/bin/bash" > $TAFF_FILE
-echo "num_gpus=\$1" >> $TAFF_FILE
-echo "offset=\$2" >> $TAFF_FILE
-echo "shift" >> $TAFF_FILE
-echo "shift" >> $TAFF_FILE
-echo "gpu_id=\$((PALS_LOCAL_RANKID % \${num_gpus} + \${offset} ))" >> $TAFF_FILE
-echo "export ZE_FLAT_DEVICE_HIERARCHY=FLAT" >> $TAFF_FILE
-echo "export ZE_AFFINITY_MASK=\$gpu_id" >> $TAFF_FILE
-echo "exec \"\$@\"" >> $TAFF_FILE
-chmod u+x $SAFF_FILE $TAFF_FILE
 
 #--------------------------------------
 # Generate the workflow config script
