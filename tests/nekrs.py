@@ -757,9 +757,13 @@ class NekRSMLOnlineTest(NekRSMLTest):
     def check_run(self):
         nekrs_ok = self.check_nekrs_exit_code()
 
-        train_out = os.path.join(
-            self.stagedir, self.experiment_name, "train", "train.out"
-        )
+        if self.client == "smartredis":
+            train_out = os.path.join(
+                self.stagedir, self.experiment_name, "train", "train.out"
+            )
+        else:
+            train_out = os.path.join(self.stagedir, "logs", "train_0.out")
+
         train_out_present = sn.assert_true(
             os.path.isfile(train_out),
             f"train.out could not be found in path {train_out}",
