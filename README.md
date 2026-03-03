@@ -65,11 +65,15 @@ The HPC systems currently supported are:
 * [Aurora](https://docs.alcf.anl.gov/aurora/) @ Argonne LCF
 * [Crux](https://docs.alcf.anl.gov/crux/) @ Argonne LCF (limited support for ML-enabled examples)
 
-For example, to build nekRS-ML on Aurora without the SmartRedis client, execute from a compute node
-
+For example, to build nekRS-ML on Aurora with ADIOS2, execute
 ```sh
 ./BuildMeOnAurora
 ```
+This will build ADIOS2 shipped with nekRS. You can also point to an existing
+ADIOS2 installation (some systems provide pre-built ADIOS2 through modules) by
+setting `-DADIOS2_INSTALL_DIR=/path/to/adios2/install` in the `build.sh` script.
+We recommend building ADIOS2 shipped with nekRS as some users have run into
+issues with the latter approach.
 
 If instead the SmartRedis client is desired, execute
 
