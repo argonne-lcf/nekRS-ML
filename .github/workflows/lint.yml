@@ -25,6 +25,11 @@ jobs:
       with:
         src: "./3rd_party/gnn"
         args: ${{ env.RUFF_OPTS }}
+    - name: ruff format check in examples
+      uses: astral-sh/ruff-action@v3
+      with:
+        src: "./examples"
+        args: ${{ env.RUFF_OPTS }}
     - name: ruff format check in tests
       uses: astral-sh/ruff-action@v3
       with:
