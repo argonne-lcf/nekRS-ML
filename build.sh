@@ -25,9 +25,9 @@ if [ -d ${INSTALL_DIR} ]; then
   echo -e "\n\033[31mWARNING! Found an install directory already at $INSTALL_DIR, you may want to clean it.\033[m\n"
 fi
 
-cmake -S . -B ${BUILD_DIR} -DCMAKE_INSTALL_PREFIX=${INSTALL_DIR}  -Wfatal-errors $@
-cmake --build ${BUILD_DIR} --parallel 8
-cmake --install ${BUILD_DIR}
+cmake -S . -B ${BUILD_DIR} -DCMAKE_INSTALL_PREFIX=${INSTALL_DIR}  -Wfatal-errors $@ 2>&1 | tee config.log
+cmake --build ${BUILD_DIR} --parallel 8 2>&1 | tee build.log
+cmake --install ${BUILD_DIR} 2>&1 | tee install.log
 if [ $? -eq 0 ]; then
   echo ""
   echo -e "\033[35mHooray! You're all set. The installation is complete.\033[m"

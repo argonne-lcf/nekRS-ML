@@ -1,19 +1,12 @@
-# @package _global_
-verbose: False
-timers: False
-seed: 12
-backend: xccl
 num_threads: 1
 precision: fp32
 master_addr: none
 master_port: 2345
+io_mode: "posix"
+workflow_steps: 2
 
-# learning rate schedule 
-phase1_steps: 2
-
-# Online training
+# Online configuration
 online: True
-online_update_freq: 10
 client: 
     backend: "adios"
     db_nodes: 1

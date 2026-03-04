@@ -78,8 +78,8 @@ echo "TRANSPORT=RDMA" >>$SFILE
 echo "IO_MODE=posix" >>$SFILE
 
 echo -e "\n# Run" >>$SFILE
-echo "mpirun -np \$RANKS --ppn \$RANKS_PER_NODE --cpu-bind \$CPU_BIND --hostfile ./sim_hostfile ./sim \$NUM_PTS \$MODE \$TRANSPORT \$IO_MODE &" >> $SFILE
-echo "mpirun -np \$RANKS --ppn \$RANKS_PER_NODE --cpu-bind \$CPU_BIND --hostfile ./trainer_hostfile python trainer.py --data_plane \$TRANSPORT --io_mode \$IO_MODE" >> $SFILE
+echo "mpirun -np \$RANKS --ppn \$RANKS_PER_NODE --cpu-bind \$CPU_BIND --hostfile ./sim_hostfile ./sim_adios2 \$NUM_PTS \$MODE \$TRANSPORT \$IO_MODE &" >> $SFILE
+echo "mpirun -np \$RANKS --ppn \$RANKS_PER_NODE --cpu-bind \$CPU_BIND --hostfile ./trainer_hostfile python main.py io_mode=\$IO_MODE client.adios_transport=\$TRANSPORT" >> $SFILE
 echo "wait" >> $SFILE
 chmod u+x $SFILE
 

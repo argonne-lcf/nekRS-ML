@@ -165,19 +165,18 @@ class OnlineClient:
         self.timers['meta_data'].append(perf_counter()-tic)
         return list_length
         
-    def get_graph_data_from_stream(self) -> dict:
+    def get_graph_data_from_stream(self, path: str) -> dict:
         """Get the entire set of graph datasets from a stream
         """
-        tic = perf_counter()
         graph_data = {}
         if self.backend == 'adios':
             if self.rank == 0:
-                while not os.path.exists('./graph.bp'):
+                while not os.path.exists(path):
                     sleep(2)
             self.comm.Barrier()
 
-            #with Stream(self.client, 'graphStream', 'r', self.comm) as stream:
-            with Stream(self._create_bp_io(), 'graph.bp', 'r') as stream:
+            tic = perf_counter()
+            with Stream(self._create_bp_io(), path, 'r') as stream:
                 stream.begin_step()
 
                 arr = stream.inquire_variable('N')
@@ -192,8 +191,10 @@ class OnlineClient:
                 graph_data['pos'] = stream.read('pos_node', [start], [count])
                 
                 stream.end_step()
-        self.timers['data'].append(perf_counter()-tic)
-        return graph_data
+            self.comm.Barrier()
+            toc = perf_counter()
+            read_time = toc - tic
+        return graph_data, read_time
 
     def get_train_data_from_stream(self) -> Tuple[np.ndarray,np.ndarray]:
         """Get the solution from a stream

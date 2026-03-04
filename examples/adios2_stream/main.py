@@ -4,13 +4,11 @@ PyTorch DDP training script for GNN-based surrogates from mesh data
 import sys
 import os
 import logging
-from collections import deque
-from typing import Optional, Union, Callable
 import numpy as np
 import hydra
 import time
-import math
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
+from typing import Optional
 
 try:
     import mpi4py.rc
@@ -21,10 +19,6 @@ except ModuleNotFoundError as e:
 
 import torch
 
-# Local imports
-# This import causes the adios client to not initialize 
-# or hang when loading the .bp file.
-# The issue is importing torch_geometric
 from trainer import Trainer 
 from client import OnlineClient
 
@@ -32,12 +26,16 @@ log = logging.getLogger(__name__)
 
 # Get MPI:
 MPI.Init()
-COMM = MPI.COMM_WORLD
+GLOBAL_COMM = MPI.COMM_WORLD
+GLOBAL_RANK = GLOBAL_COMM.Get_rank()
+GLOBAL_SIZE = GLOBAL_COMM.Get_size()
+COLOR = 1234
+COMM = GLOBAL_COMM.Split(COLOR, GLOBAL_RANK)
 SIZE = COMM.Get_size()
 RANK = COMM.Get_rank()
 LOCAL_RANK = int(os.getenv("PALS_LOCAL_RANKID"))
 LOCAL_SIZE = int(os.getenv("PALS_LOCAL_SIZE"))
-HOST_NAME = MPI.Get_processor_name()
+HOST_NAME = MPI.Get_processor_name() if RANK == 0 else None
 
 try:
     WITH_CUDA = torch.cuda.is_available()
@@ -69,27 +67,26 @@ else:
 def train(cfg: DictConfig,
           client: Optional[OnlineClient] = None
     ) -> None:
-    # This import here makes the adios2 client initialize and .bp file to be read
-    # but makes adios2 hang when opening the SST stream
-    #_root_logger = logging.getLogger()
-    #_prev_level = _root_logger.level
-    #_root_logger.setLevel(logging.WARNING)
-    #from trainer import Trainer
-    #_root_logger.setLevel(_prev_level)
     trainer = Trainer(cfg, COMM, client=client)
     N = trainer.N
     
     ## Training loop: 
-    stream_times = np.zeros(cfg.phase1_steps)
+    stream_times = np.zeros(cfg.workflow_steps)
     iteration = 0
     while True:
-        stream_time = trainer.train_step()
+        inputs, outputs, stream_time = trainer.train_step()
         if RANK == 0: print(f"[Trainer] Loaded data for step {iteration} in {stream_time:.4f} seconds", flush=True)
         stream_times[iteration] = stream_time
         iteration += 1
 
+        # Check for correctness
+        if not np.allclose(inputs, outputs) and not np.allclose(inputs, np.ones_like(inputs)*(rank+frac)):
+            print(f'[ML] Input and output are not correct on rank {RANK} for step {iteration}',flush=True)
+            MPI.Abort(COMM, 1)
+        COMM.Barrier()
+
         # Break loop over dataloader
-        if iteration >= cfg.phase1_steps:
+        if iteration >= cfg.workflow_steps:
             break
 
     # Tell simulation to exit
@@ -102,7 +99,7 @@ def train(cfg: DictConfig,
     trainer.cleanup()
 
     # Compute average stream time across all ranks
-    global_stream_times = np.zeros(cfg.phase1_steps*SIZE)
+    global_stream_times = np.zeros(cfg.workflow_steps*SIZE)
     COMM.Allgather(stream_times, global_stream_times)
     avg_stream_times = np.mean(global_stream_times)
 
@@ -110,10 +107,10 @@ def train(cfg: DictConfig,
     time.sleep(5)
     if RANK == 0:
         print("\n=== Communication Performance Summary ===")
-        data_size_gb = N * 8 / 1e9
-        recv_bw = N * 8 / avg_stream_times / 1e9
+        data_size_gb = N * 8 / 1e9 
+        recv_bw = 2 * data_size_gb / avg_stream_times #2x because stream time is for both Uin and Uout
         print(f"Data size per message: {data_size_gb.item():.4e} GB")
-        print(f"Total iterations: {cfg.phase1_steps}")
+        print(f"Total iterations: {cfg.workflow_steps}")
         print(f"Average receive time: {avg_stream_times:.6f} seconds")
         print(f"Average receive bandwidth: {recv_bw.item():.6f} GB/s",flush=True)
 

@@ -401,16 +401,16 @@ if (ENABLE_SMARTREDIS)
 install(DIRECTORY scripts/ DESTINATION bin
   FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
 
+# Fix ADIOS2 CMake target files if ADIOS2 was built from source
+if (ENABLE_ADIOS AND ADIOS2_BUILT_FROM_SOURCE)
+  install(SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/cmake/fix_adios2_targets.cmake)
+endif()
+
 # Examples will follow a different policy -- only copy if source tree is newer than install tree
 file(GLOB_RECURSE EXAMPLE_FILES ${CMAKE_CURRENT_SOURCE_DIR}/examples/*)
 configure_file(${CMAKE_CURRENT_LIST_DIR}/cmake/install_examples.cmake.in
         ${CMAKE_CURRENT_BINARY_DIR}/install_examples.cmake @ONLY)
 install(SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/install_examples.cmake)
-
-# Fix ADIOS2 CMake target files if ADIOS2 was built from source
-if (ENABLE_ADIOS AND ADIOS2_BUILT_FROM_SOURCE)
-  install(SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/cmake/fix_adios2_targets.cmake)
-endif()
 
 message(NOTICE "")
 message(NOTICE "----------------- Summary -----------------")
