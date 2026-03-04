@@ -30,27 +30,29 @@ from smartredis import Client
 ## Define logger
 def setup_logger(name, log_file, level=logging.INFO):
     """To setup as many loggers as you want"""
-    handler = logging.FileHandler(log_file,mode='w')
-    formatter = logging.Formatter('%(message)s')
+    handler = logging.FileHandler(log_file, mode="w")
+    formatter = logging.Formatter("%(message)s")
     handler.setFormatter(formatter)
     logger = logging.getLogger(name)
     logger.setLevel(level)
     logger.addHandler(handler)
     return logger
 
+
 ## Initialize Redis clients
 def init_client(SSDB, cfg, logger_init):
-    if (cfg.dbnodes==1):
+    if cfg.dbnodes == 1:
         tic = perf_counter()
-        client = Client(address=SSDB,cluster=False)
+        client = Client(address=SSDB, cluster=False)
         toc = perf_counter()
     else:
         tic = perf_counter()
-        client = Client(address=SSDB,cluster=True)
+        client = Client(address=SSDB, cluster=True)
         toc = perf_counter()
-    if (cfg.logging=='verbose'):
-        logger_init.info('%.8e',toc-tic)
+    if cfg.logging == "verbose":
+        logger_init.info("%.8e", toc - tic)
     return client
+
 
 # Define the FCN model
 class FCN(nn.Module):
@@ -66,6 +68,7 @@ class FCN(nn.Module):
         x = self.fc2(x)
         return x
 
+
 ## Define Datasets
 class RankDataset(torch.utils.data.Dataset):
     # Dataset that generates a key for DB tensor with varying rank ID
@@ -79,9 +82,10 @@ class RankDataset(torch.utils.data.Dataset):
         return self.total_data
 
     def __getitem__(self, idx):
-        tensor_num = idx+self.head_rank
+        tensor_num = idx + self.head_rank
         return f"x.{tensor_num}.{self.step}"
-    
+
+
 class RankStepDataset(torch.utils.data.Dataset):
     # Dataset that generates a key for DB tensor with varying rank ID
     # and varying time step number
@@ -90,21 +94,22 @@ class RankStepDataset(torch.utils.data.Dataset):
         self.steps = steps
         self.num_steps = len(steps)
         self.head_rank = head_rank
-        self.total_data = self.ranks*self.num_steps
+        self.total_data = self.ranks * self.num_steps
 
     def __len__(self):
         return self.total_data
 
     def __getitem__(self, idx):
-        rank_id = idx%self.ranks
-        rank_id = rank_id+self.head_rank
-        step_id = idx//self.ranks
+        rank_id = idx % self.ranks
+        rank_id = rank_id + self.head_rank
+        step_id = idx // self.ranks
         step = self.steps[step_id]
         return f"x.{rank_id}.{step}"
 
+
 class MinibDataset(torch.utils.data.Dataset):
-    #dataset of each ML rank in one epoch with the concatenated tensors
-    def __init__(self,concat_tensor):
+    # dataset of each ML rank in one epoch with the concatenated tensors
+    def __init__(self, concat_tensor):
         self.concat_tensor = concat_tensor
 
     def __len__(self):
@@ -115,8 +120,19 @@ class MinibDataset(torch.utils.data.Dataset):
 
 
 ## Training subroutine
-def train(comm, model, train_sampler, train_tensor_loader, optimizer, epoch, 
-          batch, ndIn, client, cfg, logger_data):
+def train(
+    comm,
+    model,
+    train_sampler,
+    train_tensor_loader,
+    optimizer,
+    epoch,
+    batch,
+    ndIn,
+    client,
+    cfg,
+    logger_data,
+):
     rank = comm.Get_rank()
     size = comm.Get_size()
 
@@ -128,14 +144,15 @@ def train(comm, model, train_sampler, train_tensor_loader, optimizer, epoch,
 
     for tensor_idx, tensor_keys in enumerate(train_tensor_loader):
         # grab data from database
-        if cfg.logging == 'verbose':
-            print(f'[{rank}]: Grabbing tensors with key {tensor_keys}', flush=True)
+        if cfg.logging == "verbose":
+            print(f"[{rank}]: Grabbing tensors with key {tensor_keys}", flush=True)
         tic = perf_counter()
-        concat_tensor = torch.cat([torch.from_numpy(client.get_tensor(key)) \
-                      for key in tensor_keys], dim=0)
+        concat_tensor = torch.cat(
+            [torch.from_numpy(client.get_tensor(key)) for key in tensor_keys], dim=0
+        )
         toc = perf_counter()
-        if (cfg.logging=='verbose'):
-            logger_data.info('%.8e',toc-tic)
+        if cfg.logging == "verbose":
+            logger_data.info("%.8e", toc - tic)
         concat_tensor = concat_tensor.float()
 
         mbdata = MinibDataset(concat_tensor)
@@ -145,8 +162,8 @@ def train(comm, model, train_sampler, train_tensor_loader, optimizer, epoch,
             sleep(0.001)
 
             # split inputs and outputs
-            if (cfg.device != 'cpu'):
-               dbdata = dbdata.to(cfg.device)
+            if cfg.device != "cpu":
+                dbdata = dbdata.to(cfg.device)
             features = dbdata[:, :ndIn]
             target = dbdata[:, ndIn:]
 
@@ -157,7 +174,7 @@ def train(comm, model, train_sampler, train_tensor_loader, optimizer, epoch,
             optimizer.step()
             running_loss += loss.item()
 
-            #if ((batch_idx)%10==0):
+            # if ((batch_idx)%10==0):
             #    print(f'Train Epoch: {epoch} | ' + \
             #          f'[{tensor_idx+1}/{len(train_tensor_loader)}] | ' + \
             #          f'[{batch_idx+1}/{len(train_loader)}] | ' + \
@@ -167,21 +184,21 @@ def train(comm, model, train_sampler, train_tensor_loader, optimizer, epoch,
     loss_avg = metric_average(comm, size, running_loss)
 
     ##local_residuals = (target - output).detach().to('cpu')
-    #local_residuals = (target - output).detach()
+    # local_residuals = (target - output).detach()
     ## Create a list to hold gathered residuals
-    #world_size = dist.get_world_size()
-    #residual_list = [torch.zeros_like(local_residuals) for _ in range(world_size)]
-    #all_gather(residual_list, local_residuals)
+    # world_size = dist.get_world_size()
+    # residual_list = [torch.zeros_like(local_residuals) for _ in range(world_size)]
+    # all_gather(residual_list, local_residuals)
 
     ## Concatenate into one big tensor
-    #all_residuals = torch.cat(residual_list, dim=0).to('cpu').numpy()
+    # all_residuals = torch.cat(residual_list, dim=0).to('cpu').numpy()
 
     if rank == 0:
         print(f"Training set: Average loss: {loss_avg:>8e}", flush=True)
-        #np.savetxt(f"residuals_epoch_{epoch}.csv", all_residuals, delimiter=",")
+        # np.savetxt(f"residuals_epoch_{epoch}.csv", all_residuals, delimiter=",")
 
-        #residuals = (target - output).detach().to('cpu').numpy()
-        #print(f"ErrorHist: {epoch} {residuals}", flush=True)
+        # residuals = (target - output).detach().to('cpu').numpy()
+        # print(f"ErrorHist: {epoch} {residuals}", flush=True)
 
     return model, loss_avg
 
@@ -202,49 +219,54 @@ def main(cfg: DictConfig):
     rank = comm.Get_rank()
     name = MPI.Get_processor_name()
     rankl = int(os.getenv("PALS_LOCAL_RANKID"))
-    print(f'Rank {rank}/{size}, local rank {rankl} says hello from {name}', flush=True)
+    print(f"Rank {rank}/{size}, local rank {rankl} says hello from {name}", flush=True)
     comm.Barrier()
 
     # Create log files
-    time_meta = 0.
-    if (cfg.logging=='verbose'):
-        logger_init = setup_logger('client_init', f'client_init_ml_{rank}.log')
-        logger_meta = setup_logger('meta', f'meta_data_ml_{rank}.log')
-        logger_data = setup_logger('train_data', f'train_data_ml_{rank}.log')
+    time_meta = 0.0
+    if cfg.logging == "verbose":
+        logger_init = setup_logger("client_init", f"client_init_ml_{rank}.log")
+        logger_meta = setup_logger("meta", f"meta_data_ml_{rank}.log")
+        logger_data = setup_logger("train_data", f"train_data_ml_{rank}.log")
     else:
         logger_init = None
         logger_data = None
 
     # Initialize Torch Distributed
-    os.environ['RANK'] = str(rank)
-    os.environ['WORLD_SIZE'] = str(size)
+    os.environ["RANK"] = str(rank)
+    os.environ["WORLD_SIZE"] = str(size)
     master_addr = socket.gethostname() if rank == 0 else None
     master_addr = comm.bcast(master_addr, root=0)
-    os.environ['MASTER_ADDR'] = master_addr
-    os.environ['MASTER_PORT'] = str(2345)
-    if (cfg.device=='cpu'): backend = 'gloo'
-    elif (cfg.device=='cuda'): backend = 'nccl'
-    elif (cfg.device=='xpu'): backend = 'xccl'
-    dist.init_process_group(backend,
-                            rank=int(rank),
-                            world_size=int(size),
-                            init_method='env://',
-                            timeout=datetime.timedelta(seconds=120))
+    os.environ["MASTER_ADDR"] = master_addr
+    os.environ["MASTER_PORT"] = str(2345)
+    if cfg.device == "cpu":
+        backend = "gloo"
+    elif cfg.device == "cuda":
+        backend = "nccl"
+    elif cfg.device == "xpu":
+        backend = "xccl"
+    dist.init_process_group(
+        backend,
+        rank=int(rank),
+        world_size=int(size),
+        init_method="env://",
+        timeout=datetime.timedelta(seconds=120),
+    )
 
     # Initialize Redis clients on each rank
-    address = os.getenv('SSDB')
+    address = os.getenv("SSDB")
     client = init_client(address, cfg, logger_init)
     comm.Barrier()
-    if (rank == 0):
+    if rank == 0:
         print("All Python clients initialized\n", flush=True)
 
     # Pull metadata from database
     while True:
-        if (client.poll_tensor("tensorInfo",0,1)):
+        if client.poll_tensor("tensorInfo", 0, 1):
             tic = perf_counter()
-            dataSizeInfo = client.get_tensor('tensorInfo').astype('int32')
+            dataSizeInfo = client.get_tensor("tensorInfo").astype("int32")
             toc = perf_counter()
-            time_meta = time_meta + (toc-tic)
+            time_meta = time_meta + (toc - tic)
             break
     comm.Barrier()
     npts = dataSizeInfo[0]
@@ -253,7 +275,7 @@ def main(cfg: DictConfig):
     head_rank = dataSizeInfo[3]
     ndIn = dataSizeInfo[4]
     ndOut = dataSizeInfo[5]
-    if (rank == 0):
+    if rank == 0:
         print("Retreived metadata from DB:")
         print(f"Number of samples per tensor: {npts}")
         print(f"Number of total tensors in all DB: {num_tot_tensors}")
@@ -261,120 +283,142 @@ def main(cfg: DictConfig):
         print(f"Number of inputs and outputs to model: {ndIn}, {ndOut}", flush=True)
 
     # NN Training Hyper-Parameters
-    Nepochs = 100 # number of epochs
-    batch =  int(num_db_tensors/cfg.ppn) # how many tensors to grab from db
-    mini_batch = 2048 # batch size once tensors obtained from db and concatenated 
-    learning_rate = 0.001 # learning rate
-    nNeurons = 20 # number of neuronsining settings
-    tol = 1.0e-10 # convergence tolerance on loss function
+    Nepochs = 100  # number of epochs
+    batch = int(num_db_tensors / cfg.ppn)  # how many tensors to grab from db
+    mini_batch = 2048  # batch size once tensors obtained from db and concatenated
+    learning_rate = 0.001  # learning rate
+    nNeurons = 20  # number of neuronsining settings
+    tol = 1.0e-10  # convergence tolerance on loss function
 
     # Set device to run on
-    if (rank == 0):
-        print(f"\nRunning on device: {cfg.device} \n",flush=True)
+    if rank == 0:
+        print(f"\nRunning on device: {cfg.device} \n", flush=True)
     torch.set_num_threads(1)
     device = torch.device(cfg.device)
-    if (cfg.device == 'cuda'):
+    if cfg.device == "cuda":
         if torch.cuda.is_available():
-            device_id = rankl if torch.cuda.device_count()>1 else 0
-            torch.cuda.set_device(device_id+cfg.device_skip)
-    elif (cfg.device == 'xpu'):
+            device_id = rankl if torch.cuda.device_count() > 1 else 0
+            torch.cuda.set_device(device_id + cfg.device_skip)
+    elif cfg.device == "xpu":
         if torch.xpu.is_available():
-            device_id = rankl if torch.xpu.device_count()>1 else 0
-            torch.xpu.set_device(device_id+cfg.device_skip)
+            device_id = rankl if torch.xpu.device_count() > 1 else 0
+            torch.xpu.set_device(device_id + cfg.device_skip)
 
     # Instantiate the NN model and optimizer
     model = FCN(input_size=ndIn, hidden_size=nNeurons, output_size=ndOut)
-    if (cfg.device != 'cpu'):
+    if cfg.device != "cpu":
         model.to(cfg.device)
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate*size, weight_decay=1e-3)
-    
+    optimizer = optim.Adam(
+        model.parameters(), lr=learning_rate * size, weight_decay=1e-3
+    )
+
     # Wrap model with DDP
-    model = DDP(model) 
+    model = DDP(model)
 
     # Training setup and variable initialization
-    istep = -1 # initialize the simulation step number to -1
-    step_list = [] # initialize an empty list containing all the steps sent
-    iepoch = 1 # epoch number
+    istep = -1  # initialize the simulation step number to -1
+    step_list = []  # initialize an empty list containing all the steps sent
+    iepoch = 1  # epoch number
 
     # While loop that checks when training data is available on database
-    if (rank == 0):
+    if rank == 0:
         print("Starting training loop ... \n")
     while True:
         # check to see if the time step number has been sent to database, if not cycle
-        if (client.poll_tensor("step",0,1)):
+        if client.poll_tensor("step", 0, 1):
             tic = perf_counter()
-            tmp = client.get_tensor('step').astype('int32')
+            tmp = client.get_tensor("step").astype("int32")
             toc = perf_counter()
-            time_meta = time_meta + (toc-tic)
+            time_meta = time_meta + (toc - tic)
         else:
             continue
 
         # new data is available in database so update Dataset and DataLoader
-        if (istep != tmp[0]): 
+        if istep != tmp[0]:
             istep = tmp[0]
             step_list.append(istep)
-            batch =  int(num_db_tensors*len(step_list)/cfg.ppn)
-            if (rank == 0):
+            batch = int(num_db_tensors * len(step_list) / cfg.ppn)
+            if rank == 0:
                 print("\nGetting new training data from DB ...")
                 print(f"Added time step {istep} to training data\n", flush=True)
 
-            datasetTrain = RankStepDataset(num_db_tensors,step_list,head_rank)
-            train_sampler = DistributedSampler(datasetTrain, num_replicas=cfg.ppn,
-                                               rank=rankl, drop_last=False)
-            train_tensor_loader = DataLoader(datasetTrain, batch_size=batch, 
-                                             sampler=train_sampler)
-        
-        if (rank == 0):
+            datasetTrain = RankStepDataset(num_db_tensors, step_list, head_rank)
+            train_sampler = DistributedSampler(
+                datasetTrain, num_replicas=cfg.ppn, rank=rankl, drop_last=False
+            )
+            train_tensor_loader = DataLoader(
+                datasetTrain, batch_size=batch, sampler=train_sampler
+            )
+
+        if rank == 0:
             print(f"\n Epoch {iepoch}\n-------------------------------", flush=True)
-        
-        model, global_loss = train(comm, model, train_sampler, train_tensor_loader, optimizer,
-                                    iepoch, mini_batch, ndIn, client, cfg, logger_data)
-            
+
+        model, global_loss = train(
+            comm,
+            model,
+            train_sampler,
+            train_tensor_loader,
+            optimizer,
+            iepoch,
+            mini_batch,
+            ndIn,
+            client,
+            cfg,
+            logger_data,
+        )
+
         # check if tolerance on loss is satisfied
-        if (global_loss <= tol):
-            if (rank == 0):
-                print("\nConvergence tolerance met. Stopping training loop. \n", flush=True)
+        if global_loss <= tol:
+            if rank == 0:
+                print(
+                    "\nConvergence tolerance met. Stopping training loop. \n",
+                    flush=True,
+                )
             break
-        
+
         # check if max number of epochs is reached
-        if (iepoch >= Nepochs):
-            if (rank == 0):
-                print("\nMax number of epochs reached. Stopping training loop. \n", flush=True)
+        if iepoch >= Nepochs:
+            if rank == 0:
+                print(
+                    "\nMax number of epochs reached. Stopping training loop. \n",
+                    flush=True,
+                )
             break
 
-        iepoch = iepoch + 1        
+        iepoch = iepoch + 1
 
-    if (cfg.logging=='verbose'):
-        logger_meta.info('%.8e',time_meta)    
+    if cfg.logging == "verbose":
+        logger_meta.info("%.8e", time_meta)
 
     # Save model to file before exiting
     model = model.module
     model.eval()
-    if (rank == 0):
+    if rank == 0:
         model.double()
         model_name = "example_model"
-        torch.save(model.state_dict(), f"{model_name}.pt", _use_new_zipfile_serialization=False)
+        torch.save(
+            model.state_dict(), f"{model_name}.pt", _use_new_zipfile_serialization=False
+        )
         # save jit traced model to be used for online inference with SmartSim
-        features = np.double(np.random.uniform(low=0, high=10, size=(npts,ndIn)))
+        features = np.double(np.random.uniform(low=0, high=10, size=(npts, ndIn)))
         features = torch.from_numpy(features).to(cfg.device)
         module = torch.jit.trace(model, features)
         torch.jit.save(module, f"{model_name}_jit.pt")
         print("Saved model to disk\n", flush=True)
 
-
     # Exit and tell data loader to exit too
     comm.Barrier()
-    if (rank%cfg.ppn == 0):
+    if rank % cfg.ppn == 0:
         print(f"[{rank}]: Telling NEKRS to quit ... \n")
         arrMLrun = np.int32(np.zeros(1))
-        client.put_tensor("check-run",arrMLrun)
+        client.put_tensor("check-run", arrMLrun)
 
     dist.destroy_process_group()
 
-    if (rank==0):
+    if rank == 0:
         print("Exiting ...")
-    
+
 
 ###
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
