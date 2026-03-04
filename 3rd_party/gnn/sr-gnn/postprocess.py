@@ -263,10 +263,14 @@ def main():
                     )
                     sys.exit()
                 if pos_xlo_i.max() == 0.0 and pos_xlo_i.min() == 0.0:
-                    logger.error(f"Node positions are not stored in {input_path}.")
+                    logger.error(
+                        f"Node positions are not stored in {input_path}."
+                    )
                     sys.exit()
                 if pos_xhi_i.max() == 0.0 and pos_xhi_i.min() == 0.0:
-                    logger.error(f"Node positions are not stored in {target_path}.")
+                    logger.error(
+                        f"Node positions are not stored in {target_path}."
+                    )
                     sys.exit()
 
                 # get x_mean and x_std

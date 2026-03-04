@@ -1268,7 +1268,9 @@ class Trainer:
                     output_files = self.client.get_file_list(
                         f"outputs_rank_{RANK}"
                     )
-                    input_files = self.client.get_file_list(f"inputs_rank_{RANK}")
+                    input_files = self.client.get_file_list(
+                        f"inputs_rank_{RANK}"
+                    )
             self.online_timers["metaData"].append(time.time() - tic)
 
             # Load files

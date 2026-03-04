@@ -20,6 +20,7 @@ import torch_geometric.nn as tgnn
 from torch_geometric.data import Data
 
 import mpi4py.rc
+
 mpi4py.rc.initialize = False
 from mpi4py import MPI
 
@@ -27,6 +28,7 @@ from gnn import GNN_Element_Neighbor_Lo_Hi
 import dataprep.nekrs_graph_setup  # needed to load the .pt data
 
 import logging
+
 logging.basicConfig(
     level=logging.INFO,
     stream=sys.stdout,
@@ -38,10 +40,10 @@ logger = logging.getLogger(__name__)
 
 class Trainer:
     def __init__(
-        self, 
-        cfg: DictConfig, 
-        comm: MPI.COMM_WORLD, 
-        scaler: Optional[GradScaler] = None
+        self,
+        cfg: DictConfig,
+        comm: MPI.COMM_WORLD,
+        scaler: Optional[GradScaler] = None,
     ) -> None:
         self.cfg = cfg
         self.comm = comm
@@ -152,23 +154,34 @@ class Trainer:
             )
 
     def init_process_group(self, master_addr: str, master_port: int):
-        os.environ['RANK'] = str(self.rank)
-        os.environ['WORLD_SIZE'] = str(self.size)
-        if master_addr=='none':
+        os.environ["RANK"] = str(self.rank)
+        os.environ["WORLD_SIZE"] = str(self.size)
+        if master_addr == "none":
             MASTER_ADDR = socket.gethostname() if self.rank == 0 else None
             MASTER_ADDR = self.comm.bcast(MASTER_ADDR, root=0)
         else:
             MASTER_ADDR = str(master_addr)
-        os.environ['MASTER_ADDR'] = MASTER_ADDR
-        os.environ['MASTER_PORT'] = str(master_port)
+        os.environ["MASTER_ADDR"] = MASTER_ADDR
+        os.environ["MASTER_PORT"] = str(master_port)
 
         if torch.cuda.is_available():
-            backend = 'nccl' if self.cfg.backend is None else str(self.cfg.backend)
+            backend = (
+                "nccl" if self.cfg.backend is None else str(self.cfg.backend)
+            )
         elif torch.xpu.is_available():
-            backend = 'xccl' if self.cfg.backend is None else str(self.cfg.backend)
+            backend = (
+                "xccl" if self.cfg.backend is None else str(self.cfg.backend)
+            )
         else:
-            backend = 'gloo' if self.cfg.backend is None else str(self.cfg.backend)
-        dist.init_process_group(backend, rank=int(self.rank), world_size=int(self.size), init_method='env://')
+            backend = (
+                "gloo" if self.cfg.backend is None else str(self.cfg.backend)
+            )
+        dist.init_process_group(
+            backend,
+            rank=int(self.rank),
+            world_size=int(self.size),
+            init_method="env://",
+        )
 
     def cleanup():
         dist.destroy_process_group()
@@ -205,7 +218,9 @@ class Trainer:
         return model
 
     def build_optimizer(self, model: nn.Module) -> torch.optim.Optimizer:
-        optimizer = optim.Adam(model.parameters(), lr=self.size * self.cfg.lr_init)
+        optimizer = optim.Adam(
+            model.parameters(), lr=self.size * self.cfg.lr_init
+        )
         return optimizer
 
     def build_scheduler(
@@ -233,16 +248,16 @@ class Trainer:
         self.with_cuda = torch.cuda.is_available()
         self.with_xpu = torch.xpu.is_available()
         if self.with_cuda:
-            self.device = torch.device('cuda')
+            self.device = torch.device("cuda")
             self.n_devices = torch.cuda.device_count()
-            self.device_id = self.local_rank if self.n_devices>1 else 0
+            self.device_id = self.local_rank if self.n_devices > 1 else 0
         elif self.with_xpu:
-            self.device = torch.device('xpu')
+            self.device = torch.device("xpu")
             self.n_devices = torch.xpu.device_count()
-            self.device_id = self.local_rank if self.n_devices>1 else 0
+            self.device_id = self.local_rank if self.n_devices > 1 else 0
         else:
-            self.device = torch.device('cpu')
-            self.device_id = 'cpu'
+            self.device = torch.device("cpu")
+            self.device_id = "cpu"
 
         # Device and intra-op threads
         if self.with_cuda:
