@@ -8,7 +8,6 @@ import os
 class TGVOffline(NekRSMLOfflineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([2])
-    model = parameter(["dist-gnn"])
 
     def __init__(self):
         super().__init__(
@@ -16,7 +15,6 @@ class TGVOffline(NekRSMLOfflineTest):
             directory="tgv_gnn_offline",
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
-            model=self.model,
             time_dependency="time_independent",
             target_loss=1.6206e-04,
         )
@@ -27,7 +25,6 @@ class TGVOffline(NekRSMLOfflineTest):
 class TGVOfflineCoarseMesh(NekRSMLOfflineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([2])
-    model = parameter(["dist-gnn"])
 
     def __init__(self):
         super().__init__(
@@ -35,7 +32,6 @@ class TGVOfflineCoarseMesh(NekRSMLOfflineTest):
             directory="tgv_gnn_offline_coarse_mesh",
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
-            model=self.model,
             time_dependency="time_independent",
             target_loss=1.6206e-04,
         )
@@ -46,7 +42,6 @@ class TGVOfflineCoarseMesh(NekRSMLOfflineTest):
 class TGVOfflineTraj(NekRSMLOfflineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([4])
-    model = parameter(["dist-gnn"])
 
     def __init__(self):
         super().__init__(
@@ -54,7 +49,6 @@ class TGVOfflineTraj(NekRSMLOfflineTest):
             directory="tgv_gnn_offline_traj",
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
-            model=self.model,
             time_dependency="time_dependent",
             target_loss=6.9076e-01,
         )
@@ -65,7 +59,6 @@ class TGVOfflineTraj(NekRSMLOfflineTest):
 class TurbChannelOffline(NekRSMLOfflineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([12])
-    model = parameter(["sr-gnn"])
 
     def __init__(self):
         super().__init__(
@@ -73,7 +66,7 @@ class TurbChannelOffline(NekRSMLOfflineTest):
             directory="turbChannel_srgnn",
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
-            model=self.model,
+            model="sr-gnn",
             epochs=5,
             n_element_neighbors=12,
             n_messagePassing_layers=6,
@@ -86,7 +79,6 @@ class TurbChannelOffline(NekRSMLOfflineTest):
 class TGVOnline(NekRSMLOnlineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([4])
-    model = parameter(["dist-gnn"])
 
     def __init__(self):
         super().__init__(
@@ -94,7 +86,6 @@ class TGVOnline(NekRSMLOnlineTest):
             directory="tgv_gnn_online",
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
-            model=self.model,
             time_dependency="time_independent",
             client="smartredis",
             target_loss=1.6206e-04,
@@ -106,7 +97,6 @@ class TGVOnline(NekRSMLOnlineTest):
 class TGVOnlineTraj(NekRSMLOnlineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([8])
-    model = parameter(["dist-gnn"])
 
     def __init__(self):
         super().__init__(
@@ -114,9 +104,26 @@ class TGVOnlineTraj(NekRSMLOnlineTest):
             directory="tgv_gnn_online_traj",
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
-            model=self.model,
             time_dependency="time_dependent",
             client="smartredis",
             target_loss=6.9076e-01,
         )
         self.tags |= {"tgv_online_traj"}
+
+
+@rfm.simple_test
+class TGVOnlineTrajAdios(NekRSMLOnlineTest):
+    num_nodes = parameter([1])
+    ranks_per_node = parameter([8])
+
+    def __init__(self):
+        super().__init__(
+            case="tgv",
+            directory="tgv_gnn_online_traj_adios",
+            nn=self.num_nodes,
+            rpn=self.ranks_per_node,
+            time_dependency="time_dependent",
+            client="adios",
+            target_loss=6.9076e-01,
+        )
+        self.tags |= {"tgv_online_traj_adios"}

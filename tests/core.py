@@ -254,14 +254,14 @@ class RunOnlyTest(rfm.RunOnlyRegressionTest):
     filesystems = variable(str, value="")
     walltime = variable(str, value="01:00:00")
 
-    def __init__(self, num_nodes, ranks_per_node):
+    def __init__(self, nn, rpn):
         super().__init__()
         self.maintainers = ["tratnayaka@anl.gov"]
         self.valid_systems = ["*"]
         self.valid_prog_environs = ["*"]
 
-        self.num_nodes = num_nodes
-        self.num_tasks_per_node = ranks_per_node
+        self._nn = nn
+        self._rpn = rpn
 
         # FIXME This is a ReFrame bug. Remove once it is fixed upstream.
         # https://github.com/reframe-hpc/reframe/pull/3571
@@ -274,15 +274,20 @@ class RunOnlyTest(rfm.RunOnlyRegressionTest):
     @run_before("run")
     def set_scheduler_options(self):
         max_rpn = self.current_partition.extras["ranks_per_node"]
-        if self.num_tasks_per_node > max_rpn:
+        if self._rpn > max_rpn:
             import warnings
 
             warnings.warn(
-                f"Requested ranks per node ({self.num_tasks_per_node}) is larger than the maximum value of the system ({max_rpn}). Setting ranks per node to {max_rpn}.",
+                f"Requested ranks per node ({self._rpn}) is larger than "
+                f"the maximum value of the system ({max_rpn}). Setting ranks "
+                f"per node to {max_rpn}.",
                 RuntimeWarning,
             )
             self.num_tasks_per_node = max_rpn
+        else:
+            self.num_tasks_per_node = self._rpn
 
+        self.num_nodes = self._nn
         self.num_tasks = self.num_nodes * self.num_tasks_per_node
         self.num_cpus_per_task = 1
 
@@ -294,5 +299,6 @@ class RunOnlyTest(rfm.RunOnlyRegressionTest):
         ]
 
     # https://github.com/reframe-hpc/reframe/pull/2993
-    def get_job_exit_code(self):
+    @property
+    def job_exit_code(self):
         return self._current_partition.scheduler._query_exit_code(self.job)

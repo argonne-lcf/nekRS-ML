@@ -99,11 +99,6 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# Environment variables
-# =====================
-export PYTHONPATH=`pwd`:${PYTHONPATH}
-export PATH=$HOME/.local/bin/:$PATH
-
 # ReFrame command guide
 # =====================
 # --config-file: https://reframe-hpc.readthedocs.io/en/stable/manpage.html#cmdoption-C
@@ -117,7 +112,7 @@ export PATH=$HOME/.local/bin/:$PATH
 # --checkpath: https://reframe-hpc.readthedocs.io/en/stable/manpage.html#cmdoption-c
 # --tag: https://reframe-hpc.readthedocs.io/en/stable/manpage.html#cmdoption-t
 # --run: https://reframe-hpc.readthedocs.io/en/stable/manpage.html#cmdoption-r
-CMD="uv run reframe --save-log-files --config-file sites.py --system ${SYSTEM}"
+CMD="uv --no-managed-python run reframe --save-log-files --config-file sites.py --system ${SYSTEM}"
 CMD="${CMD} -S queue=${QUEUE} -S project=${PROJECT} -S filesystems=${FS} -S commit=${COMMIT}"
 CMD="${CMD} --keep-stage-files --timestamp --prefix=${PREFIX} --checkpath tests.py"
 if [ "${LIST_TAGS}" -eq 1 ]; then
