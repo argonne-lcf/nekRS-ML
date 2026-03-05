@@ -21,5 +21,4 @@ setup:
     - git clone https://github.com/argonne-lcf/nekRS-ML.git
     - cd ./nekRS-ML/tests
     - git checkout ${CI_COMMIT_SHA}
-    - ./run.sh -b -cm ${CI_COMMIT_SHA} -q capacity -t offline
-    - ./run.sh -b -cm ${CI_COMMIT_SHA} -q capacity -t online
+    - ./run.sh -b -cm ${CI_COMMIT_SHA} -q capacity -t all -e serial
