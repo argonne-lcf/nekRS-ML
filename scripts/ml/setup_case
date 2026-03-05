@@ -327,8 +327,7 @@ function setup_venv() {
 }
 
 function copy_files() {
-  cp ${NEKRS_HOME}/bin/ml/${SYSTEM}_nrs.sh ${PWD}/affinity_nrs.sh
-  cp ${NEKRS_HOME}/bin/ml/${SYSTEM}_ml.sh ${PWD}/affinity_ml.sh
+  cp ${NEKRS_HOME}/bin/ml/${SYSTEM}.sh ${PWD}/affinity.sh
 }
 
 function generate_script() {
