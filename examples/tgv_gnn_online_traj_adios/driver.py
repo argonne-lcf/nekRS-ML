@@ -95,7 +95,7 @@ class ShootingWorkflow:
             + f"--hosts {self.sim_nodes} "
         )
         if self.cfg.sim.affinity:
-            cmd += f"{self.cfg.sim.affinity} {self.cfg.run_args.simprocs_pn} "
+            cmd += f"{self.cfg.sim.affinity} {self.cfg.run_args.simprocs_pn} 0 "
         cmd += f"{self.cfg.sim.executable} {self.cfg.sim.arguments}"
         print("Launching nekRS ...")
         self.nekrs_proc["process"] = subprocess.Popen(
