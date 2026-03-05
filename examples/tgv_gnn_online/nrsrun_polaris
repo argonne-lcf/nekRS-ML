@@ -15,6 +15,7 @@ set -e
 : ${SIM_CPU_BIND_LIST:="24:16"}
 : ${TRAIN_CPU_BIND_LIST:="8:1"}
 : ${VENV_PATH:=""}
+: ${AFF_FILE:="affinity.sh"}
 #--------------------------------------
 
 cp tgv.par.safe tgv.par
@@ -23,11 +24,6 @@ source $NEKRS_HOME/bin/nrsqsub_utils
 setup $# 1
 
 chk_case $TOTAL_RANKS
-
-#--------------------------------------
-# Generate the affinity scripts
-SAFF_FILE=affinity_nrs.sh
-TAFF_FILE=affinity_ml.sh
 
 #--------------------------------------
 # Generate the workflow config script
@@ -85,14 +81,13 @@ echo "# Simulation config" >> $CFILE
 echo "sim:" >> $CFILE
 echo "    executable: \"${NEKRS_HOME}/bin/nekrs\"" >> $CFILE
 echo "    arguments: \"--setup ${case}.par --backend ${NEKRS_BACKEND} --device-id 0\"" >> $CFILE
-echo "    affinity: \"./${SAFF_FILE}\"" >> $CFILE
+echo "    affinity: \"./${AFF_FILE}\"" >> $CFILE
 echo "    copy_files: [\"./${case}.usr\",\"./${case}.par\",\"./${case}.udf\",\"./${case}.re2\"]" >> $CFILE
-echo "    link_files: [\"./${SAFF_FILE}\",\".cache\"]" >> $CFILE
+echo "    link_files: [\"./${AFF_FILE}\",\".cache\"]" >> $CFILE
 echo "" >> $CFILE
 echo "# Trainer config" >> $CFILE
 echo "train:" >> $CFILE
 echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/dist-gnn/main.py\"" >> $CFILE
-#echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
 echo "    affinity: \"\"" >> $CFILE
 if [ ${DEPLOYMENT} == "colocated"  ]; then
   echo "    arguments: \"device_skip=${SIM_RANKS_PER_NODE} halo_swap_mode=all_to_all_opt layer_norm=True online=True client.db_nodes=${DB_NODES} consistency=True target_loss=1.6206e-04 verbose=True\"" >> $CFILE
@@ -100,7 +95,7 @@ elif [ ${DEPLOYMENT} == "clustered"  ]; then
   echo "    arguments: \"halo_swap_mode=all_to_all_opt layer_norm=True online=True client.db_nodes=${DB_NODES} consistency=True target_loss=1.6206e-04 verbose=True\"" >> $CFILE
 fi
 echo "    copy_files: []" >> $CFILE
-echo "    link_files: [\"./${TAFF_FILE}\"]" >> $CFILE
+echo "    link_files: [\"./${AFF_FILE}\"]" >> $CFILE
 
 #--------------------------------------
 # Update the .par file with the ML options
@@ -142,7 +137,7 @@ echo "export LD_LIBRARY_PATH=\$TORCH_PATH/lib:\$LD_LIBRARY_PATH" >> $RFILE
 echo "export SR_SOCKET_TIMEOUT=10000" >> $RFILE
 
 echo -e "\n# precompilation" >>$RFILE
-CMD_build="mpiexec -n ${RANKS_FOR_BUILD} -ppn ${RANKS_FOR_BUILD} --cpu-bind list:24:16:8:1 -- ./${SAFF_FILE} ${RANKS_FOR_BUILD} $bin --setup ${case} --backend ${NEKRS_BACKEND} --device-id 0 $extra_args --build-only ${RANKS_FOR_BUILD}"
+CMD_build="mpiexec -n ${RANKS_FOR_BUILD} -ppn ${RANKS_FOR_BUILD} --cpu-bind list:24:16:8:1 -- ./${AFF_FILE} ${RANKS_FOR_BUILD} 0 $bin --setup ${case} --backend ${NEKRS_BACKEND} --device-id 0 $extra_args --build-only ${RANKS_FOR_BUILD}"
 add_build_CMD "$RFILE" "$CMD_build" "$TOTAL_RANKS"
 
 echo -e "\n# actual run" >>$RFILE
