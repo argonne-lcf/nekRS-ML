@@ -1,7 +1,7 @@
 #!/bin/bash
 
 : ${SYSTEM:="aurora:compute"}
-: ${PREFIX:="`pwd`/test_data"}
+: ${PREFIX:="${PWD}/test_data"}
 : ${COMMIT="main"}
 : ${QUEUE:="prod"}
 : ${PROJECT:="datascience"}
