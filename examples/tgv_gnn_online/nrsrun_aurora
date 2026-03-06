@@ -18,7 +18,6 @@ set -e
 : ${ONEAPI_SDK:=""}
 : ${FRAMEWORKS_MODULE:="frameworks"}
 : ${VENV_PATH:=""}
-: ${AFF_FILE:="affinity.sh"}
 #--------------------------------------
 
 cp tgv.par.safe tgv.par
@@ -83,10 +82,10 @@ echo "" >> $CFILE
 echo "# Simulation config" >> $CFILE
 echo "sim:" >> $CFILE
 echo "    executable: \"${NEKRS_HOME}/bin/nekrs\"" >> $CFILE
-echo "    arguments: \"--setup ${case}.par --backend ${NEKRS_BACKEND} --device-id 0\"" >> $CFILE
-echo "    affinity: \"./${AFF_FILE}\"" >> $CFILE
+echo "    affinity: \"\"" >> $CFILE
+echo "    arguments: \"--setup ${case}.par --backend ${NEKRS_BACKEND} \"" >> $CFILE
 echo "    copy_files: [\"./${case}.usr\",\"./${case}.par\",\"./${case}.udf\",\"./${case}.re2\"]" >> $CFILE
-echo "    link_files: [\"./${AFF_FILE}\",\".cache\"]" >> $CFILE
+echo "    link_files: [\".cache\"]" >> $CFILE
 echo "" >> $CFILE
 echo "# Trainer config" >> $CFILE
 echo "train:" >> $CFILE
@@ -98,7 +97,7 @@ elif [ ${DEPLOYMENT} == "clustered"  ]; then
   echo "    arguments: \"halo_swap_mode=all_to_all_opt layer_norm=True online=True client.db_nodes=${DB_NODES} consistency=True target_loss=1.6206e-04 verbose=True\"" >> $CFILE
 fi
 echo "    copy_files: []" >> $CFILE
-echo "    link_files: [\"./${AFF_FILE}\"]" >> $CFILE
+echo "    link_files: []" >> $CFILE
 
 #--------------------------------------
 # Update the .par file with the ML options
@@ -161,7 +160,7 @@ echo "export LD_LIBRARY_PATH=\$TORCH_PATH/lib:\$LD_LIBRARY_PATH" >> $RFILE
 echo "export SR_SOCKET_TIMEOUT=10000" >> $RFILE
 
 echo -e "\n# precompilation" >>$RFILE
-CMD_build="mpiexec -n ${RANKS_FOR_BUILD} -ppn ${RANKS_FOR_BUILD} --cpu-bind list:1:8:16:24:32:40:53:60:68:76:84:92 -- ./${AFF_FILE} ${RANKS_FOR_BUILD} 0 $bin --setup ${case} --backend ${NEKRS_BACKEND} --device-id 0 $extra_args --build-only ${RANKS_FOR_BUILD}"
+CMD_build="mpiexec -n ${RANKS_FOR_BUILD} -ppn ${RANKS_FOR_BUILD} --cpu-bind list:1:8:16:24:32:40:53:60:68:76:84:92 -- $bin --setup ${case} --backend ${NEKRS_BACKEND} $extra_args --build-only ${RANKS_FOR_BUILD}"
 add_build_CMD "$RFILE" "$CMD_build" "$TOTAL_RANKS"
 
 echo -e "\n# actual run" >>$RFILE

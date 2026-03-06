@@ -54,16 +54,10 @@ def launch_coDB(cfg, nodelist, nNodes):
         nrs_settings.set_hostlist(hosts)
         nrs_settings.set_cpu_binding_type(cfg.run_args.sim_cpu_bind)
         nrs_settings.add_exe_args(cfg.sim.arguments)
-<<<<<<< HEAD
         if cfg.sim.affinity:
             nrs_settings.set_gpu_affinity_script(
                 cfg.sim.affinity, cfg.run_args.simprocs_pn
             )
-=======
-        if (cfg.sim.affinity):
-            nrs_settings.set_gpu_affinity_script(cfg.sim.affinity,
-                                                 cfg.run_args.simprocs_pn, 0)
->>>>>>> bb3dd920 (Update nrsrun_* scripts for tgv_gnn_online)
 
     # Create the co-located database model
     colo_model = exp.create_model("nekrs", nrs_settings)
