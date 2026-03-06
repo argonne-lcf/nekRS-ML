@@ -94,6 +94,10 @@ function parse_args() {
         exit 1
     esac
   done
+
+  # Append model and client to VENV_PATH as what is installed in the environment
+  # depends on the model and the client.
+  VENV_PATH=${VENV_PATH}_${MODEL}_${CLIENT}
 }
 
 function check_args() {
