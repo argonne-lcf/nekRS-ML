@@ -5,6 +5,7 @@ from omegaconf import DictConfig, OmegaConf
 import time
 
 from mpi4py import MPI
+
 COMM = MPI.COMM_WORLD
 SIZE = COMM.Get_size()
 RANK = COMM.Get_rank()
@@ -13,6 +14,7 @@ LOCAL_SIZE = int(os.getenv("PALS_LOCAL_SIZE"))
 HOST_NAME = MPI.Get_processor_name()
 
 import logging
+
 logging.basicConfig(
     level=logging.INFO,
     stream=sys.stdout,
@@ -24,7 +26,10 @@ logger = logging.getLogger(__name__)
 
 def train(cfg: DictConfig):
     start = time.time()
-    from trainer import Trainer # needed here to avoid clash with hydra config parsing
+    from trainer import (
+        Trainer,
+    )  # needed here to avoid clash with hydra config parsing
+
     trainer = Trainer(cfg, COMM)
     epoch_times = []
     valid_times = []
