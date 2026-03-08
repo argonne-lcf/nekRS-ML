@@ -1516,22 +1516,14 @@ class Trainer:
 
         # No need for distributed sampler -- create standard dataset loader
         # We can use the standard pytorch dataloader on (x,y)
-        # train_loader = torch_geometric.loader.DataLoader(train_dataset, batch_size=self.cfg.batch_size, shuffle=False)
-        # test_loader = torch_geometric.loader.DataLoader(test_dataset, batch_size=self.cfg.test_batch_size, shuffle=False)
         if RANK == 0:
             log.info(f"{data_graph}")
             log.info(f"shape of x: {data['train'][0]['x'].shape}")
             log.info(f"shape of y: {data['train'][0]['y'].shape}")
 
-        # ~~~~ Populate the data sampler. No need to use torch_geometric sampler -- we assume we have fixed connectivity, and a "GRAPH" batch size of 1. We need a sampler only over the [x,y] pairs (i.e., the elements in data_list)
-        # train_loader = torch_geometric.loader.DataLoader(train_dataset, batch_size=self.cfg.batch_size, shuffle=False)
-        assert self.cfg.batch_size == 1, (
-            f"batch_size {self.cfg.batch_size} must be set to 1!"
-        )
-        assert self.cfg.val_batch_size == 1, (
-            f"val_batch_size {self.cfg.batch_size} must be set to 1!"
-        )
-
+        # ~~~~ Populate the data sampler. 
+        # We assume we have fixed connectivity, 
+        # We need a sampler only over the [x,y] pairs (i.e., the elements in data_list)
         train_data_scaled = []
         for item in data["train"]:
             tdict = {}
@@ -1790,12 +1782,12 @@ class Trainer:
         graph = self.data["graph"]
         tic = time.time()
         if WITH_CUDA or WITH_XPU:
-            data["x"] = data["x"].to(self.device)
-            data["y"] = data["y"].to(self.device)
+            data.x = data.x.to(self.device)
+            data.x = data.y.to(self.device)
             graph.edge_index = graph.edge_index.to(self.device)
             graph.edge_attr = graph.edge_attr.to(self.device)
-            graph.batch = (
-                graph.batch.to(self.device) if graph.batch is not None else None
+            data.batch = (
+                data.batch.to(self.device) if data.batch is not None else None
             )
             graph.halo_info = graph.halo_info.to(self.device)
             graph.edge_weight = graph.edge_weight.to(self.device)
@@ -1839,7 +1831,7 @@ class Trainer:
             buffer_recv=self.buffer_recv,
             neighboring_procs=self.neighboring_procs,
             SIZE=SIZE,
-            batch=graph.batch,
+            batch=data.batch,
         )
         if self.cfg.timers:
             self.update_timer("forwardPass", self.timer_step, time.time() - tic)
@@ -1904,14 +1896,12 @@ class Trainer:
         graph = self.data["graph"]
         stats = self.data["stats"]
         tic = time.time()
+        batch = None
         if WITH_CUDA or WITH_XPU:
             x = x.to(self.device)
             graph.edge_index = graph.edge_index.to(self.device)
             graph.edge_weight = graph.edge_weight.to(self.device)
             graph.edge_attr = graph.edge_attr.to(self.device)
-            graph.batch = (
-                graph.batch.to(self.device) if graph.batch is not None else None
-            )
             graph.halo_info = graph.halo_info.to(self.device)
             graph.node_degree = graph.node_degree.to(self.device)
         if self.cfg.timers:
@@ -1951,7 +1941,7 @@ class Trainer:
             buffer_recv=self.buffer_recv,
             neighboring_procs=self.neighboring_procs,
             SIZE=SIZE,
-            batch=graph.batch,
+            batch=batch,
         )
         if self.cfg.timers:
             self.update_timer("forwardPass", self.timer_step, time.time() - tic)
@@ -1983,17 +1973,13 @@ class Trainer:
             for data in test_loader:
                 loss = torch.tensor([0.0])
                 graph = self.data["graph"]
+                batch = None
 
                 if WITH_CUDA or WITH_XPU:
                     data["x"] = data["x"].to(self.device)
                     data["y"] = data["y"].to(self.device)
                     graph.edge_index = graph.edge_index.to(self.device)
                     graph.edge_attr = graph.edge_attr.to(self.device)
-                    graph.batch = (
-                        graph.batch.to(self.device)
-                        if graph.batch is not None
-                        else None
-                    )
                     graph.halo_info = graph.halo_info.to(self.device)
                     graph.edge_weight = graph.edge_weight.to(self.device)
                     graph.node_degree = graph.node_degree.to(self.device)
@@ -2032,7 +2018,7 @@ class Trainer:
                     buffer_recv=self.buffer_recv,
                     neighboring_procs=self.neighboring_procs,
                     SIZE=SIZE,
-                    batch=graph.batch,
+                    batch=batch,
                 )
 
                 # Accumulate loss
