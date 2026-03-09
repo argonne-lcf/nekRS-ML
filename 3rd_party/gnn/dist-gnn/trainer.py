@@ -18,18 +18,10 @@ try:
 except Exception as e:
     pass
 
-from torch.utils.data import DataLoader
+#from torch.utils.data import DataLoader
 from torch.cuda.amp.grad_scaler import GradScaler
 import torch.nn as nn
 import torch.optim as optim
-# torch.use_deterministic_algorithms(True)
-# import torch.utils.data
-# import torch.utils.data.distributed
-# import torch.multiprocessing as mp
-# import torch.distributions as tdist
-# from torch.profiler import profile, record_function, ProfilerActivity
-# import torch.nn.functional as F
-# from torchvision import datasets, transforms
 
 import torch.distributed as dist
 import torch.distributed.nn as distnn
@@ -38,6 +30,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 # PyTorch Geometric
 import torch_geometric
 from torch_geometric.data import Data
+from torch_geometric.loader import DataLoader
 import torch_geometric.utils as pyg_utils
 # import torch_geometric.nn as tgnn
 
@@ -989,25 +982,25 @@ class Trainer:
         self.data_reduced.node_degree = node_degree
         return
 
-    def prepare_snapshot_data(self, data_x: np.ndarray):
-        data_x = data_x.astype(NP_FLOAT_DTYPE)  # force NP_FLOAT_DTYPE
+    def prepare_snapshot_data(self, data: np.ndarray):
+        data = data.astype(NP_FLOAT_DTYPE)  # force NP_FLOAT_DTYPE
 
         # Retain only N_gll = Np*Ne elements
         N_gll = self.data_full.pos.shape[0]
-        data_x = data_x[:N_gll, :]
+        data = data[:N_gll, :]
 
         # get data in reduced format
-        data_x_reduced = data_x[self.idx_full2reduced, :]
-        x = torch.tensor(data_x_reduced, dtype=torch.float32)
+        data_reduced = data[self.idx_full2reduced, :]
+        x = torch.tensor(data_reduced, dtype=torch.float32)
 
         # Add halo nodes by appending the end of the node arrays
         if self.cfg.consistency:
             n_nodes_halo = self.data_reduced.n_nodes_halo
-            n_features_x = data_x_reduced.shape[1]
-            data_x_halo = torch.zeros(
-                (n_nodes_halo, n_features_x), dtype=torch.float32
+            n_features = data_reduced.shape[1]
+            data_halo = torch.zeros(
+                (n_nodes_halo, n_features), dtype=torch.float32
             )
-            x = torch.cat((x, data_x_halo), dim=0)
+            x = torch.cat((x, data_halo), dim=0)
         return x
 
     def compute_statistics(self, data_list: list, var: str):
@@ -1067,8 +1060,8 @@ class Trainer:
     def load_field_data(self, data_dir: str):
         if RANK == 0:
             log.info("Loading field data...")
-        input_field = "u"  # velocity
-        output_field = "p"  # pressure
+        input_field = self.cfg.input_fld_name 
+        output_field = self.cfg.output_fld_name 
 
         # read files
         if not self.cfg.online:
@@ -1110,7 +1103,7 @@ class Trainer:
             tic = time.time()
             data_x = self.load_data(input_files[i], dtype=np.float64).reshape((
                 -1,
-                3,
+                self.cfg.input_fld_dim,
             ))
             toc = time.time()
             if self.cfg.online:
@@ -1123,7 +1116,7 @@ class Trainer:
             tic = time.time()
             data_y = self.load_data(output_files[i], dtype=np.float64).reshape((
                 -1,
-                1,
+                self.cfg.output_fld_dim,
             ))
             toc = time.time()
             if self.cfg.online:
@@ -1240,11 +1233,11 @@ class Trainer:
                 )
                 data_x_i = self.load_data(path_x_i, dtype=np.float64).reshape((
                     -1,
-                    3,
+                    self.cfg.input_fld_dim,
                 ))
                 data_y_i = self.load_data(path_y_i, dtype=np.float64).reshape((
                     -1,
-                    3,
+                    self.cfg.input_fld_dim,
                 ))
                 data_x_i = self.prepare_snapshot_data(data_x_i)
                 data_y_i = self.prepare_snapshot_data(data_y_i)
@@ -1514,26 +1507,22 @@ class Trainer:
             self.torch_dtype
         )
 
-        # No need for distributed sampler -- create standard dataset loader
-        # We can use the standard pytorch dataloader on (x,y)
+        # Print information about the data and graph
         if RANK == 0:
-            log.info(f"{data_graph}")
-            log.info(f"shape of x: {data['train'][0]['x'].shape}")
-            log.info(f"shape of y: {data['train'][0]['y'].shape}")
+            log.info(f"Graph Data:{data_graph}")
+            log.info(f"shape of inputs: {data['train'][0]['x'].shape}")
+            log.info(f"shape of outputs: {data['train'][0]['y'].shape}")
 
         # ~~~~ Populate the data sampler. 
         # We assume we have fixed connectivity, 
         # We need a sampler only over the [x,y] pairs (i.e., the elements in data_list)
         train_data_scaled = []
         for item in data["train"]:
-            tdict = {}
-            tdict["x"] = (
-                (item["x"] - stats["x"][0]) / (stats["x"][1] + SMALL)
-            ).to(self.torch_dtype)
-            tdict["y"] = (
-                (item["y"] - stats["y"][0]) / (stats["y"][1] + SMALL)
-            ).to(self.torch_dtype)
-            train_data_scaled.append(tdict)
+            tmp_data = Data(
+                x = ((item["x"] - stats["x"][0]) / (stats["x"][1] + SMALL)).to(self.torch_dtype),
+                y = ((item["y"] - stats["y"][0]) / (stats["y"][1] + SMALL)).to(self.torch_dtype),
+            )
+            train_data_scaled.append(tmp_data)
         train_loader = DataLoader(
             dataset=train_data_scaled,
             batch_size=self.cfg.batch_size,
@@ -1543,14 +1532,11 @@ class Trainer:
         val_data_scaled = data["validation"].copy()
         if val_data_scaled[0]:
             for item in val_data_scaled:
-                tdict = {}
-                tdict["x"] = (
-                    (item["x"] - stats["x"][0]) / (stats["x"][1] + SMALL)
-                ).to(self.torch_dtype)
-                tdict["y"] = (
-                    (item["y"] - stats["y"][0]) / (stats["y"][1] + SMALL)
-                ).to(self.torch_dtype)
-                val_data_scaled.append(tdict)
+                tmp_data = Data(
+                    x = ((item["x"] - stats["x"][0]) / (stats["x"][1] + SMALL)).to(self.torch_dtype),
+                    y = ((item["y"] - stats["y"][0]) / (stats["y"][1] + SMALL)).to(self.torch_dtype),
+                )
+                val_data_scaled.append(tmp_data)
         valid_loader = DataLoader(
             dataset=val_data_scaled,
             batch_size=self.cfg.val_batch_size,
@@ -1778,21 +1764,15 @@ class Trainer:
             torch.xpu.synchronize()
 
     def train_step(self, data) -> Tensor:
-        loss = torch.tensor([0.0])
         graph = self.data["graph"]
         tic = time.time()
         if WITH_CUDA or WITH_XPU:
-            data.x = data.x.to(self.device)
-            data.x = data.y.to(self.device)
+            data = data.to(self.device)
             graph.edge_index = graph.edge_index.to(self.device)
             graph.edge_attr = graph.edge_attr.to(self.device)
-            data.batch = (
-                data.batch.to(self.device) if data.batch is not None else None
-            )
             graph.halo_info = graph.halo_info.to(self.device)
             graph.edge_weight = graph.edge_weight.to(self.device)
             graph.node_degree = graph.node_degree.to(self.device)
-            loss = loss.to(self.device)
         if self.cfg.timers:
             self.update_timer(
                 "dataTransfer", self.timer_step, time.time() - tic
@@ -1818,9 +1798,8 @@ class Trainer:
 
         # Prediction
         tic = time.time()
-        x_scaled = data["x"][0]
         out_gnn = self.model(
-            x=x_scaled,
+            x=data.x,
             edge_index=graph.edge_index,
             edge_attr=graph.edge_attr,
             edge_weight=graph.edge_weight,
@@ -1837,36 +1816,41 @@ class Trainer:
             self.update_timer("forwardPass", self.timer_step, time.time() - tic)
 
         if self.cfg.use_residual:
-            pred = out_gnn + x_scaled
+            pred = out_gnn + data.x
         else:
             pred = out_gnn
 
         # Accumulate loss
         tic = time.time()
-        target = data["y"][0]
+        target = data.y
         n_nodes_local = graph.n_nodes_local
-        if SIZE == 1 or not self.cfg.consistency:
-            loss = self.loss_fn(pred[:n_nodes_local], target[:n_nodes_local])
-            effective_nodes = n_nodes_local
-        else:  # custom
-            n_output_features = pred.shape[1]
-            squared_errors_local = torch.pow(
-                pred[:n_nodes_local] - target[:n_nodes_local], 2
-            )
-            squared_errors_local = squared_errors_local / graph.node_degree[
-                :n_nodes_local
-            ].unsqueeze(-1)
+        mse_loss = torch.zeros(self.cfg.batch_size, device=self.device)
+        n_output_features = pred.shape[1]
+        for batch_idx in range(self.cfg.batch_size):
+            if SIZE == 1 or not self.cfg.consistency:
+                mse_loss[batch_idx] = self.loss_fn(pred[data.batch == batch_idx], target[data.batch == batch_idx])
+                effective_nodes = n_nodes_local
+            else: # custom loss
+                pred_local = pred[data.batch == batch_idx]
+                target_local = target[data.batch == batch_idx]
+                squared_errors_local = torch.pow(
+                    pred_local[:n_nodes_local] - target_local[:n_nodes_local], 2
+                )
+                squared_errors_local = squared_errors_local / graph.node_degree[
+                    :n_nodes_local
+                ].unsqueeze(-1)
 
-            sum_squared_errors_local = squared_errors_local.sum()
-            effective_nodes_local = torch.sum(
-                1.0 / graph.node_degree[:n_nodes_local]
-            )
+                sum_squared_errors_local = squared_errors_local.sum()
+                effective_nodes_local = torch.sum(
+                    1.0 / graph.node_degree[:n_nodes_local]
+                )
 
-            effective_nodes = distnn.all_reduce(effective_nodes_local)
-            sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
-            loss = (
-                1.0 / (effective_nodes * n_output_features)
-            ) * sum_squared_errors
+                effective_nodes = distnn.all_reduce(effective_nodes_local)
+                sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
+                mse_loss[batch_idx] = (
+                    1.0 / (effective_nodes * n_output_features)
+                ) * sum_squared_errors
+        loss = mse_loss.mean()
         if self.cfg.timers:
             self.update_timer("loss", self.timer_step, time.time() - tic)
 
@@ -1927,10 +1911,8 @@ class Trainer:
 
         # Prediction
         tic = time.time()
-        # x_scaled = (x[0] - stats['mean'])/(stats['std'] + SMALL)
-        x_scaled = x[0] if len(x.shape) > 2 else x
         out_gnn = self.model(
-            x=x_scaled,
+            x=x,
             edge_index=graph.edge_index,
             edge_attr=graph.edge_attr,
             edge_weight=graph.edge_weight,
@@ -1947,7 +1929,7 @@ class Trainer:
             self.update_timer("forwardPass", self.timer_step, time.time() - tic)
 
         if self.cfg.use_residual:
-            pred = out_gnn + x_scaled
+            pred = out_gnn + x
         else:
             pred = out_gnn
 
@@ -1976,8 +1958,7 @@ class Trainer:
                 batch = None
 
                 if WITH_CUDA or WITH_XPU:
-                    data["x"] = data["x"].to(self.device)
-                    data["y"] = data["y"].to(self.device)
+                    data = data.to(self.device)
                     graph.edge_index = graph.edge_index.to(self.device)
                     graph.edge_attr = graph.edge_attr.to(self.device)
                     graph.halo_info = graph.halo_info.to(self.device)
@@ -2007,7 +1988,7 @@ class Trainer:
                     self.buffer_recv = None
 
                 out_gnn = self.model(
-                    x=data["x"][0],
+                    x=data.x,
                     edge_index=graph.edge_index,
                     edge_attr=graph.edge_attr,
                     edge_weight=graph.edge_weight,
@@ -2022,7 +2003,7 @@ class Trainer:
                 )
 
                 # Accumulate loss
-                target = data["y"][0]
+                target = data.y
                 n_nodes_local = graph.n_nodes_local
                 if SIZE == 1 or not self.cfg.consistency:
                     loss = self.loss_fn(
