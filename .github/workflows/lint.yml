@@ -11,7 +11,7 @@ on:
         default: false
 
 env:
-  RUFF_OPTS: "format --check --diff"
+  RUFF_OPTS: "format"
 
 jobs:
   ruff_format:
@@ -35,3 +35,9 @@ jobs:
       with:
         src: "./tests"
         args: ${{ env.RUFF_OPTS }}
+    - name: Commit formatted files
+      uses: stefanzweifel/git-auto-commit-action@v7
+      with:
+        commit_message: "Format code with ruff"
+        commit_options: '--no-verify --signoff'
+        file_pattern: '*.py'
