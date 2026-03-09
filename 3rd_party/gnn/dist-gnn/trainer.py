@@ -18,7 +18,7 @@ try:
 except Exception as e:
     pass
 
-#from torch.utils.data import DataLoader
+# from torch.utils.data import DataLoader
 from torch.cuda.amp.grad_scaler import GradScaler
 import torch.nn as nn
 import torch.optim as optim
@@ -1060,8 +1060,8 @@ class Trainer:
     def load_field_data(self, data_dir: str):
         if RANK == 0:
             log.info("Loading field data...")
-        input_field = self.cfg.input_fld_name 
-        output_field = self.cfg.output_fld_name 
+        input_field = self.cfg.input_fld_name
+        output_field = self.cfg.output_fld_name
 
         # read files
         if not self.cfg.online:
@@ -1274,8 +1274,7 @@ class Trainer:
             for i in range(len(output_files)):
                 tic = time.time()
                 data_x_i = (
-                    self.client
-                    .get_array(input_files[i])
+                    self.client.get_array(input_files[i])
                     .astype(NP_FLOAT_DTYPE)
                     .T
                 )
@@ -1288,8 +1287,7 @@ class Trainer:
 
                 tic = time.time()
                 data_y_i = (
-                    self.client
-                    .get_array(output_files[i])
+                    self.client.get_array(output_files[i])
                     .astype(NP_FLOAT_DTYPE)
                     .T
                 )
@@ -1513,14 +1511,18 @@ class Trainer:
             log.info(f"shape of inputs: {data['train'][0]['x'].shape}")
             log.info(f"shape of outputs: {data['train'][0]['y'].shape}")
 
-        # ~~~~ Populate the data sampler. 
-        # We assume we have fixed connectivity, 
+        # ~~~~ Populate the data sampler.
+        # We assume we have fixed connectivity,
         # We need a sampler only over the [x,y] pairs (i.e., the elements in data_list)
         train_data_scaled = []
         for item in data["train"]:
             tmp_data = Data(
-                x = ((item["x"] - stats["x"][0]) / (stats["x"][1] + SMALL)).to(self.torch_dtype),
-                y = ((item["y"] - stats["y"][0]) / (stats["y"][1] + SMALL)).to(self.torch_dtype),
+                x=((item["x"] - stats["x"][0]) / (stats["x"][1] + SMALL)).to(
+                    self.torch_dtype
+                ),
+                y=((item["y"] - stats["y"][0]) / (stats["y"][1] + SMALL)).to(
+                    self.torch_dtype
+                ),
             )
             train_data_scaled.append(tmp_data)
         train_loader = DataLoader(
@@ -1533,8 +1535,12 @@ class Trainer:
         if val_data_scaled[0]:
             for item in val_data_scaled:
                 tmp_data = Data(
-                    x = ((item["x"] - stats["x"][0]) / (stats["x"][1] + SMALL)).to(self.torch_dtype),
-                    y = ((item["y"] - stats["y"][0]) / (stats["y"][1] + SMALL)).to(self.torch_dtype),
+                    x=(
+                        (item["x"] - stats["x"][0]) / (stats["x"][1] + SMALL)
+                    ).to(self.torch_dtype),
+                    y=(
+                        (item["y"] - stats["y"][0]) / (stats["y"][1] + SMALL)
+                    ).to(self.torch_dtype),
                 )
                 val_data_scaled.append(tmp_data)
         valid_loader = DataLoader(
@@ -1591,8 +1597,7 @@ class Trainer:
                 for i in range(len(self.data_list), len(output_files)):
                     tic = time.time()
                     data_x_i = (
-                        self.client
-                        .get_array(input_files[i])
+                        self.client.get_array(input_files[i])
                         .astype(NP_FLOAT_DTYPE)
                         .T
                     )
@@ -1605,8 +1610,7 @@ class Trainer:
 
                     tic = time.time()
                     data_y_i = (
-                        self.client
-                        .get_array(output_files[i])
+                        self.client.get_array(output_files[i])
                         .astype(NP_FLOAT_DTYPE)
                         .T
                     )
@@ -1828,9 +1832,12 @@ class Trainer:
         n_output_features = pred.shape[1]
         for batch_idx in range(self.cfg.batch_size):
             if SIZE == 1 or not self.cfg.consistency:
-                mse_loss[batch_idx] = self.loss_fn(pred[data.batch == batch_idx], target[data.batch == batch_idx])
+                mse_loss[batch_idx] = self.loss_fn(
+                    pred[data.batch == batch_idx],
+                    target[data.batch == batch_idx],
+                )
                 effective_nodes = n_nodes_local
-            else: # custom loss
+            else:  # custom loss
                 pred_local = pred[data.batch == batch_idx]
                 target_local = target[data.batch == batch_idx]
                 squared_errors_local = torch.pow(

@@ -184,8 +184,7 @@ class OnlineClient:
                 count = num_edges * 2
                 start = sum(self.num_edges_list[: self.rank]) * 2
                 graph_data["edge_index"] = (
-                    stream
-                    .read("edge_index", [start], [count])
+                    stream.read("edge_index", [start], [count])
                     .reshape((-1, 2), order="F")
                     .T
                 )

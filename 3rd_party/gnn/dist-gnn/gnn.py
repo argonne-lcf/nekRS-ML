@@ -98,9 +98,10 @@ class DistributedGNN(torch.nn.Module):
         SIZE: Tensor,
         batch: Optional[LongTensor] = None,
     ) -> Tensor:
-
         if batch is None:
-            batch = torch.zeros(x.size(0), device=x.device, dtype=torch.long) # Shape (num_nodes,)
+            batch = torch.zeros(
+                x.size(0), device=x.device, dtype=torch.long
+            )  # Shape (num_nodes,)
 
         # ~~~~ Node encoder
         x = self.node_encoder(x)
@@ -243,7 +244,6 @@ class DistributedGNN_EdgeSkip(torch.nn.Module):
         SIZE: Tensor,
         batch: Optional[LongTensor] = None,
     ) -> Tensor:
-
         if batch is None:
             batch = edge_index.new_zeros(x.size(0))
 
@@ -426,9 +426,10 @@ class DistributedMessagePassingLayer(torch.nn.Module):
         SIZE: Tensor,
         batch: Optional[LongTensor] = None,
     ) -> Tensor:
-
         if batch is None:
-            batch = torch.zeros(x.size(0), device=x.device, dtype=torch.long) # Shape (num_nodes,)
+            batch = torch.zeros(
+                x.size(0), device=x.device, dtype=torch.long
+            )  # Shape (num_nodes,)
         batch_size = torch.max(batch) + 1
 
         # Loop over batches so processing is done on each batch
@@ -438,12 +439,14 @@ class DistributedMessagePassingLayer(torch.nn.Module):
         edge_weight = edge_weight.unsqueeze(1)
         for b in range(batch_size):
             # ~~~~ Get the current batch
-            x_batch = x[batch == b,:]
-        
+            x_batch = x[batch == b, :]
+
             # ~~~~ Edge update
             x_send = x_batch[edge_index[0, :], :]
             x_recv = x_batch[edge_index[1, :], :]
-            e_batch = e + self.edge_updater(torch.cat((x_send, x_recv, e), dim=1))
+            e_batch = e + self.edge_updater(
+                torch.cat((x_send, x_recv, e), dim=1)
+            )
 
             # ~~~~ Edge aggregation
             e_batch = e_batch * edge_weight
@@ -464,10 +467,14 @@ class DistributedMessagePassingLayer(torch.nn.Module):
                 # ~~~~ Local scatter using halo nodes (use halo_info)
                 idx_recv = halo_info[:, 0]
                 idx_send = halo_info[:, 1]
-                edge_agg.index_add_(0, idx_recv, edge_agg.index_select(0, idx_send))
+                edge_agg.index_add_(
+                    0, idx_recv, edge_agg.index_select(0, idx_send)
+                )
 
             # ~~~~ Node update
-            x[batch == b,:] = x_batch + self.node_updater(torch.cat((x_batch, edge_agg), dim=1))
+            x[batch == b, :] = x_batch + self.node_updater(
+                torch.cat((x_batch, edge_agg), dim=1)
+            )
 
         return x, e
 

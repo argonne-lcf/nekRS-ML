@@ -8,7 +8,6 @@ import torch_geometric.utils as utils
 
 
 def plot_graph(data, rank, savedir):
-
     print("Plotting connectivity on rank %d..." % (rank))
     ms = 60
     ms = 50
