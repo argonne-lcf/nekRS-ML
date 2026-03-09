@@ -1274,7 +1274,8 @@ class Trainer:
             for i in range(len(output_files)):
                 tic = time.time()
                 data_x_i = (
-                    self.client.get_array(input_files[i])
+                    self.client
+                    .get_array(input_files[i])
                     .astype(NP_FLOAT_DTYPE)
                     .T
                 )
@@ -1287,7 +1288,8 @@ class Trainer:
 
                 tic = time.time()
                 data_y_i = (
-                    self.client.get_array(output_files[i])
+                    self.client
+                    .get_array(output_files[i])
                     .astype(NP_FLOAT_DTYPE)
                     .T
                 )
@@ -1597,7 +1599,8 @@ class Trainer:
                 for i in range(len(self.data_list), len(output_files)):
                     tic = time.time()
                     data_x_i = (
-                        self.client.get_array(input_files[i])
+                        self.client
+                        .get_array(input_files[i])
                         .astype(NP_FLOAT_DTYPE)
                         .T
                     )
@@ -1610,7 +1613,8 @@ class Trainer:
 
                     tic = time.time()
                     data_y_i = (
-                        self.client.get_array(output_files[i])
+                        self.client
+                        .get_array(output_files[i])
                         .astype(NP_FLOAT_DTYPE)
                         .T
                     )
