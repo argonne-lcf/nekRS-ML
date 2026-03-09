@@ -98,9 +98,10 @@ class DistributedGNN(torch.nn.Module):
         SIZE: Tensor,
         batch: Optional[LongTensor] = None,
     ) -> Tensor:
-
         if batch is None:
-            batch = edge_index.new_zeros(x.size(0))
+            batch = torch.zeros(
+                x.size(0), device=x.device, dtype=torch.long
+            )  # Shape (num_nodes,)
 
         # ~~~~ Node encoder
         x = self.node_encoder(x)
@@ -243,7 +244,6 @@ class DistributedGNN_EdgeSkip(torch.nn.Module):
         SIZE: Tensor,
         batch: Optional[LongTensor] = None,
     ) -> Tensor:
-
         if batch is None:
             batch = edge_index.new_zeros(x.size(0))
 
@@ -426,39 +426,55 @@ class DistributedMessagePassingLayer(torch.nn.Module):
         SIZE: Tensor,
         batch: Optional[LongTensor] = None,
     ) -> Tensor:
-
         if batch is None:
-            batch = edge_index.new_zeros(x.size(0))
+            batch = torch.zeros(
+                x.size(0), device=x.device, dtype=torch.long
+            )  # Shape (num_nodes,)
+        batch_size = torch.max(batch) + 1
 
-        # ~~~~ Edge update
-        x_send = x[edge_index[0, :], :]
-        x_recv = x[edge_index[1, :], :]
-        e += self.edge_updater(torch.cat((x_send, x_recv, e), dim=1))
-
-        # ~~~~ Edge aggregation
+        # Loop over batches so processing is done on each batch
+        # NOTE: e is the shared encoded edge features for the mesh.
+        # Each batch element must get its own independent edge update
+        # (e_b) to avoid cross-batch contamination.
         edge_weight = edge_weight.unsqueeze(1)
-        e = e * edge_weight
-        edge_agg = self.edge_aggregator(x, edge_index, e)
+        for b in range(batch_size):
+            # ~~~~ Get the current batch
+            x_batch = x[batch == b, :]
 
-        if SIZE > 1 and self.halo_swap_mode != "none":
-            # ~~~~ Halo exchange: swap the edge aggregates. This populates the halo nodes
-            edge_agg = self.halo_swap(
-                edge_agg,
-                mask_send,
-                mask_recv,
-                buffer_send,
-                buffer_recv,
-                neighboring_procs,
-                SIZE,
+            # ~~~~ Edge update
+            x_send = x_batch[edge_index[0, :], :]
+            x_recv = x_batch[edge_index[1, :], :]
+            e_batch = e + self.edge_updater(
+                torch.cat((x_send, x_recv, e), dim=1)
             )
 
-            # ~~~~ Local scatter using halo nodes (use halo_info)
-            idx_recv = halo_info[:, 0]
-            idx_send = halo_info[:, 1]
-            edge_agg.index_add_(0, idx_recv, edge_agg.index_select(0, idx_send))
+            # ~~~~ Edge aggregation
+            e_batch = e_batch * edge_weight
+            edge_agg = self.edge_aggregator(x_batch, edge_index, e_batch)
 
-        # ~~~~ Node update
-        x += self.node_updater(torch.cat((x, edge_agg), dim=1))
+            if SIZE > 1 and self.halo_swap_mode != "none":
+                # ~~~~ Halo exchange: swap the edge aggregates. This populates the halo nodes
+                edge_agg = self.halo_swap(
+                    edge_agg,
+                    mask_send,
+                    mask_recv,
+                    buffer_send,
+                    buffer_recv,
+                    neighboring_procs,
+                    SIZE,
+                )
+
+                # ~~~~ Local scatter using halo nodes (use halo_info)
+                idx_recv = halo_info[:, 0]
+                idx_send = halo_info[:, 1]
+                edge_agg.index_add_(
+                    0, idx_recv, edge_agg.index_select(0, idx_send)
+                )
+
+            # ~~~~ Node update
+            x[batch == b, :] = x_batch + self.node_updater(
+                torch.cat((x_batch, edge_agg), dim=1)
+            )
 
         return x, e
 
