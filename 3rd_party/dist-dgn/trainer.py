@@ -643,12 +643,18 @@ class DGNTrainer:
         # ~~~~ Read the graph data structures
         pos, gli, ei, local_unique_mask, halo_unique_mask, cond_node_features = self.load_graph_data()
 
-        # We are only periodic in z for the BFS. so we do the following:  
+        # Address periodicity 
         pos = pos.astype(NP_FLOAT_DTYPE)
         pos_orig = np.copy(pos)
-        #L_z = 2. 
+        zmin_loc = np.amin(pos[:,2])
+        zmin_glob = np.zeros_like(zmin_loc)
+        COMM.Allreduce(zmin_loc, zmin_glob, op=MPI.MIN)
+        zmax_loc = np.amax(pos[:,2])
+        zmax_glob = np.zeros_like(zmax_loc)
+        COMM.Allreduce(zmax_loc, zmax_glob, op=MPI.MAX)
+        L_z = (zmax_glob - zmin_glob) / 2.0
         # pos[:,2] = np.cos(2.*np.pi*pos[:,2]/L_z) # cosine
-        #pos[:,2] = np.abs((pos[:,2] % L_z) - L_z / 2) # piecewise linear 
+        # pos[:,2] = np.abs((pos[:,2] % L_z) - L_z / 2) # piecewise linear 
 
         # ~~~~ Make the full graph: 
         if self.cfg.verbose: log.info('[RANK %d]: Making the FULL GLL-based graph with overlapping nodes' %(RANK))
