@@ -1,14 +1,7 @@
 name: Lint checks
 on:
-  push:
   pull_request:
-  workflow_dispatch:
-    inputs:
-      debug_enabled:
-        type: boolean
-        description: 'Run the build with tmate debugging enabled (https://github.com/marketplace/actions/debugging-with-tmate)'
-        required: false
-        default: false
+    branches: [main]
 
 env:
   RUFF_OPTS: "format"
