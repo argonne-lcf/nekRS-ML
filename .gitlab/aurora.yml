@@ -1,0 +1,24 @@
+variables:
+  PROJ: "datascience"
+  QUEUE: "debug"
+  TIME: "2:00:00"
+  WRK_DIR: "/lus/flare/projects/${PROJ}/nekRS-ML/"
+  ANL_AURORA_SCHEDULER_PARAMETERS: "-q ${QUEUE} -l select=1,walltime=${TIME},filesystems=home -A ${PROJ}"
+
+# NOTE: uses default stages: .pre build test deploy .post
+stages:
+    - submit
+
+setup:
+  stage: submit
+  extends: .aurora-shell-runner
+  script:
+    - |
+      cd ${WRK_DIR}
+      i=$(find . -maxdepth 1 -type d -name "${CI_COMMIT_SHA}*" | wc -l)
+      mkdir -p ${CI_COMMIT_SHA}_${i}
+      cd ${CI_COMMIT_SHA}_${i}
+    - git clone https://github.com/argonne-lcf/nekRS-ML.git
+    - cd ./nekRS-ML/tests
+    - git checkout ${CI_COMMIT_SHA}
+    - ./run.sh -b -cm ${CI_COMMIT_SHA} -q capacity -t all -e serial
