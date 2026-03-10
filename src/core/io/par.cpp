@@ -2672,7 +2672,6 @@ void parseMLSection(const int rank, setupAide &options, inipp::Ini *ini)
     options.setArgs("SR GNN MULTISCALE", "FALSE");
   }
 
-  // GNN conditional node features (comma-separated list, e.g. "wallDistance, inflowDistance")
   std::string gnnCondFeatures;
   if (ini->extract("ml", "gnnCondFeatures", gnnCondFeatures)) {
     options.setArgs("GNN COND FEATURES", gnnCondFeatures);

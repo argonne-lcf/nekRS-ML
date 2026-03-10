@@ -122,6 +122,7 @@ private:
     void get_cond_node_features();
     void get_wall_distance(dfloat* dest);
     void get_inflow_distance(dfloat* dest);
+    void get_y_coordinate(dfloat* dest);
 };
 
 #endif

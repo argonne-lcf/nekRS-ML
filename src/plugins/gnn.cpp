@@ -10,6 +10,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <sstream>
+#include <algorithm>
+#include <cctype>
 
 template <typename T>
 void writeToFile(const std::string& filename, T* data, int nRows, int nCols)
@@ -1102,6 +1104,20 @@ void gnn_t::get_inflow_distance(dfloat* dest)
     if (rank == 0 && verbose) printf("Done computing inflow distance (x_min = %.6f).\n", x_min);
 }
 
+void gnn_t::get_y_coordinate(dfloat* dest)
+{
+    MPI_Comm &comm = platform->comm.mpiComm;
+
+    if (rank == 0 && verbose) printf("Extracting y-coordinate ...\n");
+
+    // y-coordinates are stored at pos_node[n + 1*N] (column-major layout)
+    for (dlong i = 0; i < N; i++) {
+        dest[i] = pos_node[i + 1*N];
+    }
+
+    if (rank == 0 && verbose) printf("Done extracting y-coordinate.\n");
+}
+
 void gnn_t::get_cond_node_features()
 {
     // Allocate stacked array: N rows x nCondFeatures columns (column-major)
@@ -1110,10 +1126,16 @@ void gnn_t::get_cond_node_features()
     int col = 0;
     for (const auto& feat : condFeatureNames) {
         dfloat* dest = cond_node_features + col * N; // pointer to column
-        if (feat == "walldistance") {
+        // Convert to lowercase for case-insensitive comparison
+        std::string feat_lower = feat;
+        std::transform(feat_lower.begin(), feat_lower.end(), feat_lower.begin(), ::tolower);
+        
+        if (feat_lower == "walldistance") {
             get_wall_distance(dest);
-        } else if (feat == "inflowdistance") {
+        } else if (feat_lower == "inflowdistance") {
             get_inflow_distance(dest);
+        } else if (feat_lower == "ycoordinate") {
+            get_y_coordinate(dest);
         } else {
             if (rank == 0) printf("WARNING: Unknown conditional feature '%s', skipping.\n", feat.c_str());
         }
