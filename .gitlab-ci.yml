@@ -12,4 +12,4 @@ include:
     ref: main
     file:
       - '/runners.yml'
-  - local: .gitlab/aurora.yml
+  - local: .gitlab/alcf.yml
