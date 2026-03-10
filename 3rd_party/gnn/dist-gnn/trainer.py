@@ -166,32 +166,6 @@ class Trainer:
             self.idx_reduced2full,
         ) = self.setup_local_graph()
 
-        # Checks on full2reduced and reduced2full mappings
-        try:
-            assert torch.allclose(
-                self.data_full.pos[self.idx_full2reduced], self.data_reduced.pos
-            )
-        except AssertionError as e:
-            idx = torch.where(
-                self.data_full.pos[self.idx_full2reduced] != self.data_reduced.pos
-            )
-            log.error("RANK %i: AssertionError: Non-matching nodes found in idx_full2reduced", RANK)
-            log.error("Number of non-matching nodes:", len(idx[0]))
-            log.error("Non-matching nodes:", idx[0])
-            raise e
-        try:
-            assert torch.allclose(
-                self.data_reduced.pos[self.idx_reduced2full], self.data_full.pos
-            )
-        except AssertionError as e:
-            idx = torch.where(
-                self.data_reduced.pos[self.idx_reduced2full] != self.data_full.pos
-            )
-            log.error("RANK %i: AssertionError: Non-matching nodes found in idx_reduced2full", RANK)
-            log.error("Number of non-matching nodes:", len(idx[0]))
-            log.error("Non-matching nodes:", idx[0])
-            raise e
-
         # ~~~~ Setup halo nodes
         self.neighboring_procs = []
         self.setup_halo()
@@ -862,12 +836,31 @@ class Trainer:
             self.load_graph_data()
         )
 
-        # We are only periodic in z for the BFS. so we do the following:
-        # NOTE: May need to be careful about this.
-        # Sometimes tends to break the mapping from local to global indices
-        # when operating with the graph transformer. (TODO: FIX)
+        # (TODO: FIX in nekRS gnn plugin, not here)
+        # Rescale the node positions in the periodic directions, 
+        # nodes on periodic faces must have the same physical location
+        # to avoid really long edges wrapping around the domain
         pos = pos.astype(NP_FLOAT_DTYPE)
         pos_orig = np.copy(pos)
+        
+        xmin_loc = np.amin(pos[:,0])
+        xmin_glob = np.zeros_like(xmin_loc)
+        COMM.Allreduce(xmin_loc, xmin_glob, op=MPI.MIN)
+        xmax_loc = np.amax(pos[:,0])
+        xmax_glob = np.zeros_like(xmax_loc)
+        COMM.Allreduce(xmax_loc, xmax_glob, op=MPI.MAX)
+        L_x = (xmax_glob - xmin_glob) / 2.0
+        pos[:, 0] = np.abs((pos[:, 0] % L_x) - L_x / 2)  # piecewise linear
+        
+        ymin_loc = np.amin(pos[:,1])
+        ymin_glob = np.zeros_like(ymin_loc)
+        COMM.Allreduce(ymin_loc, ymin_glob, op=MPI.MIN)
+        ymax_loc = np.amax(pos[:,1])
+        ymax_glob = np.zeros_like(ymax_loc)
+        COMM.Allreduce(ymax_loc, ymax_glob, op=MPI.MAX)
+        L_y = (ymax_glob - ymin_glob) / 2.0
+        pos[:, 1] = np.abs((pos[:, 1] % L_y) - L_y / 2)  # piecewise linear
+
         zmin_loc = np.amin(pos[:,2])
         zmin_glob = np.zeros_like(zmin_loc)
         COMM.Allreduce(zmin_loc, zmin_glob, op=MPI.MIN)
@@ -915,6 +908,32 @@ class Trainer:
         idx_reduced2full = gcon.get_upsample_indices(
             data_full, data_reduced, idx_full2reduced
         )
+
+        # Checks on full2reduced and reduced2full mappings
+        try:
+            assert torch.allclose(
+                data_full.pos[idx_full2reduced], data_reduced.pos
+            )
+        except AssertionError as e:
+            idx = torch.where(
+                data_full.pos[idx_full2reduced] != data_reduced.pos
+            )
+            log.error("RANK %i: AssertionError: Non-matching nodes found in idx_full2reduced", RANK)
+            log.error("Number of non-matching nodes:", len(idx[0]))
+            log.error("Non-matching nodes:", idx[0])
+            raise e
+        try:
+            assert torch.allclose(
+                data_reduced.pos[idx_reduced2full], data_full.pos
+            )
+        except AssertionError as e:
+            idx = torch.where(
+                data_reduced.pos[idx_reduced2full] != data_full.pos
+            )
+            log.error("RANK %i: AssertionError: Non-matching nodes found in idx_reduced2full", RANK)
+            log.error("Number of non-matching nodes:", len(idx[0]))
+            log.error("Non-matching nodes:", idx[0])
+            raise e
 
         return data_reduced, data_full, idx_full2reduced, idx_reduced2full
 
@@ -1943,14 +1962,13 @@ class Trainer:
             squared_errors_local = squared_errors_local / graph.node_degree[
                 :n_nodes_local
             ].unsqueeze(-1)
-
             sum_squared_errors_local = squared_errors_local.sum()
+            sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
+
             effective_nodes_local = torch.sum(
                 1.0 / graph.node_degree[:n_nodes_local]
             )
-
             effective_nodes = distnn.all_reduce(effective_nodes_local)
-            sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
             loss = (
                 1.0 / (effective_nodes * n_output_features)
             ) * sum_squared_errors
