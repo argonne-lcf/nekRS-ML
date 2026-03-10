@@ -31,9 +31,12 @@ lr_phase12: 0.0001
 lr_phase23: 0.0001
 
 # model arch properties 
+model_name: "gnn" # {gnn, graph_transformer}
 hidden_channels: 32
 n_mlp_hidden_layers: 5
 n_messagePassing_layers: 4
+n_transformer_layers: 4
+num_heads: 4
 layer_norm: False
 
 # Halo swap mode 

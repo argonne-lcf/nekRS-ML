@@ -433,7 +433,7 @@ class DistributedMessagePassingLayer(torch.nn.Module):
         # ~~~~ Edge update
         x_send = x[edge_index[0, :], :]
         x_recv = x[edge_index[1, :], :]
-        e += self.edge_updater(torch.cat((x_send, x_recv, e), dim=1))
+        e = e + self.edge_updater(torch.cat((x_send, x_recv, e), dim=1))
 
         # ~~~~ Edge aggregation
         edge_weight = edge_weight.unsqueeze(1)
@@ -458,7 +458,7 @@ class DistributedMessagePassingLayer(torch.nn.Module):
             edge_agg.index_add_(0, idx_recv, edge_agg.index_select(0, idx_send))
 
         # ~~~~ Node update
-        x += self.node_updater(torch.cat((x, edge_agg), dim=1))
+        x = x + self.node_updater(torch.cat((x, edge_agg), dim=1))
 
         return x, e
 

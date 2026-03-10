@@ -1,0 +1,10 @@
+#!/bin/bash
+
+SYSTEM=$1
+NEKRS_HOME=$2
+
+if [ $# -lt 2 ]; then
+  $NEKRS_HOME/bin/setup_case --help
+else
+  $NEKRS_HOME/bin/setup_case $SYSTEM $NEKRS_HOME ${@:3}
+fi

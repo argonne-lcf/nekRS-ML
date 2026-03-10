@@ -45,6 +45,7 @@ import torch_geometric.utils as pyg_utils
 import utils
 from scheduler import ScheduledOptim
 import gnn
+import graph_transformer as gtr
 import graph_connectivity as gcon
 from client import OnlineClient
 import create_halo_info_par
@@ -363,29 +364,50 @@ class Trainer:
 
         # Full model
         input_node_channels = sample["x"].shape[1]
-        input_edge_channels = graph.edge_attr.shape[1]
         hidden_channels = self.cfg.hidden_channels
         output_node_channels = sample["y"].shape[1]
-        n_mlp_hidden_layers = self.cfg.n_mlp_hidden_layers
-        n_messagePassing_layers = self.cfg.n_messagePassing_layers
         halo_swap_mode = self.cfg.halo_swap_mode
-        layer_norm = self.cfg.layer_norm
-        # name = 'POLY_%d_RANK_%d_SIZE_%d_SEED_%d' %(poly,RANK,SIZE,self.cfg.seed)
-        name = "POLY_%d_SIZE_%d_SEED_%d" % (poly, SIZE, self.cfg.seed)
-        if self.cfg.use_residual:
-            name += "_RESID"
+        if self.cfg.model_name == "gnn":
+            input_edge_channels = graph.edge_attr.shape[1]
+            n_mlp_hidden_layers = self.cfg.n_mlp_hidden_layers
+            n_messagePassing_layers = self.cfg.n_messagePassing_layers
+            layer_norm = self.cfg.layer_norm
+            # name = 'POLY_%d_RANK_%d_SIZE_%d_SEED_%d' %(poly,RANK,SIZE,self.cfg.seed)
+            name = "POLY_%d_SIZE_%d_SEED_%d" % (poly, SIZE, self.cfg.seed)
+            if self.cfg.use_residual:
+                name += "_RESID"
 
-        model = gnn.DistributedGNN(
-            input_node_channels,
-            input_edge_channels,
-            hidden_channels,
-            output_node_channels,
-            n_mlp_hidden_layers,
-            n_messagePassing_layers,
-            halo_swap_mode,
-            layer_norm,
-            name,
-        )
+            model = gnn.DistributedGNN(
+                input_node_channels,
+                input_edge_channels,
+                hidden_channels,
+                output_node_channels,
+                n_mlp_hidden_layers,
+                n_messagePassing_layers,
+                halo_swap_mode,
+                layer_norm,
+                name,
+            )
+
+        elif self.cfg.model_name == "graph_transformer":
+            pos_graph = graph.pos[self.idx_reduced2full]
+            num_node_per_element = (poly + 1) ** 3
+            num_elements = pos_graph.shape[0] // num_node_per_element
+            name = "GT_POLY_%d_SIZE_%d_SEED_%d" % (poly, SIZE, self.cfg.seed)
+            if self.cfg.use_residual:
+                name += "_RESID"
+
+            model = gtr.GraphTransformer(
+                input_node_channels,
+                hidden_channels,
+                output_node_channels,
+                n_transformer_layers=self.cfg.n_transformer_layers,
+                num_heads=self.cfg.num_heads,
+                num_elements=num_elements,
+                halo_swap_mode=halo_swap_mode,
+                name=name,
+            )
+
         return model
 
     def count_weights(self, model) -> int:
@@ -814,11 +836,39 @@ class Trainer:
             self.load_graph_data()
         )
 
-        # We are only periodic in z for the BFS. so we do the following:
+        # (TODO: FIX in nekRS gnn plugin, not here)
+        # Rescale the node positions in the periodic directions, 
+        # nodes on periodic faces must have the same physical location
+        # to avoid really long edges wrapping around the domain
         pos = pos.astype(NP_FLOAT_DTYPE)
         pos_orig = np.copy(pos)
-        L_z = 2.0
-        # pos[:,2] = np.cos(2.*np.pi*pos[:,2]/L_z) # cosine
+        
+        xmin_loc = np.amin(pos[:,0])
+        xmin_glob = np.zeros_like(xmin_loc)
+        COMM.Allreduce(xmin_loc, xmin_glob, op=MPI.MIN)
+        xmax_loc = np.amax(pos[:,0])
+        xmax_glob = np.zeros_like(xmax_loc)
+        COMM.Allreduce(xmax_loc, xmax_glob, op=MPI.MAX)
+        L_x = (xmax_glob - xmin_glob) / 2.0
+        pos[:, 0] = np.abs((pos[:, 0] % L_x) - L_x / 2)  # piecewise linear
+        
+        ymin_loc = np.amin(pos[:,1])
+        ymin_glob = np.zeros_like(ymin_loc)
+        COMM.Allreduce(ymin_loc, ymin_glob, op=MPI.MIN)
+        ymax_loc = np.amax(pos[:,1])
+        ymax_glob = np.zeros_like(ymax_loc)
+        COMM.Allreduce(ymax_loc, ymax_glob, op=MPI.MAX)
+        L_y = (ymax_glob - ymin_glob) / 2.0
+        pos[:, 1] = np.abs((pos[:, 1] % L_y) - L_y / 2)  # piecewise linear
+
+        zmin_loc = np.amin(pos[:,2])
+        zmin_glob = np.zeros_like(zmin_loc)
+        COMM.Allreduce(zmin_loc, zmin_glob, op=MPI.MIN)
+        zmax_loc = np.amax(pos[:,2])
+        zmax_glob = np.zeros_like(zmax_loc)
+        COMM.Allreduce(zmax_loc, zmax_glob, op=MPI.MAX)
+        L_z = (zmax_glob - zmin_glob) / 2.0
+        #pos[:,2] = np.cos(2.*np.pi*pos[:,2]/L_z) # cosine
         pos[:, 2] = np.abs((pos[:, 2] % L_z) - L_z / 2)  # piecewise linear
 
         # ~~~~ Make the full graph:
@@ -858,6 +908,32 @@ class Trainer:
         idx_reduced2full = gcon.get_upsample_indices(
             data_full, data_reduced, idx_full2reduced
         )
+
+        # Checks on full2reduced and reduced2full mappings
+        try:
+            assert torch.allclose(
+                data_full.pos[idx_full2reduced], data_reduced.pos
+            )
+        except AssertionError as e:
+            idx = torch.where(
+                data_full.pos[idx_full2reduced] != data_reduced.pos
+            )
+            log.error("RANK %i: AssertionError: Non-matching nodes found in idx_full2reduced", RANK)
+            log.error("Number of non-matching nodes:", len(idx[0]))
+            log.error("Non-matching nodes:", idx[0])
+            raise e
+        try:
+            assert torch.allclose(
+                data_reduced.pos[idx_reduced2full], data_full.pos
+            )
+        except AssertionError as e:
+            idx = torch.where(
+                data_reduced.pos[idx_reduced2full] != data_full.pos
+            )
+            log.error("RANK %i: AssertionError: Non-matching nodes found in idx_reduced2full", RANK)
+            log.error("Number of non-matching nodes:", len(idx[0]))
+            log.error("Non-matching nodes:", idx[0])
+            raise e
 
         return data_reduced, data_full, idx_full2reduced, idx_reduced2full
 
@@ -1801,6 +1877,9 @@ class Trainer:
             graph.edge_weight = graph.edge_weight.to(self.device)
             graph.node_degree = graph.node_degree.to(self.device)
             loss = loss.to(self.device)
+            if self.cfg.model_name == "graph_transformer":
+                graph.pos = graph.pos.to(self.device)
+                graph.global_ids = graph.global_ids.to(self.device)
         if self.cfg.timers:
             self.update_timer(
                 "dataTransfer", self.timer_step, time.time() - tic
@@ -1827,20 +1906,39 @@ class Trainer:
         # Prediction
         tic = time.time()
         x_scaled = data["x"][0]
-        out_gnn = self.model(
-            x=x_scaled,
-            edge_index=graph.edge_index,
-            edge_attr=graph.edge_attr,
-            edge_weight=graph.edge_weight,
-            halo_info=graph.halo_info,
-            mask_send=self.mask_send,
-            mask_recv=self.mask_recv,
-            buffer_send=self.buffer_send,
-            buffer_recv=self.buffer_recv,
-            neighboring_procs=self.neighboring_procs,
-            SIZE=SIZE,
-            batch=graph.batch,
-        )
+        if self.cfg.model_name == "gnn":
+            out_gnn = self.model(
+                x=x_scaled,
+                edge_index=graph.edge_index,
+                edge_attr=graph.edge_attr,
+                edge_weight=graph.edge_weight,
+                halo_info=graph.halo_info,
+                mask_send=self.mask_send,
+                mask_recv=self.mask_recv,
+                buffer_send=self.buffer_send,
+                buffer_recv=self.buffer_recv,
+                neighboring_procs=self.neighboring_procs,
+                SIZE=SIZE,
+                batch=graph.batch,
+            )
+        elif self.cfg.model_name == "graph_transformer":
+            out_gnn = self.model(
+                x=x_scaled,
+                pos=graph.pos,
+                index=graph.global_ids.reshape(-1).to(self.device),
+                mask_send=self.mask_send,
+                mask_recv=self.mask_recv,
+                buffer_send=self.buffer_send,
+                buffer_recv=self.buffer_recv,
+                halo_info=graph.halo_info,
+                idx_reduced2full=self.idx_reduced2full,
+                idx_full2reduced=self.idx_full2reduced,
+                neighboring_procs=self.neighboring_procs,
+                SIZE=SIZE,
+            )
+        else:
+            raise ValueError("Unknown model name: %s" % self.cfg.model_name)
+
         if self.cfg.timers:
             self.update_timer("forwardPass", self.timer_step, time.time() - tic)
 
@@ -1864,14 +1962,13 @@ class Trainer:
             squared_errors_local = squared_errors_local / graph.node_degree[
                 :n_nodes_local
             ].unsqueeze(-1)
-
             sum_squared_errors_local = squared_errors_local.sum()
+            sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
+
             effective_nodes_local = torch.sum(
                 1.0 / graph.node_degree[:n_nodes_local]
             )
-
             effective_nodes = distnn.all_reduce(effective_nodes_local)
-            sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
             loss = (
                 1.0 / (effective_nodes * n_output_features)
             ) * sum_squared_errors
@@ -1914,6 +2011,9 @@ class Trainer:
             )
             graph.halo_info = graph.halo_info.to(self.device)
             graph.node_degree = graph.node_degree.to(self.device)
+            if self.cfg.model_name == "graph_transformer":
+                graph.pos = graph.pos.to(self.device)
+                graph.global_ids = graph.global_ids.to(self.device)
         if self.cfg.timers:
             self.update_timer(
                 "dataTransfer", self.timer_step, time.time() - tic
@@ -1939,20 +2039,39 @@ class Trainer:
         tic = time.time()
         # x_scaled = (x[0] - stats['mean'])/(stats['std'] + SMALL)
         x_scaled = x[0] if len(x.shape) > 2 else x
-        out_gnn = self.model(
-            x=x_scaled,
-            edge_index=graph.edge_index,
-            edge_attr=graph.edge_attr,
-            edge_weight=graph.edge_weight,
-            halo_info=graph.halo_info,
-            mask_send=self.mask_send,
-            mask_recv=self.mask_recv,
-            buffer_send=self.buffer_send,
-            buffer_recv=self.buffer_recv,
-            neighboring_procs=self.neighboring_procs,
-            SIZE=SIZE,
-            batch=graph.batch,
-        )
+        if self.cfg.model_name == "gnn":
+            out_gnn = self.model(
+                x=x_scaled,
+                edge_index=graph.edge_index,
+                edge_attr=graph.edge_attr,
+                edge_weight=graph.edge_weight,
+                halo_info=graph.halo_info,
+                mask_send=self.mask_send,
+                mask_recv=self.mask_recv,
+                buffer_send=self.buffer_send,
+                buffer_recv=self.buffer_recv,
+                neighboring_procs=self.neighboring_procs,
+                SIZE=SIZE,
+                batch=graph.batch,
+            )
+        elif self.cfg.model_name == "graph_transformer":
+            out_gnn = self.model(
+                x=x_scaled,
+                pos=graph.pos,
+                index=graph.global_ids.reshape(-1).to(self.device),
+                mask_send=self.mask_send,
+                mask_recv=self.mask_recv,
+                buffer_send=self.buffer_send,
+                buffer_recv=self.buffer_recv,
+                halo_info=graph.halo_info,
+                idx_reduced2full=self.idx_reduced2full,
+                idx_full2reduced=self.idx_full2reduced,
+                neighboring_procs=self.neighboring_procs,
+                SIZE=SIZE,
+            )
+        else:
+            raise ValueError("Unknown model name: %s" % self.cfg.model_name)
+
         if self.cfg.timers:
             self.update_timer("forwardPass", self.timer_step, time.time() - tic)
 
@@ -1998,6 +2117,9 @@ class Trainer:
                     graph.edge_weight = graph.edge_weight.to(self.device)
                     graph.node_degree = graph.node_degree.to(self.device)
                     loss = loss.to(self.device)
+                    if self.cfg.model_name == "graph_transformer":
+                        graph.pos = graph.pos.to(self.device)
+                        graph.global_ids = graph.global_ids.to(self.device)
 
                 # re-allocate send buffer
                 if self.cfg.halo_swap_mode != "none":
@@ -2020,20 +2142,38 @@ class Trainer:
                     self.buffer_send = None
                     self.buffer_recv = None
 
-                out_gnn = self.model(
-                    x=data["x"][0],
-                    edge_index=graph.edge_index,
-                    edge_attr=graph.edge_attr,
-                    edge_weight=graph.edge_weight,
-                    halo_info=graph.halo_info,
-                    mask_send=self.mask_send,
-                    mask_recv=self.mask_recv,
-                    buffer_send=self.buffer_send,
-                    buffer_recv=self.buffer_recv,
-                    neighboring_procs=self.neighboring_procs,
-                    SIZE=SIZE,
-                    batch=graph.batch,
-                )
+                if self.cfg.model_name == "gnn":
+                    out_gnn = self.model(
+                        x=data["x"][0],
+                        edge_index=graph.edge_index,
+                        edge_attr=graph.edge_attr,
+                        edge_weight=graph.edge_weight,
+                        halo_info=graph.halo_info,
+                        mask_send=self.mask_send,
+                        mask_recv=self.mask_recv,
+                        buffer_send=self.buffer_send,
+                        buffer_recv=self.buffer_recv,
+                        neighboring_procs=self.neighboring_procs,
+                        SIZE=SIZE,
+                        batch=graph.batch,
+                    )
+                elif self.cfg.model_name == "graph_transformer":
+                    out_gnn = self.model(
+                        x=data["x"][0],
+                        pos=graph.pos,
+                        index=self.data_full.global_ids.reshape(-1).to(self.device),
+                        mask_send=self.mask_send,
+                        mask_recv=self.mask_recv,
+                        buffer_send=self.buffer_send,
+                        buffer_recv=self.buffer_recv,
+                        halo_info=graph.halo_info,
+                        idx_reduced2full=self.idx_reduced2full,
+                        idx_full2reduced=self.idx_full2reduced,
+                        neighboring_procs=self.neighboring_procs,
+                        SIZE=SIZE,
+                    )
+                else:
+                    raise ValueError("Unknown model name: %s" % self.cfg.model_name)
 
                 # Accumulate loss
                 target = data["y"][0]
