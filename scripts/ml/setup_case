@@ -280,49 +280,52 @@ function build_smartsim() {
 }
 
 function setup_venv() {
-  if [ ! -d ${VENV_PATH} ]; then
-    echo -e "\033[35mPython venv \"${VENV_PATH}\" doesn't exist, building one now ...\033[m"
-    python -m venv --clear ${VENV_PATH} --system-site-packages
-    source ${VENV_PATH}/bin/activate
-  
-    if [ ${SYSTEM} == "crux" ]; then
-      pip install numpy
-      pip install torch --index-url https://download.pytorch.org/whl/cpu
-      MPICC="cc -shared" pip install --force-reinstall --no-cache-dir --no-binary=mpi4py mpi4py
-    fi
-
-    export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
-    export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
-    if [ ${SYSTEM} == "aurora" ]; then
-      pip install torch_geometric==2.5.3
-    fi  
-
-    if [ ${MODEL} == "sr-gnn" ]; then
-      if [ ${SYSTEM} == "aurora" ]; then
-        cwd=${PWD}
-        git clone https://github.com/rusty1s/pytorch_cluster.git ${VENV_PATH}/pytorch_cluster
-        cd ${VENV_PATH}/pytorch_cluster
-        # Need to force the install to not link with OpenMP, change lines 53-54 to if False:
-        sed -i 's/fopenmp/lgomp/' setup.py
-        CXX=$(which dpcpp) python setup.py install
-        cd ${cwd}
-      fi
-    fi
-    
-    pip install pymech
-
-    if [ "${CLIENT}" == "smartredis" ]; then
-      build_smartsim
-    fi
-  else
+  if [ -d ${VENV_PATH} ]; then
     echo -e "\033[35mPython venv \"${VENV_PATH}\" already exists, reusing it ... \033[m"
     source ${VENV_PATH}/bin/activate
+
     if [ "${CLIENT}" == "smartredis" ]; then
       if ! pip show smartsim > /dev/null 2>&1; then
         echo -e "\033[35mRequested the smartredis backend, but SmartSim is not installed \033[m"
         build_smartsim
       fi
     fi
+
+    return 0
+  fi
+
+  echo -e "\033[35mPython venv \"${VENV_PATH}\" doesn't exist, building one now ...\033[m"
+  python -m venv --clear ${VENV_PATH} --system-site-packages
+  source ${VENV_PATH}/bin/activate
+  
+  if [ ${SYSTEM} == "crux" ]; then
+    pip install numpy
+    pip install torch --index-url https://download.pytorch.org/whl/cpu
+    MPICC="cc -shared" pip install --force-reinstall --no-cache-dir --no-binary=mpi4py mpi4py
+  fi
+
+  export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
+  export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
+  if [ ${SYSTEM} == "aurora" ]; then
+    pip install torch_geometric==2.5.3
+  fi  
+
+  if [ ${MODEL} == "sr-gnn" ]; then
+    if [ ${SYSTEM} == "aurora" ]; then
+      cwd=${PWD}
+      git clone https://github.com/rusty1s/pytorch_cluster.git ${VENV_PATH}/pytorch_cluster
+      cd ${VENV_PATH}/pytorch_cluster
+      # Need to force the install to not link with OpenMP, change lines 53-54 to if False:
+      sed -i 's/fopenmp/lgomp/' setup.py
+      CXX=$(which dpcpp) python setup.py install
+      cd ${cwd}
+    fi
+  fi
+  
+  pip install pymech
+
+  if [ "${CLIENT}" == "smartredis" ]; then
+    build_smartsim
   fi
 }
 
