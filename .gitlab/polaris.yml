@@ -1,0 +1,23 @@
+variables:
+  PROJ: "datascience"
+  WRK_DIR: "/lus/eagle/projects/${PROJ}/nekRS-ML/"
+
+stages:
+    - submit
+
+setup:
+  stage: submit
+  extends: .polaris-shell-runner
+  script:
+    - |
+      cd ${WRK_DIR}
+      i=$(find . -maxdepth 1 -type d -name "${CI_COMMIT_SHA}*" | wc -l)
+      mkdir -p ${CI_COMMIT_SHA}_${i}
+      cd ${CI_COMMIT_SHA}_${i}
+    - git clone https://github.com/argonne-lcf/nekRS-ML.git
+    - cd ./nekRS-ML/tests
+    - git checkout ${CI_COMMIT_SHA}
+    - |
+      module use /soft/modulefiles
+      module load spack-pe-base python
+      ./run.sh -b -cm ${CI_COMMIT_SHA} -q capacity -t all -e serial -s polaris:compute
