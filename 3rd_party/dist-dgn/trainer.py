@@ -311,14 +311,14 @@ class DGNTrainer:
 
             if WITH_DDP and SIZE > 1:
                 sd = self.model.module.state_dict()
-                ind = self.model.module.input_dict()
+                arch = self.model.module.get_arch()
             else:
                 sd = self.model.state_dict()
-                ind = self.model.input_dict()
+                arch = self.model.get_arch()
 
             save_dict = {
                         'state_dict' : sd,
-                        'input_dict' : ind,
+                        'arch_dict' : arch,
                         'loss_hist_train' : self.loss_hist_train,
                         'loss_hist_val' : self.loss_hist_val,
                         'iteration' : self.iteration,
@@ -677,9 +677,22 @@ class DGNTrainer:
         data_reduced, idx_full2reduced = gcon.get_reduced_graph(data_full)
 
         # ~~~~ Get the indices to go from reduced back to full graph  
-        # idx_reduced2full = None
         if self.cfg.verbose: log.info('[RANK %d]: Getting idx_reduced2full' %(RANK))
         idx_reduced2full = gcon.get_upsample_indices(data_full, data_reduced, idx_full2reduced)
+
+        # Checks on mappings
+        try:
+            assert torch.allclose(
+                self.data_full.pos[self.idx_full2reduced], self.data_reduced.pos
+            )
+        except AssertionError as e:
+            idx = torch.where(
+                self.data_full.pos[self.idx_full2reduced] != self.data_reduced.pos
+            )
+            log.error("RANK %i: AssertionError: Non-matching nodes found in idx_full2reduced", RANK)
+            log.error("Number of non-matching nodes:", len(idx[0]))
+            log.error("Non-matching nodes:", idx[0])
+            raise e
 
         return data_reduced, data_full, idx_full2reduced, idx_reduced2full
 
@@ -1144,7 +1157,7 @@ class DGNTrainer:
         if self.cfg.timers: self.update_timer('dataTransfer', self.timer_step, time.time() - tic)
 
         if self.cfg.postprocess and self.iteration == 0 and self.cfg.cond_node_features:
-            postprocess.plot_2d_field(COMM, graph.pos, graph.cond_node_features.cpu().numpy(), f'cond_node_features.png')
+            postprocess.plot_2d_field(COMM, graph.pos.numpy(), graph.cond_node_features.cpu().numpy(), f'cond_node_features.png')
             COMM.Barrier()
 
         self.s_optimizer.zero_grad()
@@ -1177,8 +1190,8 @@ class DGNTrainer:
                                                              batch=data.batch, 
                                                              dirichlet_mask=BC_mask)
         if self.cfg.postprocess and self.iteration%100 == 0:
-            postprocess.plot_2d_field(COMM, graph.pos, field_r[data.batch==0].cpu().numpy(), f'field_r_r{r[0]}_iter{self.iteration}.png')
-            postprocess.plot_2d_field(COMM, graph.pos, data.x[data.batch==0,:self.cfg.input_node_features].cpu().numpy(), f'data_x_r{r[0]}_iter{self.iteration}.png')
+            postprocess.plot_2d_field(COMM, graph.pos.numpy(), field_r[data.batch==0].cpu().numpy(), f'field_r_r{r[0]}_iter{self.iteration}.png')
+            postprocess.plot_2d_field(COMM, graph.pos.numpy(), data.x[data.batch==0,:self.cfg.input_node_features].cpu().numpy(), f'data_x_r{r[0]}_iter{self.iteration}.png')
             COMM.Barrier()
         
         # Prediction
@@ -1219,8 +1232,8 @@ class DGNTrainer:
             # epsilon-prediction (default): model predicts the noise
             mse_target = noise
         if self.cfg.postprocess and self.iteration%100 == 0:
-            postprocess.plot_2d_field(COMM, graph.pos, model_pred[data.batch==0].detach().cpu().numpy(), f'model_pred_r{r[0]}_iter{self.iteration}.png')
-            postprocess.plot_2d_field(COMM, graph.pos, mse_target[data.batch==0].cpu().numpy(), f'target_r{r[0]}_iter{self.iteration}.png')
+            postprocess.plot_2d_field(COMM, graph.pos.numpy(), model_pred[data.batch==0].detach().cpu().numpy(), f'model_pred_r{r[0]}_iter{self.iteration}.png')
+            postprocess.plot_2d_field(COMM, graph.pos.numpy(), mse_target[data.batch==0].cpu().numpy(), f'target_r{r[0]}_iter{self.iteration}.png')
             COMM.Barrier()
         if SIZE == 1 or not self.cfg.consistency:
             mse_term = batch_wise_mean((model_pred - mse_target)**2, data.batch) # Dimension (batch_size)
@@ -1248,8 +1261,8 @@ class DGNTrainer:
                     (model_posterior_mean, model_posterior_variance), 
                     data.batch, 
                     r) # Dimension (batch_size)
-                vlb_term *= lambda_vlb
-                loss += vlb_term # Dimension (batch_size)
+                vlb_term = vlb_term * lambda_vlb
+                loss = loss + vlb_term # Dimension (batch_size)
             # Log unweighted per-step losses (always, regardless of learnable_variance)
             if self.cfg.verbose and RANK == 0:
                 log.info(f"MSE loss term: {mse_term.detach().cpu().numpy().tolist()}, mean = {mse_term.detach().cpu().mean().numpy().tolist()}")
@@ -1374,9 +1387,9 @@ class DGNTrainer:
         if self.cfg.timers: self.update_timer('bufferInit', self.timer_step, time.time() - tic)
 
         # Sync halo nodes of the initial noise
-        postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig, field_r.cpu().numpy(), f"field_r_step{100}.png")
+        postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_step{100}.png")
         field_r = self.sync_halo_nodes(field_r)
-        postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig, field_r.cpu().numpy(), f"field_r_con_step{100}.png")
+        postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_con_step{100}.png")
         
         # Prediction (de-noise step by step)
         for step in diff_process.steps[::-1]:
@@ -1400,7 +1413,7 @@ class DGNTrainer:
                                 batch = self.data['graph'].batch)
             if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
             if self.cfg.postprocess and step%10 == 0:
-                postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig, model_pred.cpu().numpy(), f"model_pred_step{step}.png")
+                postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), model_pred.cpu().numpy(), f"model_pred_step{step}.png")
                 COMM.Barrier()
             
             # Get the posterior mean and variance from the model output
@@ -1423,10 +1436,10 @@ class DGNTrainer:
             # independent noise causes field_r to diverge at sub-graph
             # boundaries, and the errors accumulate through subsequent steps.
             if step%10 == 0:
-                postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig, field_r.cpu().numpy(), f"field_r_step{step}.png")
+                postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_step{step}.png")
             field_r = self.sync_halo_nodes(field_r)
             if step%10 == 0:
-                postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig, field_r.cpu().numpy(), f"field_r_con_step{step}.png")
+                postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_con_step{step}.png")
 
         # Update timers
         self.synchronize()

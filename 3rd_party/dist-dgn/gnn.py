@@ -104,6 +104,23 @@ class DistributedDGN(torch.nn.Module):
         self.output_node_features = self.input_node_features * 2 if self.learnable_variance else self.input_node_features
         self.name = arch['name']
 
+    def get_arch(self) -> dict:
+        return self.arch
+
+    def get_save_header(self) -> str:
+        header = self.name
+        header += (
+            f"_H{self.arch['mlp_hidden_channels']}"
+            f"_L{self.arch['n_mlp_hidden_layers']}"
+            f"_M{self.arch['n_messagePassing_layers']}"
+            f"_norm{self.arch['layer_norm']}"
+            f"_{self.arch['halo_swap_mode']}"
+            f"_emb{self.arch['emb_width']}"
+            f"_lv{self.arch['learnable_variance']}"
+            f"_condf{self.arch['cond_node_features']}"
+        )
+        return header
+
     def _maybe_checkpoint(self, fn, *args):
         """Wrap a module call with activation checkpointing if enabled and training.
         Args:
@@ -196,16 +213,6 @@ class DistributedDGN(torch.nn.Module):
         for module in self.processor:
             module.reset_parameters()
         return
-
-    def input_dict(self) -> dict:
-        return self.arch
-
-    def get_save_header(self) -> str:
-        header = self.name
-        for key in self.arch.keys():
-            if key != 'name':
-                header += '_' + str(self.arch[key])
-        return header
 
 
 class MLP(torch.nn.Module):

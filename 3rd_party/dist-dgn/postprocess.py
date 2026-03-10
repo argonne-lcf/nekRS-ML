@@ -48,7 +48,7 @@ def plot_2d_field(comm, pos: np.ndarray, field: np.ndarray, filename: str):
         max_edge2 = np.maximum(np.maximum(d01, d12), d20)
         # Mask triangles whose longest edge exceeds 4x the median edge length
         median_edge2 = np.median(max_edge2)
-        triang.set_mask(max_edge2 > 16.0 * median_edge2)
+        triang.set_mask(max_edge2 > 5.0 * median_edge2)
 
         # Contour plot of each velocity component
         n_vars = field_sampled.shape[1]

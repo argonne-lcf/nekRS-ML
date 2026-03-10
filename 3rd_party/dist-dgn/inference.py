@@ -142,7 +142,7 @@ def infer(cfg: DictConfig,
 
         # Postprocess the data
         if cfg.postprocess:
-            postprocess.plot_2d_field(COMM, pos, pred, f"pred_{i}.png")
+            postprocess.plot_2d_field(COMM, pos.numpy(), pred, f"pred_{i}.png")
 
 
 @hydra.main(version_base=None, config_path='./conf', config_name='config')

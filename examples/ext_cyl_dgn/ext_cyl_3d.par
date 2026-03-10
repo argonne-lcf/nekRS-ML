@@ -26,5 +26,5 @@ residualTol = 1.0e-5
 
 [ML]
 gnnPolynomialOrder = 3
-gnnCondFeatures = wallDistance, inflowDistance
+gnnCondFeatures = wallDistance, inflowDistance, yCoordinate
 
