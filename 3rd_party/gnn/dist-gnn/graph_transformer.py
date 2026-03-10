@@ -6,8 +6,21 @@ import torch.distributed.nn as distnn
 from torch.nn.functional import scaled_dot_product_attention as sdpa
 try:
     from torch_scatter import scatter_mean
+    TORCH_SCATTER_AVAIL=True
 except ModuleNotFoundError:
+    TORCH_SCATTER_AVAIL=False
     pass
+
+# Scatter mean native torch implementation
+def scatter_mean_native(src, index, dim: int = None):
+    if dim is None:
+        dim = index.max().item() + 1
+    out = torch.zeros(dim, src.shape[1], dtype=src.dtype, device=src.device)
+    counts = torch.zeros(dim, 1, dtype=src.dtype, device=src.device)
+    idx = index.unsqueeze(1)
+    out.scatter_add_(0, idx.expand_as(src), src)
+    counts.scatter_add_(0, idx, torch.ones_like(idx, dtype=src.dtype))
+    return out / counts
 
 # GeGLU activation
 class GeGLU(nn.Module):
@@ -251,7 +264,10 @@ class ElementWiseAttention(nn.Module):
         # NOTE: we can possibly just compute this once and reuse it
         _, grouping_index = torch.unique(index[idx_reduced2full], return_inverse=True)
         attn_output = attn_output.reshape(ne * np, c)
-        attn_output = scatter_mean(attn_output, grouping_index, dim=0)[grouping_index]
+        if TORCH_SCATTER_AVAIL: 
+            attn_output = scatter_mean(attn_output, grouping_index, dim=0)[grouping_index]
+        else:
+            attn_output = scatter_mean_native(attn_output, grouping_index, dim=0)
         # make attention output in reduced:
         attn_output = attn_output[idx_full2reduced]
 

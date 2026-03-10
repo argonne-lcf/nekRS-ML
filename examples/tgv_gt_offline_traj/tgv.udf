@@ -1,0 +1,158 @@
+#include "gnn.hpp"
+#include "trajGen.hpp"
+
+deviceMemory<dfloat> o_qcriterion;
+
+#ifdef __okl__
+
+@kernel void
+magSqr(const dlong Ntotal, const dlong offset, @ restrict const dfloat *U, @ restrict dfloat *uSqr)
+{
+  for (dlong n = 0; n < Ntotal; ++n; @tile(p_blockSize, @outer, @inner)) {
+    uSqr[n + 0 * offset] = U[n + 0 * offset] * U[n + 0 * offset] + U[n + 1 * offset] * U[n + 1 * offset] +
+                           U[n + 2 * offset] * U[n + 2 * offset];
+  }
+}
+
+#endif
+
+gnn_t* graph = nullptr;
+trajGen_t* tgen = nullptr;
+
+void printDiagnostics(nrs_t *nrs, double time, int tstep)
+{
+  auto mesh = nrs->mesh;
+
+  dfloat mue, rho;
+  platform->options.getArgs("VISCOSITY", mue);
+  platform->options.getArgs("DENSITY", rho);
+  const dfloat nu = mue / rho;
+
+  const auto energy = [&]() {
+    const dfloat scale = 0.5 / mesh->volume;
+    poolDeviceMemory<dfloat> o_magSqrU(nrs->fieldOffset);
+    magSqr(mesh->Nlocal, nrs->fieldOffset, nrs->o_U, o_magSqrU);
+    return scale * platform->linAlg->innerProd(mesh->Nlocal,
+                       o_magSqrU,
+                       mesh->o_Jw,
+                       platform->comm.mpiComm,
+                       0);
+  }();
+
+  const auto enstrophy = [&] () {
+    const dfloat scale = 0.5 / mesh->volume;
+    auto o_curlU = opSEM::strongCurl(mesh, nrs->fieldOffset, nrs->o_U);
+
+    static poolDeviceMemory<dfloat> o_invJw;
+    if (!o_invJw.isInitialized()) {
+      o_invJw.resize(mesh->Nlocal);
+      platform->linAlg->adyz(mesh->Nlocal, 1.0, mesh->o_Jw, o_invJw); 
+    }
+
+    platform->linAlg->axmyMany(mesh->Nlocal, mesh->dim, nrs->fieldOffset, 0, 1.0, o_invJw, o_curlU); 
+    poolDeviceMemory<dfloat> o_magCurlU(nrs->fieldOffset);
+    magSqr(mesh->Nlocal, nrs->fieldOffset, o_curlU, o_magCurlU);
+
+    return scale * platform->linAlg->innerProd(mesh->Nlocal,
+                       o_magCurlU,
+                       mesh->o_Jw,
+                       platform->comm.mpiComm,
+                       0);
+  }();
+
+  if (platform->comm.mpiRank == 0) {
+    printf("  time= %g  enst= %g  energy= %g  -2*nu*enst= %g", time, enstrophy, energy, -2 * nu * enstrophy);
+  }
+
+  static dfloat energyComputed[3] = {0};
+
+  if (tstep) {
+    dfloat sum = 0.0;
+    for (int i = 0; i < nrs->nBDF; ++i) {
+      sum += nrs->coeffBDF[i] * energyComputed[i];
+    }
+    energyComputed[2] = energyComputed[1];
+    energyComputed[1] = energyComputed[0];
+    energyComputed[0] = energy;
+    const dfloat dissipationRate = (nrs->g0 * energy - sum) / nrs->dt[0];
+    const dfloat nuEff = -dissipationRate / (2 * enstrophy);
+    if (platform->comm.mpiRank == 0) {
+      printf("  d(energy)/dt= %g  nuEff/nu= %g", dissipationRate, nuEff / nu);
+    }
+  } else {
+    energyComputed[0] = energy;
+  }
+
+  if (platform->comm.mpiRank == 0) {
+    printf("\n");
+  }
+}
+
+/* UDF Functions */
+
+void UDF_Setup0(MPI_Comm comm, setupAide &options)
+{
+  dfloat eps;
+  platform->par->extract("casedata", "eps", eps);
+  if (platform->options.compareArgs("BUILD ONLY", "FALSE")) {
+    *nek::ptr<double>("eps") = eps;
+  }
+}
+
+void UDF_Setup()
+{
+  // gnn plugin
+  graph = new gnn_t(nrs);
+  graph->gnnSetup();
+  graph->gnnWrite();
+
+  auto mesh = nrs->mesh;
+
+  if (platform->options.getArgs("RESTART FILE NAME").empty()) {
+    dfloat U0, V0, W0;
+    platform->par->extract("casedata", "U0", U0);
+    platform->par->extract("casedata", "V0", V0);
+    platform->par->extract("casedata", "W0", W0);
+
+    auto [x, y, z] = mesh->xyzHost();
+
+    std::vector<dfloat> U(mesh->dim * nrs->fieldOffset, 0.0);
+    for (int n = 0; n < mesh->Nlocal; n++) {
+      U[n + 0 * nrs->fieldOffset] = sin(x[n]) * cos(y[n]) * cos(z[n]) + U0;
+      U[n + 1 * nrs->fieldOffset] = -cos(x[n]) * sin(y[n]) * cos(z[n]) + V0;
+      U[n + 2 * nrs->fieldOffset] = W0;
+    }
+    nrs->o_U.copyFrom(U.data(), U.size());
+  }
+
+  o_qcriterion.resize(mesh->Nlocal);
+  nrs->addUserCheckpointField("scalar00", std::vector<deviceMemory<dfloat>>{o_qcriterion});
+
+  // trajectory generation plugin
+  int dt_factor = 10;
+  int skip = 0;
+  dfloat t0;
+  platform->options.getArgs("START TIME", t0);
+  tgen = new trajGen_t (graph, dt_factor, skip, t0);
+  tgen->trajGenSetup();
+}
+
+void UDF_ExecuteStep(double time, int tstep)
+{
+  printDiagnostics(nrs, time, tstep);
+
+  int numSteps = -1;
+  platform->options.getArgs("NUMBER TIMESTEPS", numSteps);
+
+  // write trajectory
+  tgen->trajGenWrite(nrs, time, tstep, "velocity");
+
+  if (nrs->checkpointStep) {
+    nrs->Qcriterion(o_qcriterion);
+  }
+
+  if (nrs->lastStep || numSteps == 0) {
+    delete tgen;
+    delete graph;
+  }
+}
