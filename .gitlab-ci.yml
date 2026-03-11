@@ -5,3 +5,4 @@ include:
     file:
       - '/runners.yml'
   - local: .gitlab/aurora.yml
+  - local: .gitlab/polaris.yml
