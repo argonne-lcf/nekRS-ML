@@ -228,7 +228,7 @@ function print_args() {
 function load_modules() {
   if [ ${SYSTEM} == "aurora" ]; then
     module load frameworks
-    module load git-lfs/3.5.1
+    module load git-lfs
   elif [ ${SYSTEM} == "polaris" ]; then
     module use /soft/modulefiles/
     module load conda
@@ -254,15 +254,8 @@ function build_smartsim() {
     export LD_LIBRARY_PATH=$CUDNN_LIBRARY:$LD_LIBRARY_PATH
   fi
 
-  cwd=$PWD
-
-  cd ${VENV_PATH}
-  if [ ! -d SmartSim ]; then
-    git clone https://github.com/rickybalin/SmartSim.git
-  fi
-  cd SmartSim
-  git checkout rollback_aurora
-  pip install -e .
+  pip install git+https://github.com/rickybalin/SmartRedis.git@develop
+  pip install git+https://github.com/rickybalin/SmartSim.git@rollback_aurora
 
   if [ ${SYSTEM} == "aurora" ]; then
     DEVICE="cpu"
@@ -275,29 +268,20 @@ function build_smartsim() {
   export TORCH_CMAKE_PATH=$( python -c 'import torch;print(torch.utils.cmake_prefix_path)' )
   smart build -v --device $DEVICE --torch_dir $TORCH_CMAKE_PATH --no_tf
   smart validate
-
-  cd ${cwd}
 }
 
 function setup_venv() {
+  reuse=0
   if [ -d ${VENV_PATH} ]; then
     echo -e "\033[35mPython venv \"${VENV_PATH}\" already exists, reusing it ... \033[m"
-    source ${VENV_PATH}/bin/activate
-
-    if [ "${CLIENT}" == "smartredis" ]; then
-      if ! pip show smartsim > /dev/null 2>&1; then
-        echo -e "\033[35mRequested the smartredis backend, but SmartSim is not installed \033[m"
-        build_smartsim
-      fi
-    fi
-
     return 0
+  else
+    echo -e "\033[35mPython venv \"${VENV_PATH}\" doesn't exist, building one now ...\033[m"
+    python -m venv --clear ${VENV_PATH} --system-site-packages
   fi
 
-  echo -e "\033[35mPython venv \"${VENV_PATH}\" doesn't exist, building one now ...\033[m"
-  python -m venv --clear ${VENV_PATH} --system-site-packages
   source ${VENV_PATH}/bin/activate
-  
+
   if [ ${SYSTEM} == "crux" ]; then
     pip install numpy
     pip install torch --index-url https://download.pytorch.org/whl/cpu
@@ -327,6 +311,8 @@ function setup_venv() {
   if [ "${CLIENT}" == "smartredis" ]; then
     build_smartsim
   fi
+
+  deactivate
 }
 
 function generate_script() {
