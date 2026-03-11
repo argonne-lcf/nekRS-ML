@@ -10,6 +10,7 @@ setup:
   extends: .polaris-shell-runner
   script:
     - |
+      mkdir -p ${WRK_DIR}
       cd ${WRK_DIR}
       i=$(find . -maxdepth 1 -type d -name "${CI_COMMIT_SHA}*" | wc -l)
       mkdir -p ${CI_COMMIT_SHA}_${i}
