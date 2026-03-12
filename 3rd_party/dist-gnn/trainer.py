@@ -743,7 +743,7 @@ class Trainer:
             edge_weight = torch.zeros(1, dtype=self.torch_dtype)
             node_degree = torch.zeros(1, dtype=self.torch_dtype)
             effective_nodes_local = torch.zeros(1, dtype=self.torch_dtype)
-            effective_nodes = n_nodes_local
+            effective_nodes = torch.tensor(n_nodes_local, dtype=self.torch_dtype)
 
         self.data_reduced.n_nodes_local = torch.tensor(n_nodes_local, dtype=torch.int64)
         self.data_reduced.n_nodes_halo = torch.tensor(n_nodes_halo, dtype=torch.int64)
