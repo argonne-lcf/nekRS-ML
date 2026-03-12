@@ -227,7 +227,6 @@ class NekRSTest(RunOnlyTest):
     def nekrs_cmd(self, extra_args=[]):
         return lst2cmd(
             self.mpiexec
-            + ["--"]
             + self.nekrs_exec_cmd
             + self.nekrs_exec_opts
             + extra_args
@@ -300,7 +299,11 @@ class NekRSMLTest(NekRSTest):
 
     @property
     def mpiexec(self):
-        return self.job.launcher.command(self.job) + self.job.launcher.options
+        return (
+            self.job.launcher.command(self.job)
+            + self.job.launcher.options
+            + ["--"]
+        )
 
     def order(self, p):
         pf = f"{self.case_name}.par"
