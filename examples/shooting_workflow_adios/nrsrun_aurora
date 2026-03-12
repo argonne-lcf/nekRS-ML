@@ -128,6 +128,7 @@ echo "##PBS -q $QUEUE" >> $RFILE
 echo "#cd \$PBS_O_WORKDIR" >> $RFILE
 
 echo -e "\nexport TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
+echo "export ZE_FLAT_DEVICE_HIERARCHY=FLAT" >> $RFILE
 
 echo -e "\necho Jobid: \$PBS_JOBID" >>$RFILE
 echo "echo Running on host \`hostname\`" >>$RFILE

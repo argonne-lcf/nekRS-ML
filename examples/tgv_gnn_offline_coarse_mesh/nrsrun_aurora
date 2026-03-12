@@ -25,6 +25,7 @@ RFILE=run.sh
 echo "#!/bin/bash" > $RFILE
 
 echo -e "\nexport TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
+echo "export ZE_FLAT_DEVICE_HIERARCHY=FLAT" >> $RFILE
 
 echo -e "\necho Jobid: \$PBS_JOBID" >>$RFILE
 echo "echo Running on host \`hostname\`" >>$RFILE
