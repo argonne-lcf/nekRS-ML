@@ -147,6 +147,7 @@ echo "module load ${FRAMEWORKS_MODULE}" >> $RFILE
 echo "source ${VENV_PATH}" >> $RFILE
 echo "module list" >> $RFILE
 
+echo "export ZE_FLAT_DEVICE_HIERARCHY=FLAT" >> $RFILE
 echo -e "\nexport NEKRS_HOME=$NEKRS_HOME" >>$RFILE
 #echo "export NEKRS_GPU_MPI=$NEKRS_GPU_MPI" >>$RFILE
 #echo "export MPICH_GPU_SUPPORT_ENABLED=$NEKRS_GPU_MPI" >> $RFILE

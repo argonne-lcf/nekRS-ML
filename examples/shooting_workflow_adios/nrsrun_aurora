@@ -137,6 +137,7 @@ echo "module load ${FRAMEWORKS_MODULE}" >> $RFILE
 echo "source ${VENV_PATH}" >> $RFILE
 echo "module list" >> $RFILE
 
+echo "export ZE_FLAT_DEVICE_HIERARCHY=FLAT" >> $RFILE
 echo -e "\nexport NEKRS_HOME=$NEKRS_HOME" >>$RFILE
 echo "export OCCA_DPCPP_COMPILER_FLAGS=\"$OCCA_DPCPP_COMPILER_FLAGS\"" >> $RFILE
 echo "export FI_CXI_RX_MATCH_MODE=hybrid" >> $RFILE # required by parRSB
