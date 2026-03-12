@@ -99,12 +99,12 @@ if [ ${ML_TASK} == "train" ]; then
 else
   arguments="+device=cpu +device_skip=0" >> $CFILE
   echo "    executable: \"\"" >> $CFILE
-  echo "    link_files: []" >> $CFILE
 fi
 arguments="${arguments} +logging=info +dbnodes=${DB_NODES} +ppn=${TRAIN_RANKS_PER_NODE}"
 echo "    arguments: \"${arguments}\"" >> $CFILE
 echo "    affinity: \"\"" >> $CFILE
 echo "    copy_files: []" >> $CFILE
+echo "    link_files: []" >> $CFILE
 echo "" >> $CFILE
 echo "" >> $CFILE
 echo "# Inference config" >> $CFILE
