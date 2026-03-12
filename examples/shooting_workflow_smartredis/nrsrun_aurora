@@ -57,49 +57,6 @@ setup $# 1
 chk_case $TOTAL_RANKS
 
 #--------------------------------------
-# Generate the affinity scripts
-SAFF_FILE=affinity_nrs.sh
-TAFF_FILE=affinity_ml.sh
-if [ ${ZE_FLAT_DEVICE_HIERARCHY} == "COMPOSITE" ] || [[ -z "${ZE_FLAT_DEVICE_HIERARCHY}" ]]; then
-  echo "#!/bin/bash" > $SAFF_FILE
-  echo "num_gpus=\$1" >> $SAFF_FILE
-  echo "shift" >> $SAFF_FILE
-  echo "num_tiles=2" >> $SAFF_FILE
-  echo "gpu_id=\$(((PALS_LOCAL_RANKID / \${num_tiles}) % \${num_gpus}))" >> $SAFF_FILE
-  echo "tile_id=\$((PALS_LOCAL_RANKID % \${num_tiles}))" >> $SAFF_FILE
-  echo "export ZE_AFFINITY_MASK=\$gpu_id.\$tile_id" >> $SAFF_FILE
-  echo "exec \"\$@\"" >> $SAFF_FILE
-
-  echo "#!/bin/bash" > $TAFF_FILE
-  echo "num_gpus=\$1" >> $TAFF_FILE
-  echo "offset=\$2" >> $TAFF_FILE
-  echo "shift" >> $TAFF_FILE
-  echo "shift" >> $TAFF_FILE
-  echo "num_tiles=2" >> $TAFF_FILE
-  echo "gpu_id=\$(((PALS_LOCAL_RANKID / \${num_tiles}) % \${num_gpus} + (offset / num_tiles) ))" >> $TAFF_FILE
-  echo "tile_id=\$((PALS_LOCAL_RANKID % \${num_tiles}))" >> $TAFF_FILE
-  echo "export ZE_AFFINITY_MASK=\$gpu_id.\$tile_id" >> $TAFF_FILE
-  echo "exec \"\$@\"" >> $TAFF_FILE
-elif [ ${ZE_FLAT_DEVICE_HIERARCHY} == "FLAT" ]; then
-  echo "#!/bin/bash" > $SAFF_FILE
-  echo "num_gpus=\$1" >> $SAFF_FILE
-  echo "shift" >> $SAFF_FILE
-  echo "gpu_id=\$((PALS_LOCAL_RANKID % \${num_gpus} ))" >> $SAFF_FILE
-  echo "export ZE_AFFINITY_MASK=\$gpu_id" >> $SAFF_FILE
-  echo "exec \"\$@\"" >> $SAFF_FILE
-
-  echo "#!/bin/bash" > $TAFF_FILE
-  echo "num_gpus=\$1" >> $TAFF_FILE
-  echo "offset=\$2" >> $TAFF_FILE
-  echo "shift" >> $TAFF_FILE
-  echo "shift" >> $TAFF_FILE
-  echo "gpu_id=\$((PALS_LOCAL_RANKID % \${num_gpus} + \${offset} ))" >> $TAFF_FILE
-  echo "export ZE_AFFINITY_MASK=\$gpu_id" >> $TAFF_FILE
-  echo "exec \"\$@\"" >> $TAFF_FILE
-fi
-chmod u+x $SAFF_FILE $TAFF_FILE
-
-#--------------------------------------
 # Generate the workflow config script
 CFILE=config.yaml
 echo "# Database config" > $CFILE
@@ -153,16 +110,15 @@ fi
 echo "" >> $CFILE
 echo "# Simulation config" >> $CFILE
 echo "sim:" >> $CFILE
+echo "    affinity: \"\"" >> $CFILE
 echo "    executable: \"${NEKRS_HOME}/bin/nekrs\"" >> $CFILE
-echo "    arguments: \"--setup ${case}.par --backend ${NEKRS_BACKEND} --device-id 0\"" >> $CFILE
-echo "    affinity: \"./${SAFF_FILE}\"" >> $CFILE
+echo "    arguments: \"--setup ${case}.par --backend ${NEKRS_BACKEND} \"" >> $CFILE
 echo "    copy_files: [\"./${case}.usr\",\"./${case}.par\",\"./${case}.udf\",\"./${case}.re2\"]" >> $CFILE
-echo "    link_files: [\"./${SAFF_FILE}\",\".cache\"]" >> $CFILE
+echo "    link_files: [\".cache\"]" >> $CFILE
 echo "" >> $CFILE
 echo "# Trainer config" >> $CFILE
 echo "train:" >> $CFILE
 echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/dist-gnn/main.py\"" >> $CFILE
-#echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
 echo "    affinity: \"\"" >> $CFILE
 if [ ${DEPLOYMENT} == "colocated"  ]; then
   echo "    arguments: \"device_skip=${SIM_RANKS_PER_NODE} halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
@@ -170,15 +126,15 @@ elif [ ${DEPLOYMENT} == "clustered"  ]; then
   echo "    arguments: \"halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
 fi
 echo "    copy_files: []" >> $CFILE
-echo "    link_files: [\"./${TAFF_FILE}\"]" >> $CFILE
+echo "    link_files: []" >> $CFILE
 echo "" >> $CFILE
 echo "# Inference config" >> $CFILE
 echo "inference:" >> $CFILE
 echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/dist-gnn/inference.py\"" >> $CFILE
-echo "    affinity: \"./${TAFF_FILE}\"" >> $CFILE
+echo "    affinity: \"\"" >> $CFILE
 echo "    arguments: \"model_task=inference rollout_steps=100 halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
 echo "    copy_files: []" >> $CFILE
-echo "    link_files: [\"./${TAFF_FILE}\"]" >> $CFILE
+echo "    link_files: []" >> $CFILE
 
 #--------------------------------------
 # Update the .par file with the ML options
@@ -195,6 +151,7 @@ RFILE=run.sh
 echo "#!/bin/bash" > $RFILE
 
 echo "export TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
+echo "export ZE_FLAT_DEVICE_HIERARCHY=FLAT" >> $RFILE
 
 echo -e "\necho Jobid: \$PBS_JOBID" >>$RFILE
 echo "echo Running on host \`hostname\`" >>$RFILE
@@ -247,10 +204,9 @@ echo "export LD_LIBRARY_PATH=\$TORCH_PATH/lib:\$LD_LIBRARY_PATH" >> $RFILE
 echo "export SR_SOCKET_TIMEOUT=10000" >> $RFILE
 
 echo -e "\n# precompilation" >>$RFILE
-CMD_build="mpiexec -n ${RANKS_FOR_BUILD} -ppn ${RANKS_FOR_BUILD} --cpu-bind list:1:8:16:24:32:40:53:60:68:76:84:92 -- ./${SAFF_FILE} ${RANKS_FOR_BUILD} $bin --setup ${case} --backend ${NEKRS_BACKEND} --device-id 0 $extra_args --build-only ${RANKS_FOR_BUILD}"
+CMD_build="mpiexec -n ${RANKS_FOR_BUILD} -ppn ${RANKS_FOR_BUILD} --cpu-bind list:1:8:16:24:32:40:53:60:68:76:84:92 -- $bin --setup ${case} --backend ${NEKRS_BACKEND}  $extra_args --build-only ${RANKS_FOR_BUILD}"
 add_build_CMD "$RFILE" "$CMD_build" "$TOTAL_RANKS"
 
 echo -e "\n# actual run" >>$RFILE
 echo "python driver.py" >> $RFILE
 chmod u+x $RFILE
-
