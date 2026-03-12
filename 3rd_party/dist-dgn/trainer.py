@@ -226,13 +226,7 @@ class DGNTrainer:
         if self.cfg.model_task == 'inference':
             if RANK == 0: log.info(f'Loading model checkpoint from {self.model_path}')
             ckpt = torch.load(self.model_path, weights_only=False)
-            try:
-                self.model.load_state_dict(ckpt['state_dict'])
-            except (KeyError) as e:
-                self.model.load_state_dict(ckpt['model_state_dict'])
-            else:
-                log.error('Error loading model checkpoint')
-                COMM.Abort(1)
+            self.model.load_state_dict(ckpt['model_state_dict'])
 
         # ~~~~ Set optimizer
         self.optimizer = self.build_optimizer(self.model)
@@ -317,11 +311,11 @@ class DGNTrainer:
                 arch = self.model.get_arch()
 
             save_dict = {
-                        'state_dict' : sd,
+                        'iteration' : self.iteration,
+                        'model_state_dict' : sd,
                         'arch_dict' : arch,
                         'loss_hist_train' : self.loss_hist_train,
                         'loss_hist_val' : self.loss_hist_val,
-                        'iteration' : self.iteration,
                         }
             torch.save(save_dict, self.model_path)
         COMM.Barrier()
@@ -654,7 +648,7 @@ class DGNTrainer:
         COMM.Allreduce(zmax_loc, zmax_glob, op=MPI.MAX)
         L_z = (zmax_glob - zmin_glob) / 2.0
         # pos[:,2] = np.cos(2.*np.pi*pos[:,2]/L_z) # cosine
-        # pos[:,2] = np.abs((pos[:,2] % L_z) - L_z / 2) # piecewise linear 
+        pos[:,2] = np.abs((pos[:,2] % L_z) - L_z / 2) # piecewise linear 
 
         # ~~~~ Make the full graph: 
         if self.cfg.verbose: log.info('[RANK %d]: Making the FULL GLL-based graph with overlapping nodes' %(RANK))
@@ -683,11 +677,11 @@ class DGNTrainer:
         # Checks on mappings
         try:
             assert torch.allclose(
-                self.data_full.pos[self.idx_full2reduced], self.data_reduced.pos
+                data_full.pos[idx_full2reduced], data_reduced.pos
             )
         except AssertionError as e:
             idx = torch.where(
-                self.data_full.pos[self.idx_full2reduced] != self.data_reduced.pos
+                data_full.pos[idx_full2reduced] != data_reduced.pos
             )
             log.error("RANK %i: AssertionError: Non-matching nodes found in idx_full2reduced", RANK)
             log.error("Number of non-matching nodes:", len(idx[0]))
@@ -1387,9 +1381,9 @@ class DGNTrainer:
         if self.cfg.timers: self.update_timer('bufferInit', self.timer_step, time.time() - tic)
 
         # Sync halo nodes of the initial noise
-        postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_step{100}.png")
+        #postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_step{100}.png")
         field_r = self.sync_halo_nodes(field_r)
-        postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_con_step{100}.png")
+        #postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_con_step{100}.png")
         
         # Prediction (de-noise step by step)
         for step in diff_process.steps[::-1]:
@@ -1412,9 +1406,9 @@ class DGNTrainer:
                                 cond_node_features = self.data['graph'].cond_node_features if self.cfg.cond_node_features else None,
                                 batch = self.data['graph'].batch)
             if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
-            if self.cfg.postprocess and step%10 == 0:
-                postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), model_pred.cpu().numpy(), f"model_pred_step{step}.png")
-                COMM.Barrier()
+            #if self.cfg.postprocess and step%10 == 0:
+            #    postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), model_pred.cpu().numpy(), f"model_pred_step{step}.png")
+            #    COMM.Barrier()
             
             # Get the posterior mean and variance from the model output
             # get_posterior_mean_and_variance_from_output handles both epsilon and x0 prediction types
@@ -1435,11 +1429,11 @@ class DGNTrainer:
             # overwrite the stale halo copies.  Without this, each rank's
             # independent noise causes field_r to diverge at sub-graph
             # boundaries, and the errors accumulate through subsequent steps.
-            if step%10 == 0:
-                postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_step{step}.png")
+            #if step%10 == 0:
+            #    postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_step{step}.png")
             field_r = self.sync_halo_nodes(field_r)
-            if step%10 == 0:
-                postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_con_step{step}.png")
+            #if step%10 == 0:
+            #    postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_con_step{step}.png")
 
         # Update timers
         self.synchronize()
