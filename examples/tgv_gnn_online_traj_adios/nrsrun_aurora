@@ -139,7 +139,9 @@ echo "export UR_L0_USE_COPY_ENGINE=0" >> $RFILE
 
 echo -e "\nexport CCL_ALLTOALLV_MONOLITHIC_KERNEL=0" >> $RFILE
 
-echo -e "\nexport PYTHONPATH=\$PYTHONPATH:${NEKRS_HOME}/lib/python3.10/site-packages" >> $RFILE
+py_version=`python --version`
+parsed_version=$(echo ${py_version#Python } | awk -F. '{print $1"."$2}')
+echo -e "\nexport PYTHONPATH=\$PYTHONPATH:${NEKRS_HOME}/lib/python${parsed_version}/site-packages" >> $RFILE
 echo "#export SstVerbose=1" >> $RFILE
 echo "export OMP_PROC_BIND=spread" >> $RFILE
 echo "export OMP_PLACES=threads" >> $RFILE
