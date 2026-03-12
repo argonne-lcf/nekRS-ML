@@ -126,12 +126,15 @@ elif [ ${DEPLOYMENT} == "clustered"  ]; then
   echo "    arguments: \"halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
 fi
 echo "    copy_files: []" >> $CFILE
+echo "    link_files: []" >> $CFILE
 echo "" >> $CFILE
 echo "# Inference config" >> $CFILE
 echo "inference:" >> $CFILE
 echo "    executable: \"${NEKRS_HOME}/3rd_party/gnn/dist-gnn/inference.py\"" >> $CFILE
+echo "    affinity: \"\"" >> $CFILE
 echo "    arguments: \"model_task=inference rollout_steps=100 halo_swap_mode=all_to_all_opt online=True client.db_nodes=${DB_NODES} consistency=True time_dependency=time_dependent verbose=True\"" >> $CFILE
 echo "    copy_files: []" >> $CFILE
+echo "    link_files: []" >> $CFILE
 
 #--------------------------------------
 # Update the .par file with the ML options
