@@ -218,7 +218,7 @@ class NekRSTest(RunOnlyTest):
 
     @property
     def nekrs_exec_cmd(self):
-        return [f"./{self.current_system.name}_nrs.sh {self.nekrs_binary}"]
+        return [f"{self.nekrs_binary}"]
 
     def set_executable_options(self):
         self.executable = self.nekrs_exec_cmd
@@ -401,15 +401,6 @@ class NekRSMLTest(NekRSTest):
     def setup_run(self):
         super().setup_run()
         self.set_scheduler_options()
-        self.prerun_cmds += [
-            lst2cmd([
-                "cp",
-                os.path.join(
-                    reframe_dir(), "affinity", f"{self.system}_nrs.sh"
-                ),
-                self.stagedir,
-            ])
-        ]
 
 
 class NekRSMLOfflineTest(NekRSMLTest):
@@ -686,12 +677,12 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write("sim:\n")
             f.write(f'    executable: "{self.nekrs_binary}"\n')
             f.write(f'    arguments: "{lst2cmd(self.nekrs_exec_opts)}"\n')
-            f.write(f'    affinity: "./affinity_nrs.sh"\n')
+            f.write(f'    affinity: ""\n')
             if self.client == "smartredis":
                 f.write(
                     f'    copy_files: ["./{self.case_name}.usr","./{self.case_name}.par","./{self.case_name}.udf","./{self.case_name}.re2"]\n'
                 )
-                f.write('    link_files: ["./affinity_nrs.sh", ".cache"]\n')
+                f.write('    link_files: [".cache"]\n')
             f.write("\n")
 
             f.write("##################\n")
@@ -720,7 +711,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
 
             if self.client == "smartredis":
                 f.write("    copy_files: []\n")
-                f.write('    link_files: ["./affinity_ml.sh"]\n')
+                f.write("    link_files: []\n")
 
     def set_prerun_cmds(self):
         self.prerun_cmds += [
