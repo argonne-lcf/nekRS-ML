@@ -232,12 +232,6 @@ class NekRSTest(RunOnlyTest):
             + extra_args
         )
 
-    @property
-    def gnn_dir(self):
-        return os.path.join(
-            self.nekrs_home, "3rd_party", "gnn", self.ml_args["model"]
-        )
-
     @run_before("run")
     def setup_run(self):
         self.set_environment()
@@ -284,6 +278,14 @@ class NekRSMLTest(NekRSTest):
     @property
     def model(self):
         return self.ml_args["model"]
+
+    @property
+    def client(self):
+        return self.ml_args["client"]
+
+    @property
+    def client_prefix(self):
+        return "ssim_" if self.client == "smartredis" else ""
 
     @property
     def deployment(self):
@@ -374,7 +376,11 @@ class NekRSMLTest(NekRSTest):
 
     @property
     def venv_path(self):
-        return os.path.join(self.stagedir, "_env")
+        return os.path.join(self.stagedir, "_env", self.model, self.client)
+
+    @property
+    def gnn_dir(self):
+        return os.path.join(self.nekrs_home, "3rd_party", "gnn", self.model)
 
     @property
     def setup_case_path(self):
@@ -601,14 +607,6 @@ class NekRSMLOnlineTest(NekRSMLTest):
     @property
     def experiment_name(self):
         return f"NekRS-ML-{self.case_name}"
-
-    @property
-    def client(self):
-        return self.ml_args["client"]
-
-    @property
-    def client_prefix(self):
-        return "ssim_" if self.client == "smartredis" else ""
 
     @property
     def driver(self):
