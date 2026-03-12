@@ -377,12 +377,16 @@ class NekRSMLTest(NekRSTest):
         return os.path.join(self.stagedir, "_env")
 
     @property
+    def setup_case_path(self):
+        return os.path.join(Path(self.nekrs_home), "bin", "ml", "setup_case")
+
+    @property
     def system(self):
         return self.current_system.name
 
     def setup_case_cmd(self, extra_args=[]):
         return lst2cmd([
-            os.path.join(Path(self.nekrs_home), "bin", "setup_case"),
+            self.setup_case_path,
             self.current_system.name,
             self.nekrs_home,
             "--venv_path",
