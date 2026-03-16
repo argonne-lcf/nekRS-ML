@@ -371,9 +371,7 @@ class DGNTrainer:
 
     def setup_torch(self):
         # Random seeds
-        seed = self.cfg.seed
-        if self.cfg.model_task == 'inference':
-            seed += self.rank
+        seed = self.cfg.seed + self.rank
         torch.manual_seed(seed)
         np.random.seed(seed)
 
@@ -1171,18 +1169,22 @@ class DGNTrainer:
             self.buffer_recv = None
         if self.cfg.timers: self.update_timer('bufferInit', self.timer_step, time.time() - tic)
         
-        # Sample a batch of random diffusion steps
+        # Sample a batch of random diffusion steps (all ranks need same sample)
         batch_size = torch.max(data.batch) + 1
         r, importance_weights = self.step_sampler.sample(batch_size=batch_size)
+        dist.broadcast(r, src=0)
+        dist.broadcast(importance_weights, src=0)
         if self.cfg.verbose and RANK == 0:
             log.info(f"Sampled diffusion steps: {r.cpu().numpy().tolist()}")
 
         # Diffuse the solution/target field
         BC_mask = None # no BCs for now
-        field_r, noise, snr = self.diffusion_process.forward(data.x[:,:self.cfg.input_node_features],
-                                                             r, 
-                                                             batch=data.batch, 
-                                                             dirichlet_mask=BC_mask)
+        field_r, noise, snr = self.diffusion_process.forward(
+            data.x[:,:self.cfg.input_node_features],
+            r, 
+            batch=data.batch, 
+            dirichlet_mask=BC_mask
+        )
         if self.cfg.postprocess and self.iteration%100 == 0:
             postprocess.plot_2d_field(COMM, graph.pos.numpy(), field_r[data.batch==0].cpu().numpy(), f'field_r_r{r[0]}_iter{self.iteration}.png')
             postprocess.plot_2d_field(COMM, graph.pos.numpy(), data.x[data.batch==0,:self.cfg.input_node_features].cpu().numpy(), f'data_x_r{r[0]}_iter{self.iteration}.png')
