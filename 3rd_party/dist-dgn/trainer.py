@@ -14,15 +14,6 @@ import torch
 from torch.cuda.amp.grad_scaler import GradScaler
 import torch.nn as nn
 import torch.optim as optim
-#from torch.utils.data import DataLoader
-#torch.use_deterministic_algorithms(True)
-#import torch.utils.data
-#import torch.utils.data.distributed
-#import torch.multiprocessing as mp
-#import torch.distributions as tdist 
-#from torch.profiler import profile, record_function, ProfilerActivity
-#import torch.nn.functional as F
-#from torchvision import datasets, transforms
 
 import torch.distributed as dist
 import torch.distributed.nn as distnn
@@ -33,7 +24,6 @@ import torch_geometric
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 import torch_geometric.utils as pyg_utils
-#import torch_geometric.nn as tgnn
 
 # Local imports
 import utils
