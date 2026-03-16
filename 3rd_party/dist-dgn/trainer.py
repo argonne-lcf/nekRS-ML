@@ -1175,6 +1175,18 @@ class DGNTrainer:
             batch=data.batch, 
             dirichlet_mask=BC_mask
         )
+
+        # Synchronize tier-2 boundary (halo) nodes so that the noisy field is
+        # consistent at partition interfaces before message passing.
+        # Each rank independently sampled noise, producing different values for
+        # physically coincident nodes at the sub-graph boundaries.
+        # sync_boundary_field averages those values across all sharing ranks.
+        # We sync both field_r (the model input) and noise (the epsilon-prediction
+        # target) so the relationship  field_r = α·x₀ + σ·noise  remains
+        # self-consistent at boundary nodes.
+        field_r = self.sync_boundary_field(field_r, data.batch)
+        noise   = self.sync_boundary_field(noise,   data.batch)
+
         if self.cfg.postprocess and self.iteration%100 == 0:
             postprocess.plot_2d_field(COMM, graph.pos.numpy(), field_r[data.batch==0].cpu().numpy(), f'field_r_r{r[0]}_iter{self.iteration}.png')
             postprocess.plot_2d_field(COMM, graph.pos.numpy(), data.x[data.batch==0,:self.cfg.input_node_features].cpu().numpy(), f'data_x_r{r[0]}_iter{self.iteration}.png')
@@ -1435,6 +1447,48 @@ class DGNTrainer:
                 self.timer_step += 1
 
         return field_r
+
+    @torch.no_grad()
+    def sync_boundary_field(self, field: Tensor, batch: Tensor) -> Tensor:
+        """Synchronize tier-2 boundary node values across ranks after per-rank noise.
+
+        During training, ``diffusion_process.forward`` draws independent noise on
+        every rank.  Tier-2 halo nodes are physically coincident across neighbouring
+        ranks, so after the forward diffusion both copies of the same physical node
+        hold different noisy values — making the noisy field inconsistent at partition
+        interfaces and polluting message-passing for nearby tier-1 nodes.
+
+        When ``consistency=True`` the training tensors already include tier-3 exchange
+        slots (appended as zeros by ``prepare_snapshot_data``), so for each batch
+        element we can call ``sync_halo_nodes`` directly on the per-element slice.
+        ``sync_halo_nodes`` overwrites the tier-3 slots with the neighbour's tier-2
+        values in its first step, so whatever noise happens to sit in those slots is
+        harmlessly discarded.
+
+        This method is a no-op when ``SIZE <= 1``, ``consistency=False``, or
+        ``halo_swap_mode="none"``.
+
+        Args:
+            field: Node feature tensor of shape ``[n_nodes_total * batch_size, F]``
+                   where ``n_nodes_total = n_tier1 + n_tier2 + n_tier3``.
+            batch: PyG batch index tensor of shape ``[n_nodes_total * batch_size]``.
+
+        Returns:
+            The same tensor with tier-2 boundary nodes replaced by their average
+            across all sharing ranks (same shape as input).
+        """
+        if SIZE <= 1 or not self.cfg.consistency or self.cfg.halo_swap_mode == "none":
+            return field
+
+        batch_size = int(torch.max(batch).item()) + 1
+        for b in range(batch_size):
+            node_mask = (batch == b)
+            # field[node_mask] has shape [n_nodes_total, F] — tier-3 slots included.
+            # sync_halo_nodes overwrites tier-3 slots, averages tier-2, then returns
+            # the full [n_nodes_total, F] tensor with consistent tier-2 values.
+            field[node_mask] = self.sync_halo_nodes(field[node_mask])
+
+        return field
 
     @torch.no_grad()
     def sync_halo_nodes(self, field: Tensor) -> Tensor:
