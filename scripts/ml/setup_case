@@ -21,8 +21,9 @@ CASE_NAME=
 function print_help() {
   echo -e "Usage: $0 <SYSTEM> <NEKRS_HOME> [--venv_path | -v <VENV_PATH>]"\
     "[--nodes | -n <NODES>] [--time | -t <TIME>]\n\t"                     \
-    "[--proj_id | -p <PROJ_ID>] [--model | -m <MODEL>] [--deployment | -d <DEPLOYMENT>]"         \
-    "[--ml_task | -ml <ML_TASK>] [--client | -c <CLIENT>]\n\t"             \
+    "[--proj_id | -p <PROJ_ID>] [--model | -m <MODEL>]"                   \
+    "[--deployment | -d <DEPLOYMENT>] [--ml_task | -ml <ML_TASK>]"        \
+    "[--client | -c <CLIENT>]\n\t"                                        \
     "[--db_nodes | -dn <DB_NODES>] [--sim_nodes | -sn <SIM_NODES>]"       \
     "[--train_nodes | -tn <TRAIN_NODES>] [--help | -h]"
 }
