@@ -171,108 +171,32 @@ class NekRSBuild(CompileOnlyTest):
         )
 
 
-class NekRSTest(RunOnlyTest):
+class NekRSMLTest(RunOnlyTest):
     nekrs_build = fixture(NekRSBuild, scope="environment")
 
-    def __init__(self, case, directory, nn, rpn):
-        self.case_name = case
-        self.case_dir = directory
-
-        super().__init__(nn, rpn)
-        self.descr = "NekRS test"
-        self.maintainers = ["kris.rowe@anl.gov"]
-        self.readonly_files = [f"{self.case_name}.re2"]
-
-    @run_after("setup")
-    def set_paths_exec(self):
-        self.nekrs_home = os.path.realpath(self.nekrs_build.install_path)
-        self.nekrs_binary = os.path.join(self.nekrs_build.binary_path, "nekrs")
-        self.sourcesdir = os.path.join(
-            self.nekrs_build.install_path, "examples", self.case_dir
-        )
-
-    def set_environment(self):
-        self.env_vars |= {
-            "LD_LIBRARY_PATH": f"$LD_LIBRARY_PATH:{self.nekrs_build.install_path}/lib",
-            "NEKRS_HOME": self.nekrs_home,
-        }
-
-    def set_launcher_options(self, nn=None, rpn=None):
-        cpu_bind_list = self.current_partition.extras["cpu_bind_list"]
-        rpn_ = rpn if rpn is not None else self.num_tasks_per_node
-        nn_ = nn if nn is not None else self.num_nodes
-        self.job.launcher.options = [
-            f"-np {nn_ * rpn_}",
-            f"-ppn {rpn_}",
-            f"--cpu-bind=list:{cpu_bind_list}",
-        ]
-
-    @property
-    def nekrs_exec_opts(self):
-        backend = self.current_partition.extras["occa_backend"]
-        return [
-            f"--setup {self.case_name}",
-            f"--backend {backend}",
-            "--device-id 0",
-        ]
-
-    @property
-    def nekrs_exec_cmd(self):
-        return [f"./{self.current_system.name}_nrs.sh {self.nekrs_binary}"]
-
-    def set_executable_options(self):
-        self.executable = self.nekrs_exec_cmd
-        self.executable_opts = self.nekrs_exec_opts
-
-    def nekrs_cmd(self, extra_args=[]):
-        return lst2cmd(
-            self.mpiexec
-            + ["--"]
-            + self.nekrs_exec_cmd
-            + self.nekrs_exec_opts
-            + extra_args
-        )
-
-    @property
-    def gnn_dir(self):
-        return os.path.join(
-            self.nekrs_home, "3rd_party", "gnn", self.ml_args["model"]
-        )
-
-    @run_before("run")
-    def setup_run(self):
-        self.set_environment()
-        self.set_launcher_options()
-        self.set_executable_options()
-
-    @sanity_function
-    def check_nekrs_exit_code(self):
-        return sn.assert_found(
-            r"finished with exit code 0",
-            self.stdout,
-            msg="NekRS finished with non-zero exit code.",
-        )
-
-
-class NekRSMLTest(NekRSTest):
     def __init__(self, **args):
         for arg in ["case", "directory", "nn", "rpn", "time_dependency"]:
             if arg not in args:
                 raise KeyError(f"Required kwarg {arg} was not found.")
 
-        super().__init__(
-            args["case"], args["directory"], args["nn"], args["rpn"]
-        )
+        super().__init__(args["nn"], args["rpn"])
 
-        # Init missing arguments with default values from setup_case script.
+        # Initialize missing arguments with default values from setup_case script.
         self.ml_args = init_missing_args(args)
+
+        # Initialize reframe fields.
         self.descr = f"NekRS-ML {self.ml_args['test_type']} test"
-        self.tags = {
-            "all",
-            self.ml_args["model"],
-            self.ml_args["case"],
-            self.ml_args["time_dependency"],
-        }
+        self.maintainers = ["tratnayaka@anl.gov", "kris.rowe@anl.gov"]
+        self.tags = {"all", self.model, self.case, self.time_dependency}
+        self.readonly_files = [f"{self.case}.re2"]
+
+    @property
+    def case(self):
+        return self.ml_args["case"]
+
+    @property
+    def case_dir(self):
+        return self.ml_args["directory"]
 
     @property
     def time_dependency(self):
@@ -285,6 +209,14 @@ class NekRSMLTest(NekRSTest):
     @property
     def model(self):
         return self.ml_args["model"]
+
+    @property
+    def client(self):
+        return self.ml_args["client"]
+
+    @property
+    def client_prefix(self):
+        return "ssim_" if self.client == "smartredis" else ""
 
     @property
     def deployment(self):
@@ -300,10 +232,14 @@ class NekRSMLTest(NekRSTest):
 
     @property
     def mpiexec(self):
-        return self.job.launcher.command(self.job) + self.job.launcher.options
+        return (
+            self.job.launcher.command(self.job)
+            + self.job.launcher.options
+            + ["--"]
+        )
 
     def order(self, p):
-        pf = f"{self.case_name}.par"
+        pf = f"{self.case}.par"
         txt = grep(p, os.path.join(self.sourcesdir, pf))
         if txt is None:
             raise ValueError(f"Expected pattern '{p}' not found in {pf}")
@@ -370,20 +306,74 @@ class NekRSMLTest(NekRSTest):
         return self.current_partition.extras["db_bind_list"]
 
     @property
+    def venv_path_prefix(self):
+        return os.path.join(self.stagedir, f"_env")
+
+    @property
     def venv_path(self):
-        return os.path.join(self.stagedir, "_env")
+        return self.venv_path_prefix + f"_{self.model}_{self.client}"
+
+    @property
+    def gnn_dir(self):
+        return os.path.join(self.nekrs_home, "3rd_party", "gnn", self.model)
+
+    @property
+    def setup_case_path(self):
+        return os.path.join(Path(self.nekrs_home), "bin", "ml", "setup_case")
 
     @property
     def system(self):
         return self.current_system.name
 
-    def setup_case_cmd(self, extra_args=[]):
+    @run_after("setup")
+    def set_paths_exec(self):
+        self.nekrs_home = os.path.realpath(self.nekrs_build.install_path)
+        self.nekrs_binary = os.path.join(self.nekrs_build.binary_path, "nekrs")
+        self.sourcesdir = os.path.join(
+            self.nekrs_home, "examples", self.case_dir
+        )
+
+    def set_environment(self):
+        self.env_vars |= {
+            "LD_LIBRARY_PATH": f"$LD_LIBRARY_PATH:{self.nekrs_home}/lib",
+            "NEKRS_HOME": self.nekrs_home,
+        }
+
+    def set_launcher_options(self, nn=None, rpn=None):
+        cpu_bind_list = self.current_partition.extras["cpu_bind_list"]
+        rpn_ = rpn if rpn is not None else self.num_tasks_per_node
+        nn_ = nn if nn is not None else self.num_nodes
+        self.job.launcher.options = [
+            f"-np {nn_ * rpn_}",
+            f"-ppn {rpn_}",
+            f"--cpu-bind=list:{cpu_bind_list}",
+        ]
+
+    @run_before("run")
+    def setup_run(self):
+        self.set_environment()
+        self.set_launcher_options()
+
+    @property
+    def nekrs_exec_opts(self):
+        backend = self.current_partition.extras["occa_backend"]
+        return [
+            f"--setup {self.case}",
+            f"--backend {backend}",
+            "--device-id 0",
+        ]
+
+    @property
+    def nekrs_exec_cmd(self):
+        return [f"{self.nekrs_binary}"]
+
+    def setup_cmd(self, extra_args=[]):
         return lst2cmd([
-            os.path.join(Path(self.nekrs_home), "bin", "setup_case"),
+            self.setup_case_path,
             self.current_system.name,
             self.nekrs_home,
             "--venv_path",
-            self.venv_path,
+            self.venv_path_prefix,
             "--nodes",
             str(self.nn),
             "--model",
@@ -391,25 +381,27 @@ class NekRSMLTest(NekRSTest):
             *extra_args,
         ])
 
+    def nekrs_cmd(self, extra_args=[]):
+        return lst2cmd(
+            self.mpiexec
+            + self.nekrs_exec_cmd
+            + self.nekrs_exec_opts
+            + extra_args
+        )
+
     def source_cmd(self):
         return lst2cmd([
             "source",
             os.path.join(self.venv_path, "bin", "activate"),
         ])
 
-    @run_before("run")
-    def setup_run(self):
-        super().setup_run()
-        self.set_scheduler_options()
-        self.prerun_cmds += [
-            lst2cmd([
-                "cp",
-                os.path.join(
-                    reframe_dir(), "affinity", f"{self.system}_nrs.sh"
-                ),
-                self.stagedir,
-            ])
-        ]
+    @sanity_function
+    def check_nekrs_exit_code(self):
+        return sn.assert_found(
+            r"finished with exit code 0",
+            self.stdout,
+            msg="NekRS finished with non-zero exit code.",
+        )
 
 
 class NekRSMLOfflineTest(NekRSMLTest):
@@ -436,8 +428,8 @@ class NekRSMLOfflineTest(NekRSMLTest):
         return os.path.join(self.stagedir, self.traj_root)
 
     def set_sr_gnn_target_and_input_list(self):
-        tlist = f"{self.case_name}_p{self.sim_order * 10}*"
-        ilist = f"{self.case_name}_p{self.gnn_order * 10}*"
+        tlist = f"{self.case}_p{self.sim_order * 10}*"
+        ilist = f"{self.case}_p{self.gnn_order * 10}*"
         return lst2cmd([f"target_list=`ls {tlist}`; input_list=`ls {ilist}`"])
 
     def check_halo_info_cmd(self):
@@ -495,7 +487,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
 
     def set_prerun_cmds(self):
         self.prerun_cmds += [
-            self.setup_case_cmd(),
+            self.setup_cmd(),
             self.source_cmd(),
             self.nekrs_cmd(extra_args=[f"--build-only {self.sim_ranks}"]),
             self.nekrs_cmd(),
@@ -549,11 +541,11 @@ class NekRSMLOfflineTest(NekRSMLTest):
                 os.path.join(self.gnn_dir, "postprocess.py"),
                 "--model_path ${model}",
                 f"--case_path {self.stagedir}",
-                f"--output_name {self.case_name}",
+                f"--output_name {self.case}",
                 f"--target_snap_list",
-                f"{self.case_name}_p{self.sim_order * 10}.f00000",
+                f"{self.case}_p{self.sim_order * 10}.f00000",
                 f"--input_snap_list",
-                f"{self.case_name}_p{self.gnn_order * 10}.f00000",
+                f"{self.case}_p{self.gnn_order * 10}.f00000",
                 f"--target_poly_order {self.sim_order}",
                 f"--input_poly_order {self.gnn_order}",
                 f"--n_element_neighbors {self.ml_args['n_element_neighbors']}",
@@ -602,15 +594,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
 
     @property
     def experiment_name(self):
-        return f"NekRS-ML-{self.case_name}"
-
-    @property
-    def client(self):
-        return self.ml_args["client"]
-
-    @property
-    def client_prefix(self):
-        return "ssim_" if self.client == "smartredis" else ""
+        return f"NekRS-ML-{self.case}"
 
     @property
     def driver(self):
@@ -686,12 +670,12 @@ class NekRSMLOnlineTest(NekRSMLTest):
             f.write("sim:\n")
             f.write(f'    executable: "{self.nekrs_binary}"\n')
             f.write(f'    arguments: "{lst2cmd(self.nekrs_exec_opts)}"\n')
-            f.write(f'    affinity: "./affinity_nrs.sh"\n')
+            f.write(f'    affinity: ""\n')
             if self.client == "smartredis":
                 f.write(
-                    f'    copy_files: ["./{self.case_name}.usr","./{self.case_name}.par","./{self.case_name}.udf","./{self.case_name}.re2"]\n'
+                    f'    copy_files: ["./{self.case}.usr","./{self.case}.par","./{self.case}.udf","./{self.case}.re2"]\n'
                 )
-                f.write('    link_files: ["./affinity_nrs.sh", ".cache"]\n')
+                f.write('    link_files: [".cache"]\n')
             f.write("\n")
 
             f.write("##################\n")
@@ -720,11 +704,11 @@ class NekRSMLOnlineTest(NekRSMLTest):
 
             if self.client == "smartredis":
                 f.write("    copy_files: []\n")
-                f.write('    link_files: ["./affinity_ml.sh"]\n')
+                f.write("    link_files: []\n")
 
     def set_prerun_cmds(self):
         self.prerun_cmds += [
-            self.setup_case_cmd(
+            self.setup_cmd(
                 extra_args=[
                     f"--client {self.client}",
                     f"--deployment {self.deployment}",
