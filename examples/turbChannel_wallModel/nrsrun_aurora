@@ -33,6 +33,7 @@ echo "module restore" >> $RFILE
 echo "module load ${FRAMEWORKS_MODULE}" >> $RFILE
 echo "module list" >> $RFILE
 
+echo "export ZE_FLAT_DEVICE_HIERARCHY=FLAT" >> $RFILE
 echo -e "\nexport NEKRS_HOME=$NEKRS_HOME" >>$RFILE
 
 echo "export OCCA_DPCPP_COMPILER_FLAGS=\"$OCCA_DPCPP_COMPILER_FLAGS\"" >> $RFILE

@@ -1,6 +1,6 @@
 import reframe as rfm
 import reframe.utility.sanity as sn
-from nekrs import NekRSTest, NekRSMLOfflineTest, NekRSMLOnlineTest
+from nekrs import NekRSMLOfflineTest, NekRSMLOnlineTest
 import os
 
 
