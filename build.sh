@@ -26,7 +26,7 @@ if [ -d ${INSTALL_DIR} ]; then
 fi
 
 cmake -S . -B ${BUILD_DIR} -DCMAKE_INSTALL_PREFIX=${INSTALL_DIR}  -Wfatal-errors $@
-cmake --build ${BUILD_DIR} --parallel 8
+cmake --build ${BUILD_DIR} --parallel 16
 cmake --install ${BUILD_DIR}
 if [ $? -eq 0 ]; then
   echo ""
