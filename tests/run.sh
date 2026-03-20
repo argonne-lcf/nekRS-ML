@@ -140,4 +140,5 @@ else
   fi
   CMD="${CMD} --report-file ${PREFIX}/reports/report_{sessionid}.json --tag ${TAG} --run"
 fi
+module load frameworks
 ${CMD}
