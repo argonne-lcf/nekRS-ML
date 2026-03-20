@@ -10,6 +10,7 @@
 : ${TAG:="all"}
 : ${LIST_TAGS:=0}
 : ${POLICY:=async}
+: ${CONFIG_FILE:="sites.py"}
 
 # Parse command line args
 # =======================
@@ -30,6 +31,7 @@ print_help() {
   echo "  --queue,       -q   <QUEUE>          Set the job queue (Default: $QUEUE)"
   echo "  --system,      -s   <SYSTEM>         Set the system name (Default: $SYSTEM)"
   echo "  --tag,         -t   <TAG>            Run the tests with tag TAG (Default: $TAG)"
+  echo "  --config-file, -cfg <CONFIG_FILE>    Set the configuration file (Default: $CONFIG_FILE)"
   echo ""
   echo "Examples:"
   echo "  To run all the tests:"
@@ -101,6 +103,10 @@ while [ $# -gt 0 ]; do
       TAG="$2"
       shift; shift
       ;;
+    --config-file| -cfg)
+      CONFIG_FILE="$2"
+      shift; shift
+      ;;
     *)
       print_help
       exit 1
@@ -120,7 +126,7 @@ done
 # --checkpath: https://reframe-hpc.readthedocs.io/en/stable/manpage.html#cmdoption-c
 # --tag: https://reframe-hpc.readthedocs.io/en/stable/manpage.html#cmdoption-t
 # --run: https://reframe-hpc.readthedocs.io/en/stable/manpage.html#cmdoption-r
-CMD="uv --no-managed-python run reframe --save-log-files --config-file sites.py"
+CMD="uv --no-managed-python run reframe --save-log-files --config-file ${CONFIG_FILE}"
 CMD="${CMD} --keep-stage-files --timestamp --checkpath tests.py"
 CMD="${CMD} --exec-policy=${POLICY} --system ${SYSTEM} --prefix=${PREFIX}"
 CMD="${CMD} -S queue=${QUEUE} -S project=${PROJECT} -S filesystems=${FS}"
