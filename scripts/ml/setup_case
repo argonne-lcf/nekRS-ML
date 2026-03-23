@@ -288,7 +288,6 @@ function install_smartsim() {
 }
 
 function setup_venv() {
-  reuse=0
   if [ -d ${VENV_PATH} ]; then
     echo -e "\033[35mPython venv \"${VENV_PATH}\" already exists, reusing it ... \033[m"
     return 0
