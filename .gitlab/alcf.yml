@@ -42,6 +42,7 @@ polaris_ci:
       git checkout ${CI_COMMIT_SHA}
     # Get uv from the conda environment
     - |
+      module use /soft/modulefiles
       module load conda
       conda activate
     - ./run.sh -b -cm ${CI_COMMIT_SHA} -q ${QUEUE} -t all -e serial
