@@ -45,4 +45,4 @@ polaris_ci:
       module use /soft/modulefiles
       module load conda
       conda activate
-    - ./run.sh -b -cm ${CI_COMMIT_SHA} -q ${QUEUE} -t all -e serial
+    - ./run.sh -b -cm ${CI_COMMIT_SHA} -q ${QUEUE} -t all -e serial -s polaris:compute
