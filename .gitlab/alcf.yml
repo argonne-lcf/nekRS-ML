@@ -1,0 +1,26 @@
+variables:
+  PROJ: "datascience"
+  QUEUE: "capacity"
+  TIME: "2:00:00"
+  AURORA_WRK_DIR: "/lus/flare/projects/${PROJ}/nekRS-ML/"
+
+# NOTE: uses default stages: .pre build test deploy .post
+stages:
+    - submit
+
+setup:
+  stage: submit
+  extends: .aurora-shell-runner
+  script:
+    # Create CI directory
+    - |
+      cd ${AURORA_WRK_DIR}
+      run_dir=$(mktemp -d --tmpdir=${PWD} ${CI_COMMIT_SHA}_XXXXXXXXXX)
+      cd ${run_dir}
+    # Clone nekRS-ML
+    - git clone https://github.com/argonne-lcf/nekRS-ML.git
+    - git checkout ${CI_COMMIT_SHA}
+    - cd ./nekRS-ML/tests
+    # Load frameworks for `uv`.
+    - module load frameworks
+    - ./run.sh -b -cm ${CI_COMMIT_SHA} -q ${QUEUE} -t all -e serial
