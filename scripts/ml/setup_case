@@ -245,6 +245,22 @@ function load_modules() {
   fi
 }
 
+function install_parrsb() {
+  src_dir=${VENV_PATH}/parRSB
+
+  # Install parRSB
+  git clone https://github.com/thilinarmtb/parRSB.git -b general_graph ${src_dir}
+  cd parRSB
+  cmake -B ${src_dir}/build -S ${src_dir} -DCMAKE_INSTALL_PREFIX=${VENV_PATH}
+  cmake --build ${src_dir}/build --target install
+
+  # Install parRSB.py
+  CMAKE_MODULE_PATH=${VENV_PATH} pip install git+https://github.com/thilinarmtb/parRSB.py.git
+
+  # Cleanup
+  rm -rf ${src_dir}
+}
+
 function build_smartsim() {
   if [ "${SYSTEM}" == "polaris" ]; then
     export CC=cc
@@ -312,6 +328,7 @@ function setup_venv() {
   if [ "${CLIENT}" == "smartredis" ]; then
     build_smartsim
   fi
+  install_parrsb
 
   deactivate
 }
