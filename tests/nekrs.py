@@ -3,7 +3,6 @@ from pathlib import Path
 import os.path
 
 import reframe as rfm
-import reframe.core.config as config
 import reframe.utility.sanity as sn
 from core import CompileOnlyTest, RunOnlyTest
 
@@ -142,15 +141,11 @@ class NekRSBuild(CompileOnlyTest):
             "ranks_per_node"
         ]
         # Update the concurrency from login partition if that exists.
-        system = self.current_partition.fullname.split(":")[0]
-        cfg = config.load_config(os.path.join(reframe_dir(), "sites.py"))
-        for sys in cfg["systems"]:
-            if sys["name"] == system:
-                for part in sys["partitions"]:
-                    if part["name"] == "login":
-                        self.build_system.max_concurrency = part["extras"][
-                            "ranks_per_node"
-                        ]
+        for part in self.current_system.partitions:
+            if part.name == "login":
+                self.build_system.max_concurrency = part.extras[
+                    "ranks_per_node"
+                ]
 
         self.prebuild_cmds += [
             "git fetch",
