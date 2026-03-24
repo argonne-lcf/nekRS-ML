@@ -583,7 +583,7 @@ class MessagePassingLayer(torch.nn.Module):
             batch = edge_index.new_zeros(x.size(0))
 
         # ~~~~ Edge update
-        e += self.edge_updater(
+        e = e + self.edge_updater(
             torch.cat(
                 (x[edge_index[0, :], :], x[edge_index[1, :], :], e), dim=1
             )
@@ -616,7 +616,7 @@ class MessagePassingLayer(torch.nn.Module):
             # print(f"NOT receiver node values [sum, max, min]: [{edge_agg_2[set_2].sum()}, {edge_agg_2[set_2].max()}, {edge_agg_2[set_2].min()}]")
 
         # ~~~~ Node update
-        x += self.node_updater(torch.cat((x, edge_agg), dim=1))
+        x = x + self.node_updater(torch.cat((x, edge_agg), dim=1))
 
         return x, e
 
