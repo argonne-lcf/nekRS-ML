@@ -1,37 +1,36 @@
-name: Lint checks
+name: Autoformat source code
 on:
-  push:
   pull_request:
-  workflow_dispatch:
-    inputs:
-      debug_enabled:
-        type: boolean
-        description: 'Run the build with tmate debugging enabled (https://github.com/marketplace/actions/debugging-with-tmate)'
-        required: false
-        default: false
+    branches: [main]
 
 env:
-  RUFF_OPTS: "format --check --diff"
+  RUFF_OPTS: "format"
 
 jobs:
   ruff_format:
     runs-on: ubuntu-latest
-    name: Check formatting with ruff
+    name: Format source code with ruff
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-    - name: ruff format check in 3rd_party/gnn
+    - name: Format files in 3rd_party/gnn
       uses: astral-sh/ruff-action@v3
       with:
         src: "./3rd_party/gnn"
         args: ${{ env.RUFF_OPTS }}
-    - name: ruff format check in examples
+    - name: Format files in examples
       uses: astral-sh/ruff-action@v3
       with:
         src: "./examples"
         args: ${{ env.RUFF_OPTS }}
-    - name: ruff format check in tests
+    - name: Format files in tests
       uses: astral-sh/ruff-action@v3
       with:
         src: "./tests"
         args: ${{ env.RUFF_OPTS }}
+    - name: Commit formatted files
+      uses: stefanzweifel/git-auto-commit-action@v7
+      with:
+        commit_message: "Format code with ruff"
+        commit_options: '--no-verify --signoff'
+        file_pattern: '*.py'

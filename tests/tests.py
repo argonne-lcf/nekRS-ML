@@ -16,7 +16,7 @@ class TGVOffline(NekRSMLOfflineTest):
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
             time_dependency="time_independent",
-            target_loss=1.6206e-04,
+            target_loss=2.706e-04,
         )
         self.tags |= {"tgv_offline"}
 
@@ -33,7 +33,7 @@ class TGVOfflineCoarseMesh(NekRSMLOfflineTest):
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
             time_dependency="time_independent",
-            target_loss=1.6206e-04,
+            target_loss=2.706e-04,
         )
         self.tags |= {"tgv_offline_coarse_mesh"}
 

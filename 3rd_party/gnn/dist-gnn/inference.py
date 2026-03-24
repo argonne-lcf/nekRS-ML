@@ -100,7 +100,6 @@ else:
 
 
 def gather_wrapper(temp: NDArray[np.float32]) -> NDArray[np.float32]:
-
     temp_shape = temp.shape
     n_cols = temp_shape[1]
 

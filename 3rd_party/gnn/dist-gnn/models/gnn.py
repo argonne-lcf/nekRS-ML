@@ -93,7 +93,6 @@ class DistributedGNN(torch.nn.Module):
         SIZE: Tensor,
         batch: Optional[LongTensor] = None,
     ) -> Tensor:
-
         if batch is None:
             batch = edge_index.new_zeros(x.size(0))
 
@@ -238,7 +237,6 @@ class DistributedGNN_EdgeSkip(torch.nn.Module):
         SIZE: Tensor,
         batch: Optional[LongTensor] = None,
     ) -> Tensor:
-
         if batch is None:
             batch = edge_index.new_zeros(x.size(0))
 
@@ -412,7 +410,6 @@ class DistributedMessagePassingLayer(torch.nn.Module):
         SIZE: Tensor,
         batch: Optional[LongTensor] = None,
     ) -> Tensor:
-
         if batch is None:
             batch = edge_index.new_zeros(x.size(0))
 

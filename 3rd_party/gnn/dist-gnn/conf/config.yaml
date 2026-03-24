@@ -19,6 +19,10 @@ device_skip: 0 # temporary workaround to skip GPU on a node
 # Modeling task
 model_task: "train"
 time_dependency: "time_independent" # {time_independent, time_dependent}
+input_fld_name: "u"
+output_fld_name: "p"
+input_fld_dim: 3
+output_fld_dim: 1
 consistency: True
 use_residual: False
 rollout_steps: 0
