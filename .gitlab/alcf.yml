@@ -1,0 +1,48 @@
+variables:
+  PROJ: "datascience"
+  QUEUE: "capacity"
+  TIME: "2:00:00"
+  AURORA_WRK_DIR: "/lus/flare/projects/${PROJ}/nekRS-ML/"
+  POLARIS_WRK_DIR: "/lus/eagle/projects/${PROJ}/nekRS-ML/"
+
+stages:
+    - submit
+
+aurora:
+  stage: submit
+  extends: .aurora-shell-runner
+  script:
+    # Create CI directory
+    - |
+      cd ${AURORA_WRK_DIR}
+      run_dir=$(mktemp -d --tmpdir=${PWD} ${CI_COMMIT_SHA}_XXXXXXXXXX)
+      cd ${run_dir}
+    # Clone nekRS-ML and checkout the commit
+    - |
+      git clone https://github.com/argonne-lcf/nekRS-ML.git
+      cd ./nekRS-ML/tests
+      git checkout ${CI_COMMIT_SHA}
+    # Get uv from frameworks
+    - module load frameworks
+    - ./run.sh -b -cm ${CI_COMMIT_SHA} -q ${QUEUE} -t all -e serial
+
+polaris:
+  stage: submit
+  extends: .polaris-shell-runner
+  script:
+    # Create CI directory
+    - |
+      cd ${POLARIS_WRK_DIR}
+      run_dir=$(mktemp -d --tmpdir=${PWD} ${CI_COMMIT_SHA}_XXXXXXXXXX)
+      cd ${run_dir}
+    # Clone nekRS-ML and checkout the commit
+    - |
+      git clone https://github.com/argonne-lcf/nekRS-ML.git
+      cd ./nekRS-ML/tests
+      git checkout ${CI_COMMIT_SHA}
+    # Get uv from the conda environment
+    - |
+      module use /soft/modulefiles
+      module load conda
+      conda activate
+    - ./run.sh -b -cm ${CI_COMMIT_SHA} -q ${QUEUE} -t all -e serial -s polaris:compute

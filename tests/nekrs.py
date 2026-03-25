@@ -355,7 +355,6 @@ class NekRSMLTest(RunOnlyTest):
         return [
             f"--setup {self.case}",
             f"--backend {backend}",
-            "--device-id 0",
         ]
 
     @property

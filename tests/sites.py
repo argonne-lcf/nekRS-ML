@@ -100,7 +100,7 @@ site_configuration = {
                     "extras": {
                         "ranks_per_node": 4,
                         "cpu_bind_list": "24:16:8:1",
-                        "db_bind_list": "100,101,102,103",
+                        "db_bind_list": "28,29,30,31",
                         "occa_backend": "CUDA",
                         "adios_transport": "WAN",
                     },
