@@ -8,7 +8,7 @@ variables:
 stages:
     - submit
 
-aurora_ci:
+aurora:
   stage: submit
   extends: .aurora-shell-runner
   script:
@@ -26,7 +26,7 @@ aurora_ci:
     - module load frameworks
     - ./run.sh -b -cm ${CI_COMMIT_SHA} -q ${QUEUE} -t all -e serial
 
-polaris_ci:
+polaris:
   stage: submit
   extends: .polaris-shell-runner
   script:
