@@ -1,6 +1,6 @@
 import argparse
-import mpi4py
 from mpi4py import MPI
+from parrsb import Mesh
 import numpy as np
 
 
@@ -33,8 +33,6 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    p = args.poly
-    re2_path = args.case if args.case[-4:] != ".re2" else args.case[:-4]
-    log_level = args.log
-
     comm = MPI.COMM_WORLD
+    m = Mesh(args.case, comm)
+    partitions = m.partition()
