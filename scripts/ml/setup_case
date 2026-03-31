@@ -246,19 +246,16 @@ function load_modules() {
 }
 
 function install_parrsb() {
-  src_dir=${VENV_PATH}/parRSB
+  PARRSB_DIR=$(mktemp -d)
 
   # Install parRSB
-  git clone https://github.com/thilinarmtb/parRSB.git -b general_graph ${src_dir}
-  cd parRSB
-  cmake -B ${src_dir}/build -S ${src_dir} -DCMAKE_INSTALL_PREFIX=${VENV_PATH}
-  cmake --build ${src_dir}/build --target install
+  git clone https://github.com/thilinarmtb/parRSB.git -b general_graph ${PARRSB_DIR}
+  cmake -B ${PARRSB_DIR}/build -S ${PARRSB_DIR} -DCMAKE_INSTALL_PREFIX=${VENV_PATH}
+  cmake --build ${PARRSB_DIR}/build --target install
 
   # Install parRSB.py
-  CMAKE_MODULE_PATH=${VENV_PATH} pip install git+https://github.com/thilinarmtb/parRSB.py.git
-
-  # Cleanup
-  rm -rf ${src_dir}
+  pip install git+https://github.com/thilinarmtb/parRSB.py.git --prefix ${VENV_PATH} \
+    -vv -Ccmake.define.parRSB_DIR=${VENV_PATH}
 }
 
 function install_smartsim() {
