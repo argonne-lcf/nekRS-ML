@@ -33,7 +33,7 @@ The HPC systems currently supported are for this example are:
 * [Polaris](https://docs.alcf.anl.gov/polaris/) (Argonne LCF)
 * [Aurora](https://docs.alcf.anl.gov/aurora/) (Argonne LCF)
 
-For example, to build nekRS-ML on Aurora, execute from a compute node
+For example, to build nekRS-ML on Aurora, from the login nodes execute 
 
 ```sh
 ./BuildMeOnAurora
@@ -44,25 +44,25 @@ For example, to build nekRS-ML on Aurora, execute from a compute node
 Scripts are provided to conveniently generate run scripts and config files for the workflow on the different ALCF systems.
 Note that a virtual environment with PyTorch Geometric and other dependencies is needed to train the SR-GNN.
 
-**From a compute node** execute
+From a login node execute
 
 ```sh
-./gen_run_script <system_name> </path/to/nekRS>
+./gen_run_script <system_name> </path/to/nekRS> -n <number_of_nodes>
 ```
 
-or
+where `-n <number_of_nodes>` is needed to specify the number of nodes to run on. 
 
+The script will produce a `run.sh` script specifically tailored to the desired system and using the desired nekRS install directory. **NOTE**: you will need to change the project name in the run script before submission.
+
+The `gen_run_script` takes a number of arguments, to see the list run 
 ```sh
-./gen_run_script <system_name> </path/to/nekRS> -v </path/to/venv>
+./gen_run_script <system_name> </path/to/nekRS> -h
 ```
-if you have the necessary packages already installed in a Python virtual environment.
 
-The script will produce a `run.sh` script specifically tailored to the desired system and using the desired nekRS install directory.
-
-Finally, simply execute the run script **from the compute nodes** with
+Finally, simply submit the run script for execution on the desired system
 
 ```bash
-./run.sh
+qsub run.sh
 ```
 
 The `run.sh` script is composed of five steps:

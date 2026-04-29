@@ -19,9 +19,19 @@ chk_case $TOTAL_RANKS
 #--------------------------------------
 # Generate the run script
 RFILE=run.sh
-echo "#!/bin/bash" > $RFILE
+echo "#!/bin/bash -l" > $RFILE
+echo "#PBS -S /bin/bash" >> $RFILE
+echo "#PBS -N nekrs-ml" >> $RFILE
+echo "#PBS -l select=1" >> $RFILE
+echo "#PBS -l walltime=00:30:00" >> $RFILE
+echo "#PBS -l filesystems=home:eagle" >> $RFILE
+echo "#PBS -A <project_name>" >> $RFILE
+echo "#PBS -q debug" >> $RFILE
+echo "#PBS -k doe" >> $RFILE
+echo "#PBS -j oe" >> $RFILE
+echo "cd $PBS_O_WORKDIR" >> $RFILE
 
-echo "export TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
+echo -e "\nexport TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
 
 echo -e "\necho Jobid: \$PBS_JOBID" >>$RFILE
 echo "echo Running on host \`hostname\`" >>$RFILE
