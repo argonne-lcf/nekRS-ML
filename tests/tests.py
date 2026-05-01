@@ -96,7 +96,7 @@ class TGVOnline(NekRSMLOnlineTest):
 @rfm.simple_test
 class TGVOnlineTraj(NekRSMLOnlineTest):
     num_nodes = parameter([1])
-    ranks_per_node = parameter([8])
+    ranks_per_node = parameter([4])
 
     def __init__(self):
         super().__init__(
@@ -114,7 +114,7 @@ class TGVOnlineTraj(NekRSMLOnlineTest):
 @rfm.simple_test
 class TGVOnlineTrajAdios(NekRSMLOnlineTest):
     num_nodes = parameter([1])
-    ranks_per_node = parameter([8])
+    ranks_per_node = parameter([4])
 
     def __init__(self):
         super().__init__(
