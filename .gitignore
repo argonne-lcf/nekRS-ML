@@ -14,7 +14,7 @@ logfile
 
 # ML related items
 __pycache__/
-_env/
+_env*/
 
 # SmartSim/SmartRedis outputs
 SmartSim/

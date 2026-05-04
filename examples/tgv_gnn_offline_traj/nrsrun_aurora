@@ -68,6 +68,9 @@ echo "export UR_L0_USE_COPY_ENGINE=0" >> $RFILE
 
 echo -e "\nexport CCL_ALLTOALLV_MONOLITHIC_KERNEL=0" >> $RFILE
 
+echo -e "\n# Precompile nekRS" >>$RFILE
+echo "mpiexec -n 12 -ppn 12 --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND} --build-only 12" >> $RFILE
+
 echo -e "\n# Run nekRS" >>$RFILE
 echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND}" >> $RFILE
 

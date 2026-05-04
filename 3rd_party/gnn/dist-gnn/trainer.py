@@ -1063,6 +1063,13 @@ class Trainer:
         input_field = self.cfg.input_fld_name
         output_field = self.cfg.output_fld_name
 
+        # extract time from file name
+        def snapshot_time_from_filename(path: str) -> float:
+            base = os.path.basename(path)
+            _, _, rest = base.partition("_time_")
+            time_part, _, _ = rest.partition("_rank_")
+            return float(time_part)
+
         # read files
         if not self.cfg.online:
             file_list = os.listdir(data_dir)
@@ -1071,13 +1078,13 @@ class Trainer:
                 for item in file_list
                 if (f"fld_{input_field}" in item) and (f"rank_{RANK}" in item)
             ]
-            input_files.sort(key=lambda x: int(x.split(".")[0].split("_")[-1]))
+            input_files.sort(key=snapshot_time_from_filename)
             output_files = [
                 item
                 for item in file_list
                 if (f"fld_{output_field}" in item) and (f"rank_{RANK}" in item)
             ]
-            output_files.sort(key=lambda x: int(x.split(".")[0].split("_")[-1]))
+            output_files.sort(key=snapshot_time_from_filename)
         else:
             tic = time.time()
             output_files = self.client.get_file_list(f"outputs_rank_{RANK}")
@@ -1209,7 +1216,6 @@ class Trainer:
         # read files
         if not self.cfg.online:
             files = os.listdir(data_dir + f"/data_rank_{RANK}_size_{SIZE}")
-            # files = [item for item in files_temp if 'p_step' not in item]
             files.sort(key=lambda x: int(x.split("_")[-1].split(".")[0]))
 
             # populate dataset for single-step predictions
