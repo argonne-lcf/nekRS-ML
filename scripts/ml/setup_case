@@ -5,7 +5,7 @@ set -a
 SYSTEM=
 NEKRS_HOME=
 VENV_PATH="${PWD}/../_env"
-NODES=$(cat ${PBS_NODEFILE} | wc -l)
+NODES=
 TIME="01:00"
 PROJ_ID="datascience"
 DEPLOYMENT="offline"
@@ -96,12 +96,23 @@ function parse_args() {
     esac
   done
 
+  # If nodes was not set, check if available from interactive session PBVS env
+  if [ -z "${NODES}" ]; then
+    if [ ! -z "${PBS_NODEFILE}" ]; then
+      NODES=$(cat ${PBS_NODEFILE} | wc -l)
+    fi
+  fi
+
   # Append model and client to VENV_PATH as what is installed in the environment
   # depends on the model and the client.
   VENV_PATH=${VENV_PATH}_${MODEL}_${CLIENT}
 }
 
 function check_args() {
+  if [ -z "${NODES}" ]; then
+    echo "Number of nodes was not specified, use --nodes or -n to specify the nodes or run from an interactive session"
+    exit 1
+  fi
   if [ ${SYSTEM} != "aurora" ] && [ ${SYSTEM} != "polaris" ] && [ ${SYSTEM} != "crux" ]; then
     echo "Invalid system name! Supported systems are aurora, polaris and crux."
     exit 1
