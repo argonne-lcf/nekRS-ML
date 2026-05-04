@@ -40,8 +40,12 @@ polaris:
   extends: .polaris-shell-runner
   script:
     - export WORKDIR=${POLARIS_WORKDIR} SYSTEM=${POLARIS_SYSTEM}
-    - module use /soft/modulefiles
-    - module load spack-pe-base python
+    - |
+      module use /soft/modulefiles
+      module load conda/2025-09-25
+      conda activate
+      module load gcc-native/12.3
+      module load spack-pe-base python
     - *cleanup-old-runs
     - *create-ci-dir
     - *clone-nekrs-ml
