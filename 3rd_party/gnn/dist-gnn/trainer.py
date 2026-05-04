@@ -810,33 +810,33 @@ class Trainer:
         # We need to make the graph periodic in all directions
         pos = pos.astype(NP_FLOAT_DTYPE)
         pos_orig = np.copy(pos)
-        
-        xmin_loc = np.amin(pos[:,0])
+
+        xmin_loc = np.amin(pos[:, 0])
         xmin_glob = np.zeros_like(xmin_loc)
         COMM.Allreduce(xmin_loc, xmin_glob, op=MPI.MIN)
-        xmax_loc = np.amax(pos[:,0])
+        xmax_loc = np.amax(pos[:, 0])
         xmax_glob = np.zeros_like(xmax_loc)
         COMM.Allreduce(xmax_loc, xmax_glob, op=MPI.MAX)
         L_x = (xmax_glob - xmin_glob) / 2.0
         pos[:, 0] = np.abs((pos[:, 0] % L_x) - L_x / 2)  # piecewise linear
-        
-        ymin_loc = np.amin(pos[:,1])
+
+        ymin_loc = np.amin(pos[:, 1])
         ymin_glob = np.zeros_like(ymin_loc)
         COMM.Allreduce(ymin_loc, ymin_glob, op=MPI.MIN)
-        ymax_loc = np.amax(pos[:,1])
+        ymax_loc = np.amax(pos[:, 1])
         ymax_glob = np.zeros_like(ymax_loc)
         COMM.Allreduce(ymax_loc, ymax_glob, op=MPI.MAX)
         L_y = (ymax_glob - ymin_glob) / 2.0
         pos[:, 1] = np.abs((pos[:, 1] % L_y) - L_y / 2)  # piecewise linear
 
-        zmin_loc = np.amin(pos[:,2])
+        zmin_loc = np.amin(pos[:, 2])
         zmin_glob = np.zeros_like(zmin_loc)
         COMM.Allreduce(zmin_loc, zmin_glob, op=MPI.MIN)
-        zmax_loc = np.amax(pos[:,2])
+        zmax_loc = np.amax(pos[:, 2])
         zmax_glob = np.zeros_like(zmax_loc)
         COMM.Allreduce(zmax_loc, zmax_glob, op=MPI.MAX)
         L_z = (zmax_glob - zmin_glob) / 2.0
-        #pos[:,2] = np.cos(2.*np.pi*pos[:,2]/L_z) # cosine
+        # pos[:,2] = np.cos(2.*np.pi*pos[:,2]/L_z) # cosine
         pos[:, 2] = np.abs((pos[:, 2] % L_z) - L_z / 2)  # piecewise linear
 
         # ~~~~ Make the full graph:
@@ -989,8 +989,8 @@ class Trainer:
                     log.info(
                         f"[RANK {RANK}]: Found {len(self.neighboring_procs)} neighboring processes: {self.neighboring_procs}"
                     )
-            
-            effective_nodes_local = torch.sum(1.0/node_degree[:n_nodes_local])
+
+            effective_nodes_local = torch.sum(1.0 / node_degree[:n_nodes_local])
             effective_nodes = torch.zeros(1, dtype=effective_nodes_local.dtype)
             COMM.Allreduce(effective_nodes_local, effective_nodes, op=MPI.SUM)
             print(f"effective_nodes_local: {effective_nodes_local}", flush=True)
@@ -1002,7 +1002,9 @@ class Trainer:
             edge_weight = torch.zeros(1, dtype=self.torch_dtype)
             node_degree = torch.ones(n_nodes_local, dtype=self.torch_dtype)
             effective_nodes_local = n_nodes_local
-            effective_nodes = torch.tensor(effective_nodes_local, dtype=self.torch_dtype)
+            effective_nodes = torch.tensor(
+                effective_nodes_local, dtype=self.torch_dtype
+            )
             print(f"effective_nodes_local: {effective_nodes_local}", flush=True)
             print(f"effective_nodes: {effective_nodes}", flush=True)
 
@@ -1893,42 +1895,72 @@ class Trainer:
                 squared_errors_local = torch.pow(
                     pred_local[:n_nodes_local] - target_local[:n_nodes_local], 2
                 )
-                print(f"squared_errors_local sum before division: {squared_errors_local.sum()}", flush=True)
+                print(
+                    f"squared_errors_local sum before division: {squared_errors_local.sum()}",
+                    flush=True,
+                )
                 squared_errors_local = squared_errors_local / graph.node_degree[
                     :n_nodes_local
                 ].unsqueeze(-1)
-                print(f"squared_errors_local sum after division: {squared_errors_local.sum()}", flush=True)
-                np.save("squared_errors_local_size1.npy", squared_errors_local.detach().cpu().numpy())
+                print(
+                    f"squared_errors_local sum after division: {squared_errors_local.sum()}",
+                    flush=True,
+                )
+                np.save(
+                    "squared_errors_local_size1.npy",
+                    squared_errors_local.detach().cpu().numpy(),
+                )
                 np.save("pos_size1.npy", graph.pos.numpy())
 
                 sum_squared_errors_local = squared_errors_local.sum()
                 sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
-                print(f"sum_squared_errors_local: {sum_squared_errors_local}", flush=True)
+                print(
+                    f"sum_squared_errors_local: {sum_squared_errors_local}",
+                    flush=True,
+                )
                 print(f"sum_squared_errors: {sum_squared_errors}", flush=True)
                 mse_loss[batch_idx] = (
                     1.0 / (graph.effective_nodes * n_output_features)
                 ) * sum_squared_errors
-                print(f"mse_loss[batch_idx] (SIZE>1): {mse_loss[batch_idx]}", flush=True)
+                print(
+                    f"mse_loss[batch_idx] (SIZE>1): {mse_loss[batch_idx]}",
+                    flush=True,
+                )
             else:  # custom loss
-                #pred_local = pred[data.batch == batch_idx]
-                #target_local = target[data.batch == batch_idx]
-                #squared_errors_local = torch.pow(
+                # pred_local = pred[data.batch == batch_idx]
+                # target_local = target[data.batch == batch_idx]
+                # squared_errors_local = torch.pow(
                 #    pred_local[:n_nodes_local] - target_local[:n_nodes_local], 2
-                #)
+                # )
                 squared_errors_local = torch.pow(
                     pred[:n_nodes_local] - target[:n_nodes_local], 2
                 )
-                print(f"squared_errors_local sum before division: {squared_errors_local.sum()}", flush=True)
+                print(
+                    f"squared_errors_local sum before division: {squared_errors_local.sum()}",
+                    flush=True,
+                )
                 squared_errors_local = squared_errors_local / graph.node_degree[
                     :n_nodes_local
                 ].unsqueeze(-1)
-                print(f"squared_errors_local sum after division: {squared_errors_local.sum()}", flush=True)
-                np.save(f"squared_errors_local_rank{RANK}_size2.npy", squared_errors_local.detach().cpu().numpy())
-                np.save(f"pos_rank{RANK}_size2.npy", graph.pos[:n_nodes_local].numpy())
+                print(
+                    f"squared_errors_local sum after division: {squared_errors_local.sum()}",
+                    flush=True,
+                )
+                np.save(
+                    f"squared_errors_local_rank{RANK}_size2.npy",
+                    squared_errors_local.detach().cpu().numpy(),
+                )
+                np.save(
+                    f"pos_rank{RANK}_size2.npy",
+                    graph.pos[:n_nodes_local].numpy(),
+                )
 
                 sum_squared_errors_local = squared_errors_local.sum()
                 sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
-                print(f"sum_squared_errors_local: {sum_squared_errors_local}", flush=True)
+                print(
+                    f"sum_squared_errors_local: {sum_squared_errors_local}",
+                    flush=True,
+                )
                 print(f"sum_squared_errors: {sum_squared_errors}", flush=True)
                 mse_loss[batch_idx] = (
                     1.0 / (graph.effective_nodes * n_output_features)
