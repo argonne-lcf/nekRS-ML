@@ -1,0 +1,52 @@
+variables:
+  PROJ: "datascience"
+  QUEUE: "debug"
+  TIME: "2:00:00"
+  PREFIX: "nekrs_ml_run"
+  AURORA_SYSTEM: "aurora:compute"
+  AURORA_WORKDIR: "/lus/flare/projects/${PROJ}/nekRS-ML/"
+  ANL_AURORA_SCHEDULER_PARAMETERS: "-q ${QUEUE} -l select=1,walltime=${TIME},filesystems=home -A ${PROJ}"
+  POLARIS_SYSTEM: "polaris:compute"
+  POLARIS_WORKDIR: "/lus/eagle/projects/${PROJ}/nekRS-ML"
+  ANL_POLARIS_SCHEDULER_PARAMETERS: "-q ${QUEUE} -l select=1,walltime=${TIME},filesystems=home -A ${PROJ}"
+stages:
+    - submit
+.common:
+  # Remove pipeline directories older than 7 days
+  - &cleanup-old-runs |
+    find ${WORKDIR} -maxdepth 1 -name "${PREFIX}*" -mtime +7 -exec rm -rf {} \;
+  - &create-ci-dir |
+    run_dir=$(mktemp -d --tmpdir="${WORKDIR}" "${PREFIX}_${CI_COMMIT_SHA}_XXXXXXXXXX")
+    echo "NEKRS_ML_CI_RUN_DIR=${run_dir}"
+    cd ${run_dir}
+  - &clone-nekrs-ml |
+    git clone https://github.com/argonne-lcf/nekRS-ML.git
+    cd ./nekRS-ML/tests
+    git checkout ${CI_COMMIT_SHA}
+  - &run-tests |
+    ./run.sh -b -cm ${CI_COMMIT_SHA} -q capacity -t all -e serial -s ${SYSTEM}
+aurora:
+  stage: submit
+  extends: .aurora-shell-runner
+  script:
+    - export WORKDIR=${AURORA_WORKDIR} SYSTEM=${AURORA_SYSTEM}
+    - module load frameworks
+    - *cleanup-old-runs
+    - *create-ci-dir
+    - *clone-nekrs-ml
+    - *run-tests
+polaris:
+  stage: submit
+  extends: .polaris-shell-runner
+  script:
+    - export WORKDIR=${POLARIS_WORKDIR} SYSTEM=${POLARIS_SYSTEM}
+    - |
+      module use /soft/modulefiles
+      module load conda/2025-09-25
+      conda activate
+      module load gcc-native/12.3
+      module load spack-pe-base python
+    - *cleanup-old-runs
+    - *create-ci-dir
+    - *clone-nekrs-ml
+    - *run-tests
