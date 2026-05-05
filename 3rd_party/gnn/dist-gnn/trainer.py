@@ -1888,7 +1888,7 @@ class Trainer:
                     pred[data.batch == batch_idx],
                     target[data.batch == batch_idx],
                 )
-                #print(f"mse_loss[batch_idx]: {mse_loss[batch_idx]}", flush=True)
+                # print(f"mse_loss[batch_idx]: {mse_loss[batch_idx]}", flush=True)
 
                 # compute loss as if SIZE>1
                 pred_local = pred[data.batch == batch_idx]
@@ -1896,37 +1896,37 @@ class Trainer:
                 squared_errors_local = torch.pow(
                     pred_local[:n_nodes_local] - target_local[:n_nodes_local], 2
                 )
-                #print(
+                # print(
                 #    f"squared_errors_local sum before division: {squared_errors_local.sum()}",
                 #    flush=True,
-                #)
+                # )
                 squared_errors_local = squared_errors_local / graph.node_degree[
                     :n_nodes_local
                 ].unsqueeze(-1)
-                #print(
+                # print(
                 #    f"squared_errors_local sum after division: {squared_errors_local.sum()}",
                 #    flush=True,
-                #)
-                #np.save(
+                # )
+                # np.save(
                 #    "squared_errors_local_size1.npy",
                 #    squared_errors_local.detach().cpu().numpy(),
-                #)
-                #np.save("pos_size1.npy", graph.pos.numpy())
+                # )
+                # np.save("pos_size1.npy", graph.pos.numpy())
 
                 sum_squared_errors_local = squared_errors_local.sum()
                 sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
-                #print(
+                # print(
                 #    f"sum_squared_errors_local: {sum_squared_errors_local}",
                 #    flush=True,
-                #)
-                #print(f"sum_squared_errors: {sum_squared_errors}", flush=True)
+                # )
+                # print(f"sum_squared_errors: {sum_squared_errors}", flush=True)
                 mse_loss[batch_idx] = (
                     1.0 / (graph.effective_nodes * n_output_features)
                 ) * sum_squared_errors
-                #print(
+                # print(
                 #    f"mse_loss[batch_idx] (SIZE>1): {mse_loss[batch_idx]}",
                 #    flush=True,
-                #)
+                # )
             else:  # custom loss
                 # pred_local = pred[data.batch == batch_idx]
                 # target_local = target[data.batch == batch_idx]
@@ -1936,33 +1936,33 @@ class Trainer:
                 squared_errors_local = torch.pow(
                     pred[:n_nodes_local] - target[:n_nodes_local], 2
                 )
-                #print(
+                # print(
                 #    f"squared_errors_local sum before division: {squared_errors_local.sum()}",
                 #    flush=True,
-                #)
+                # )
                 squared_errors_local = squared_errors_local / graph.node_degree[
                     :n_nodes_local
                 ].unsqueeze(-1)
-                #print(
+                # print(
                 #    f"squared_errors_local sum after division: {squared_errors_local.sum()}",
                 #    flush=True,
-                #)
-                #np.save(
+                # )
+                # np.save(
                 #    f"squared_errors_local_rank{RANK}_size2.npy",
                 #    squared_errors_local.detach().cpu().numpy(),
-                #)
-                #np.save(
+                # )
+                # np.save(
                 #    f"pos_rank{RANK}_size2.npy",
                 #    graph.pos[:n_nodes_local].numpy(),
-                #)
+                # )
 
                 sum_squared_errors_local = squared_errors_local.sum()
                 sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
-                #print(
+                # print(
                 #    f"sum_squared_errors_local: {sum_squared_errors_local}",
                 #    flush=True,
-                #)
-                #print(f"sum_squared_errors: {sum_squared_errors}", flush=True)
+                # )
+                # print(f"sum_squared_errors: {sum_squared_errors}", flush=True)
                 mse_loss[batch_idx] = (
                     1.0 / (graph.effective_nodes * n_output_features)
                 ) * sum_squared_errors
