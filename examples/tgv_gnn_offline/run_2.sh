@@ -32,4 +32,4 @@ RANKS=2
 
 # Train the GNN
 head_node=`head -1 $PBS_NODEFILE | cut -d'.' -f1`
-mpiexec -n $RANKS -ppn $RANKS --cpu-bind=list:1:8:16:24:32:40:53:60:68:76:84:92 python ../../3rd_party/gnn/dist-gnn/main.py master_addr=$head_node halo_swap_mode=all_to_all layer_norm=False gnn_outputs_path=/flare/datascience/balin/Nek/nekRS-ML/nekRS-ML/examples/tgv_gnn_offline/gnn_outputs_poly_3_$RANKS target_loss=3.1584e-02 phase1_steps=20 n_messagePassing_layers=1
+mpiexec -n $RANKS -ppn $RANKS --cpu-bind=list:1:8:16:24:32:40:53:60:68:76:84:92 python ../../3rd_party/gnn/dist-gnn/main.py master_addr=$head_node halo_swap_mode=all_to_all_opt layer_norm=False gnn_outputs_path=/flare/datascience/balin/Nek/nekRS-ML/nekRS-ML/examples/tgv_gnn_offline/gnn_outputs_poly_3_$RANKS target_loss=4.1699e-03 phase1_steps=100 n_messagePassing_layers=4 transform_x=true transform_y=true transform_z=true
