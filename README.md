@@ -19,7 +19,8 @@ Some key functionalities of nekRS-ML are:
   * [SR-GNN](./3rd_party/gnn/sr-gnn/) is a GNN for mesh-based, three-dimensional super-resolution of fluid flows. The SR-GNN model operates on individual elements (and their small neighborhood if set up as such), but not on the full mesh/graph of the domain, thus unlike the Dist-GNN model this one is local in nature. SR-GNN is comprised of coarse- and fine-scale message passing layers for multi-scale modeling. For detailed information on the SR-GNN model, please see the following [paper](https://www.sciencedirect.com/science/article/abs/pii/S0045782525003445).
 * [Conversion tools for mesh-based distributed GNN modeling](./src/plugins/gnn.hpp): nekRS-ML provides a GNN plugin capable of extracting the necessary information from nekRS to construct the partitioned graph needed by Dist-GNN. The same GNN plugin and the [trajectory generation plugin](./src/plugins/trajGen.hpp) can be used to extract the field information from nekRS to produce training data for the Dist-GNN. The GNN and trajectory generation plugins can create graphs and the respective training data from p-coarsened nekRS meshes to enable development of surrogates on coarser discretizations.  
 * [Data streaming with ADIOS2](./src/plugins/adiosStreamer.hpp): nekRS v24 comes with ADIOS2 for I/O, thus nekRS-ML expands the usage of ADIOS2 to enable data streaming between nekRS and GNN training, enabling online (or *in-situ*) training/fine-tuning of the ML models.  
-* [In-memory data staging with SmartSim](./src/plugins/smartRedis.hpp): nekRS-ML can also be linked to the [SmartRedis](https://github.com/CrayLabs/SmartRedis) library, which when coupled with a [SmartSim](https://github.com/CrayLabs/SmartSim) workflow enables online training and inference with in-memory data-staging. 
+* [In-memory data staging with SmartSim](./src/plugins/smartRedis.hpp): nekRS-ML can also be linked to the [SmartRedis](https://github.com/CrayLabs/SmartRedis) library, which when coupled with a [SmartSim](https://github.com/CrayLabs/SmartSim) workflow enables online training and inference with in-memory data-staging.
+* [Efficient deployment of nekRS ensembles](./examples/periodicHill_ensemble/):  describe the EL tool and what it enables for nekRS-ML
 
 ### Progression of AI-enabled examples
 
@@ -37,6 +38,9 @@ Users can find more details on each of the examples in the  README files contain
 * [shooting_workflow_smartredis](./examples/shooting_workflow_smartredis/): Online training workflow using SmartSim to shoot the nekRS solution forward in time leveraging the Dist-GNN model.
 * [shooting_workflow_adios](./examples/shooting_workflow_adios/): Online training workflow using ADIOS2 to shoot the nekRS solution forward in time leveraging the Dist-GNN model.
 
+### Other examples
+
+* [periodicHill_ensemble](./examples/periodicHill_ensemble/): describe the example briefly. 
 
 ## Build Instructions
 
