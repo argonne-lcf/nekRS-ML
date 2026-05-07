@@ -1,0 +1,38 @@
+#ifdef __okl__
+
+#endif
+
+void UDF_Setup0(MPI_Comm comm, setupAide &options)
+{
+  // Read the per-member hill-height scaling factor from [CASEDATA] in
+  // periodicHill.par and forward it into a Fortran common-block scalar
+  // (registered in usrdat0) so usrdat2() can use it when deforming the mesh.
+  dfloat hillScale = 1.0;
+  platform->par->extract("casedata", "hillscale", hillScale);
+
+  if (platform->options.compareArgs("BUILD ONLY", "FALSE")) {
+    *nek::ptr<double>("hillScale") = hillScale;
+  }
+
+  if (platform->comm.mpiRank == 0) {
+    printf("[periodicHill_ensemble] hillScale = %g  (peak hmax = %g)\n",
+           hillScale, 28.0 * hillScale);
+  }
+}
+
+void UDF_Setup()
+{
+  auto mesh = nrs->mesh;
+
+  if (platform->options.getArgs("RESTART FILE NAME").empty()) {
+    std::vector<dfloat> U(mesh->dim * nrs->fieldOffset, 0.0);
+    for(int n = 0; n < mesh->Nlocal; n++) {
+      U[n + 0 * nrs->fieldOffset] = 1;
+    }
+    nrs->o_U.copyFrom(U.data(), U.size());
+  }
+}
+
+void UDF_ExecuteStep(double time, int tstep)
+{
+}
