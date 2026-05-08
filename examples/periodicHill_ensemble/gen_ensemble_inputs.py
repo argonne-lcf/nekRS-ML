@@ -20,7 +20,7 @@ HERE = Path(__file__).resolve().parent
 NEKRS_ML_ROOT = HERE.parents[1]
 sys.path.append(str(NEKRS_ML_ROOT / "3rd_party" / "ensembleLauncher"))
 
-from nekrs_ensemble_utils import ( 
+from nekrs_ensemble_utils import (
     setup_ensemble_dirs,
     write_ensemble_configs,
 )
@@ -165,7 +165,9 @@ def main() -> None:
         sys_name=args.system,
     )
 
-    print(f"[gen_ensemble_inputs] {len(member_dirs)} run directories under {args.outdir}")
+    print(
+        f"[gen_ensemble_inputs] {len(member_dirs)} run directories under {args.outdir}"
+    )
     for kind, path in paths.items():
         print(f"[gen_ensemble_inputs] wrote {kind:<8} -> {path}")
     print(
