@@ -1,5 +1,21 @@
 #!/bin/bash
 
+if [ ! -d "./.venv" ]; then 
+    python3 -m venv ./.venv --system-site-packages
+fi
+
+source ./.venv/bin/activate
+
+if [ ! -d "ensemble_launcher" ]; then
+    git clone https://github.com/argonne-lcf/ensemble_launcher.git
+fi
+
+if [ ! -d "./.venv" ]; then 
+    cd ensemble_launcher
+    python3 -m pip install ./
+    cd ../
+fi
+
 ##build genbox to get .re2 files
 git clone https://github.com/rickybalin/Nek5000.git
 cd Nek5000/tools
@@ -20,11 +36,6 @@ fi
 
 python3 gen_ensemble_inputs.py --Re_tau "$1" --Lx "$2" --Lz "$3"
 
-##launch the ensembles
-
-if [ ! -d "ensemble_launcher" ]; then
-    git clone --branch dev https://github.com/argonne-lcf/ensemble_launcher.git
-fi
-python3 launch_ensembles.py
+el start ./run_dir/config.json --system-config-file ./run_dir/system_config.json --launcher-config-file ./run_dir/launcher_config.json
 
 
