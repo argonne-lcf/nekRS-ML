@@ -14,7 +14,8 @@ ML_TASK=
 DB_NODES=1
 SIM_NODES=1
 TRAIN_NODES=1
-MODEL="dist-gnn"
+MODEL=
+ENSEMBLE=
 # case name is found automatically
 CASE_NAME=
 
@@ -25,7 +26,8 @@ function print_help() {
     "[--deployment | -d <DEPLOYMENT>] [--ml_task | -ml <ML_TASK>]"        \
     "[--client | -c <CLIENT>]\n\t"                                        \
     "[--db_nodes | -dn <DB_NODES>] [--sim_nodes | -sn <SIM_NODES>]"       \
-    "[--train_nodes | -tn <TRAIN_NODES>] [--help | -h]"
+    "[--train_nodes | -tn <TRAIN_NODES>]\n\t"                             \
+    "[--ensemble | -e <ENSEMBLE>] [--help | -h]"
 }
 
 function parse_args() {
@@ -86,6 +88,10 @@ function parse_args() {
         TRAIN_NODES=$2
         shift; shift
         ;;
+      --ensemble| -e)
+        ENSEMBLE=${2,,}
+        shift; shift
+        ;;
       --help| -h)
         print_help
         exit 0
@@ -105,7 +111,15 @@ function parse_args() {
 
   # Append model and client to VENV_PATH as what is installed in the environment
   # depends on the model and the client.
-  VENV_PATH=${VENV_PATH}_${MODEL}_${CLIENT}
+  if [ -n "${MODEL}" ]; then
+    VENV_PATH=${VENV_PATH}_${MODEL}
+  fi
+  if [ -n "${CLIENT}" ]; then
+    VENV_PATH=${VENV_PATH}_${CLIENT}
+  fi
+  if [ -n "${ENSEMBLE}" ]; then
+    VENV_PATH=${VENV_PATH}_${ENSEMBLE}
+  fi
 }
 
 function check_args() {
@@ -113,23 +127,23 @@ function check_args() {
     echo "Number of nodes was not specified, use --nodes or -n to specify the nodes or run from an interactive session"
     exit 1
   fi
-  if [ ${SYSTEM} != "aurora" ] && [ ${SYSTEM} != "polaris" ] && [ ${SYSTEM} != "crux" ]; then
+  if [ "${SYSTEM}" != "aurora" ] && [ "${SYSTEM}" != "polaris" ] && [ "${SYSTEM}" != "crux" ]; then
     echo "Invalid system name! Supported systems are aurora, polaris and crux."
     exit 1
   fi
-  if [ ! -d ${NEKRS_HOME} ]; then
+  if [ ! -d "${NEKRS_HOME}" ]; then
     echo "NEKRS_HOME does not exist! Check path."
     exit 1
   fi
-  if [ ${MODEL} != "dist-gnn" ] && [ ${MODEL} != "sr-gnn" ]; then
+  if [ -n "${MODEL}" ] && [ "${MODEL}" != "dist-gnn" ] && [ "${MODEL}" != "sr-gnn" ]; then
     echo "Invalid model type! Supported options are dist-gnn and sr-gnn."
     exit 1
   fi
-  if [ ${DEPLOYMENT} != "clustered" ] && [ ${DEPLOYMENT} != "colocated" ] && [ ${DEPLOYMENT} != "offline" ]; then
+  if [ "${DEPLOYMENT}" != "clustered" ] && [ "${DEPLOYMENT}" != "colocated" ] && [ "${DEPLOYMENT}" != "offline" ]; then
     echo "Invalid deployment type! Supported options are offline, clustered and colocated."
     exit 1
   fi
-  if [ ${MODEL} = "sr-gnn" ] && [ ${DEPLOYMENT} != "offline" ]; then
+  if [ "${MODEL}" = "sr-gnn" ] && [ "${DEPLOYMENT}" != "offline" ]; then
     echo "Currently, sr-gnn model is only supported with offline deployment."
     exit 1
   fi
@@ -137,11 +151,11 @@ function check_args() {
     echo "Invalid deployment type! Supported options are undefined, train and inference."
     exit 1
   fi
-  if [ ${CLIENT} != "smartredis" ] && [ ${CLIENT} != "adios" ] && [ ${CLIENT} != "posix" ]; then
+  if [ "${CLIENT}" != "smartredis" ] && [ "${CLIENT}" != "adios" ] && [ "${CLIENT}" != "posix" ]; then
     echo "Invalid client type! Supported options are posix, smartredis and adios."
     exit 1
   fi
-  if [ ${DEPLOYMENT} == "colocated" ]; then
+  if [ "${DEPLOYMENT}" == "colocated" ]; then
     if [ "$SIM_NODES" -ne "$NODES" ] && [ "$TRAIN_NODES" -ne "$NODES" ]; then
       echo "Invalid number of simulation and/or training nodes."
       echo "The number of simulation and training nodes must equal the number of nodes of the job."
@@ -153,8 +167,8 @@ function check_args() {
       exit 1
     fi
   fi
-  if [ ${DEPLOYMENT} == "clustered" ]; then
-    if [ ${CLIENT} == "smartredis" ]; then
+  if [ "${DEPLOYMENT}" == "clustered" ]; then
+    if [ "${CLIENT}" == "smartredis" ]; then
       if [ "$DB_NODES" -eq "2" ]; then
         echo "Invalid number of database nodes."
         echo "SmartSim does not allow clustered databases of 2 nodes, DB_NODES can be 1 or >=3."
@@ -166,13 +180,17 @@ function check_args() {
         exit 1
       fi
     fi
-    if [ ${CLIENT} == "adios" ]; then
+    if [ "${CLIENT}" == "adios" ]; then
       if [ $((SIM_NODES + TRAIN_NODES)) -ne "$NODES" ]; then
         echo "Invalid number of simulation and training nodes."
         echo "The sum of nodes assigned to each component must equal the total number of nodes of the job."
         exit 1
       fi
     fi
+  fi
+  if [ -n "${ENSEMBLE}" ] && [ "${ENSEMBLE}" != "el" ]; then
+    echo "Invalid ensemble type! Supported options are el (EnsembleLauncher)."
+    exit 1
   fi
 }
 
@@ -232,21 +250,22 @@ function print_args() {
   echo "SIM_NODES  : ${SIM_NODES}"
   echo "TRAIN_NODES: ${TRAIN_NODES}"
   echo "MODEL      : ${MODEL}"
+  echo "ENSEMBLE   : ${ENSEMBLE}"
   echo "CASE_NAME  : ${CASE_NAME}"
 }
 
 # this maybe not necessary as the nrsrun_${SYSTEM} scripts generate
 # them.
 function load_modules() {
-  if [ ${SYSTEM} == "aurora" ]; then
+  if [ "${SYSTEM}" == "aurora" ]; then
     module load frameworks
     module load git-lfs
-  elif [ ${SYSTEM} == "polaris" ]; then
+  elif [ "${SYSTEM}" == "polaris" ]; then
     module use /soft/modulefiles/
     module load conda
     conda activate
     module load spack-pe-base cmake
-  elif [ ${SYSTEM} == "crux" ]; then
+  elif [ "${SYSTEM}" == "crux" ]; then
     module use /soft/modulefiles/
     module load PrgEnv-gnu/8.5.0
     module load gcc-native/12.3
@@ -269,9 +288,9 @@ function build_smartsim() {
   pip install git+https://github.com/rickybalin/SmartRedis.git@develop
   pip install git+https://github.com/rickybalin/SmartSim.git@rollback_aurora
 
-  if [ ${SYSTEM} == "aurora" ]; then
+  if [ "${SYSTEM}" == "aurora" ]; then
     DEVICE="cpu"
-  elif [ ${SYSTEM} == "polaris" ]; then
+  elif [ "${SYSTEM}" == "polaris" ]; then
     DEVICE="gpu"
   fi
 
@@ -280,6 +299,10 @@ function build_smartsim() {
   export TORCH_CMAKE_PATH=$( python -c 'import torch;print(torch.utils.cmake_prefix_path)' )
   smart build -v --device $DEVICE --torch_dir $TORCH_CMAKE_PATH --no_tf
   smart validate
+}
+
+function build_ensemblelauncher() {
+  python3 -m pip install "git+https://github.com/argonne-lcf/ensemble_launcher.git"
 }
 
 function setup_venv() {
@@ -294,7 +317,7 @@ function setup_venv() {
 
   source ${VENV_PATH}/bin/activate
 
-  if [ ${SYSTEM} == "crux" ]; then
+  if [ "${SYSTEM}" == "crux" ]; then
     pip install numpy
     pip install torch --index-url https://download.pytorch.org/whl/cpu
     MPICC="cc -shared" pip install --force-reinstall --no-cache-dir --no-binary=mpi4py mpi4py
@@ -302,26 +325,28 @@ function setup_venv() {
 
   export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
   export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
-  if [ ${SYSTEM} == "aurora" ]; then
+  if [ "${SYSTEM}" == "aurora" ] && [ -n "${MODEL}" ]; then
     pip install torch_geometric==2.5.3
   fi  
 
-  if [ ${MODEL} == "sr-gnn" ]; then
-    if [ ${SYSTEM} == "aurora" ]; then
-      cwd=${PWD}
-      git clone https://github.com/rusty1s/pytorch_cluster.git ${VENV_PATH}/pytorch_cluster
-      cd ${VENV_PATH}/pytorch_cluster
-      # Need to force the install to not link with OpenMP, change lines 53-54 to if False:
-      sed -i 's/fopenmp/lgomp/' setup.py
-      CXX=$(which dpcpp) python setup.py install
-      cd ${cwd}
-    fi
+  if [ "${MODEL}" == "sr-gnn" ] && [ "${SYSTEM}" == "aurora" ]; then
+    cwd=${PWD}
+    git clone https://github.com/rusty1s/pytorch_cluster.git ${VENV_PATH}/pytorch_cluster
+    cd ${VENV_PATH}/pytorch_cluster
+    # Need to force the install to not link with OpenMP, change lines 53-54 to if False:
+    sed -i 's/fopenmp/lgomp/' setup.py
+    CXX=$(which dpcpp) python setup.py install
+    cd ${cwd}
   fi
   
   pip install pymech
 
   if [ "${CLIENT}" == "smartredis" ]; then
     build_smartsim
+  fi
+
+  if [ "${ENSEMBLE}" == "el" ]; then
+    build_ensemblelauncher
   fi
 
   deactivate
