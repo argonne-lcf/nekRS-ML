@@ -65,8 +65,11 @@ Finally, to run the example simply submit the run script with
 qsub run.sh
 ```
 
-The `run.sh` script is composed of two steps:
+The `run.sh` script is composed of three steps:
 
-- NekRS is run with the `--build-only` flag to create the `.cache` directory. This cache will be used by all ensemble members since the mesh is deformed at runtime within the `usrdat2()` function.
-- The ensemble ...
+- **Build cache:** `nekrs --setup periodicHill --build-only` is run once with `mpiexec` to populate `./.cache`. This cache (and the base `.re2`) is then *symlinked* into every ensemble member's run directory, since the periodic hill geometry is generated at runtime in `usrdat2()` and is identical across members at build time.
+- **Stage run directories:** `python gen_ensemble_inputs.py` builds one subdirectory per member under `./run_dir/`, copies the small case files (`periodicHill.udf`, `periodicHill.usr`), symlinks `periodicHill.re2` and `.cache`, writes a per-member `periodicHill.par` with a different `[CASEDATA] hillScale = ...`, and emits the three JSON files the [EnsembleLauncher](https://github.com/argonne-lcf/ensemble_launcher) CLI consumes: `./run_dir/config.json` (the ensembles block), `./run_dir/system_config.json` (`SystemConfig`), and `./run_dir/launcher_config.json` (`LauncherConfig`). The sweep is configurable from the command line — see `python gen_ensemble_inputs.py --help` (e.g. `--hillScale 0.8,1.5,4` for a 4-point linspace, or `--hillScale 0.9,1.0,1.1,1.2` for an explicit list).
+- **Launch the ensemble:** `el start ./run_dir/config.json --system-config-file ./run_dir/system_config.json --launcher-config-file ./run_dir/launcher_config.json` fans out one nekRS task per member onto disjoint subsets of the allocation. The CLI blocks until all members finish and writes a `results.json` next to the configs.
+
+The reusable Python helper used by `gen_ensemble_inputs.py` lives at `3rd_party/ensembleLauncher/nekrs_ensemble_utils.py` and can be reused by any other nekRS-ML example that wants to sweep over `.par` parameters.
 

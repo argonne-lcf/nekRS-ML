@@ -51,8 +51,13 @@ echo "export ZE_FLAT_DEVICE_HIERARCHY=FLAT" >> $RFILE
 echo -e "\n# Build nekRS cache" >>$RFILE
 echo "mpiexec -n ${RANKS_PER_NODE} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND} --build-only ${RANKS_PER_NODE}" >> $RFILE
 
-echo -e "\n# Launch ensemble of nekRS runs" >>$RFILE
-echo "python ensemble_launcher.py" >> $RFILE
+echo -e "Create per-member run dirs (./run_dir/<member>/) and EnsembleLauncher configs" >>$RFILE
+echo "python gen_ensemble_inputs.py --ppn ${RANKS_PER_NODE} --cpu-bind \"list:${CPU_BIND_LIST}\" --backend ${NEKRS_BACKEND} --system aurora" >> $RFILE
+
+echo -e "\n# Launch the ensemble via the EnsembleLauncher CLI" >>$RFILE
+echo "el start ./run_dir/config.json \\" >> $RFILE
+echo "    --system-config-file   ./run_dir/system_config.json \\" >> $RFILE
+echo "    --launcher-config-file ./run_dir/launcher_config.json" >> $RFILE
 
 chmod u+x $RFILE
 
