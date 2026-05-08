@@ -19,7 +19,7 @@ Requirements:
 * GNU/oneAPI/NVHPC/ROCm compilers (C++17/C99 compatible)
 * MPI-3.1 or later
 * CMake version 3.21 or later
-* PyTorch and PyTorch Geometric (for the examples using the GNN)
+* EnsembleLauncher
 
 To build nekRS and the required dependencies, first clone our GitHub repository:
 
@@ -28,12 +28,10 @@ https://github.com/argonne-lcf/nekRS-ML.git
 ```
 
 Then, simply execute one of the build scripts contained in the repository.
-The HPC systems currently supported are:
-* [Polaris](https://docs.alcf.anl.gov/polaris/) (Argonne LCF)
+The HPC systems currently supported are for this example are:
 * [Aurora](https://docs.alcf.anl.gov/aurora/) (Argonne LCF)
-* [Crux](https://docs.alcf.anl.gov/crux/) (Argonne LCF)
 
-For example, to build nekRS-ML on Aurora, execute from a compute node
+For example, to build nekRS-ML on Aurora, execute from a login node
 
 ```sh
 ./BuildMeOnAurora
@@ -42,35 +40,33 @@ For example, to build nekRS-ML on Aurora, execute from a compute node
 ## Running the example
 
 Scripts are provided to conveniently generate run scripts and config files for the workflow on the different ALCF systems.
-Note that a virtual environment with PyTorch Geometric is needed to train the GNN.
+Note that a virtual environment with EnsembleLauncher is needed to launch the ensemble, and by default the `gen_run_script` will create one with the required dependencies.
 
-**From a compute node** execute:
+**From a login node** execute:
 ```sh
 ./gen_run_script <system_name> </path/to/nekRS>
 ```
-or
+
+For more information on how to use `gen_run_script`, use `--help`
+
 ```sh
-./gen_run_script <system_name> </path/to/nekRS> --venv_path </path/to/venv>
+./gen_run_script <system_name> </path/to/nekRS> --help
 ```
-if you have the necessary packages already installed in a Python virtual environment. For more information
-on how to use `gen_run_script`, use `--help`
+
+The script will produce a `run.sh` script specifically tailored to the desired system and using the desired nekRS install directory. By default, the script is set up to run on 4 nodes, launching one nekRS simulation on each node and each with a different height of the periodic hill. To change the number of nodes to run on (and the ensemble size), simply add the number of nodes to the script as follows
 
 ```sh
-./gen_run_script --help
+./gen_run_script <system_name> </path/to/nekRS> --nodes 8
+```
 
-The script will produce a `run.sh` script specifically tailored to the desired system and using the desired nekRS install directory.
-
-Finally, simply execute the run script **from the compute nodes** with
+Finally, to run the example simply submit the run script with
 
 ```bash
-./run.sh
+qsub run.sh
 ```
 
-The `run.sh` script is composed of four steps:
+The `run.sh` script is composed of two steps:
 
-- The nekRS simulation to generate the GNN input files. This step produces the graph and training data in `./gnn_outputs_poly_3`.
-- An auxiliary Python script to create additional data structures needed to enforce consistency in the GNN. This step produces some additional files in `./gnn_outputs_poly_3` needed during GNN training.
-- A Python script to check the accuracy of the data generated. This script compares the results in `./ref` with those created in `./gnn_outputs_poly_3`.
-- GNN training. This step trains the GNN for 100 iterations based on the data provided in `./gnn_outputs_poly_3`.
-- The case is run with 2 MPI ranks for simplicity, however the users can set the desired number of ranks. Note to comment out the accuracy checks as they will fail in this case.
+- NekRS is run with the `--build-only` flag to create the `.cache` directory. This cache will be used by all ensemble members since the mesh is deformed at runtime within the `usrdat2()` function.
+- The ensemble ...
 
