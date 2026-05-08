@@ -15,8 +15,8 @@ void UDF_Setup0(MPI_Comm comm, setupAide &options)
   }
 
   if (platform->comm.mpiRank == 0) {
-    printf("[periodicHill_ensemble] hillScale = %g  (peak hmax = %g)\n",
-           hillScale, 28.0 * hillScale);
+    printf("[periodicHill_ensemble] hillScale = %g  (hmax for bottomph = %g)\n",
+           hillScale, 28.0 / hillScale);
   }
 }
 

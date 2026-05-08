@@ -5,8 +5,19 @@ c-----------------------------------------------------------------------
       real hillScale
       common /cbcase/ hillScale
 
-      hillScale = 1.0  ! default; overwritten from [CASEDATA] in UDF_Setup0
-      call nekrs_registerPtr('hillScale', hillScale)
+c     nek calls usrdat0 twice: once during nek bootstrap and again at the start
+c     of nek_setup. UDF_Setup0 runs *between* those calls and writes hillScale
+c     from [CASEDATA]. Re-initializing hillScale here would wipe that value
+c     before usrdat2() runs, so only register and set the default once.
+      logical hs_reg
+      save    hs_reg
+      data    hs_reg /.false./
+
+      if (.not. hs_reg) then
+         hillScale = 1.0
+         call nekrs_registerPtr('hillScale', hillScale)
+         hs_reg = .true.
+      endif
 
       return
       end
@@ -51,10 +62,8 @@ c-----------------------------------------------------------------------
       call rescale_x(zm1,zmin,zmax)
 
 c     ENSEMBLE PARAMETER:
-c       baseline peak height = 28.0 (in the bottomph polynomial scale)
-c       per-member peak      = 28.0 * hillScale, with hillScale set via
-c       [CASEDATA] hillScale in periodicHill.par
-      hmax = 28.0 * hillScale
+c     hillScale set via [CASEDATA] hillScale in periodicHill.par
+      hmax = 28.0 / hillScale
 
       if (nio .eq. 0) write(6,*)
      &  'periodicHill_ensemble: hillScale =', hillScale,

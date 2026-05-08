@@ -3,13 +3,13 @@ polynomialOrder = 7
 #startFrom = r.fld
 
 stopAt = endTime
-endTime = 200
+endTime = 50
 
 dt = targetCFL=2 + max=1e-2 + initial=1e-3
 timeStepper = tombo2
 
 checkpointControl = simulationTime
-checkpointInterval = 20 
+checkpointInterval = 10
 
 regularization = hpfrt + nModes=1 + scalingCoeff=10
 
@@ -25,8 +25,4 @@ rho = 1.0
 residualTol = 1.0e-06
 
 [CASEDATA]
-# Hill-height scaling factor for ensemble runs.
-# Each ensemble member's templated .par overrides this value.
-# 1.0 reproduces the baseline ERCOFTAC periodic hill geometry
-# (peak height = 28.0 in the bottomph polynomial scale).
 hillScale = 1.0
