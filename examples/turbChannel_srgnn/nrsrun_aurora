@@ -32,7 +32,7 @@ echo "#PBS -A <project_name>" >> $RFILE
 echo "#PBS -q debug" >> $RFILE
 echo "#PBS -k doe" >> $RFILE
 echo "#PBS -j oe" >> $RFILE
-echo "cd $PBS_O_WORKDIR" >> $RFILE
+echo "cd \$PBS_O_WORKDIR" >> $RFILE
 
 echo -e "\nexport TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
 
