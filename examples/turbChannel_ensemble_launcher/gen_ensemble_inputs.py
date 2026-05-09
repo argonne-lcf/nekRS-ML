@@ -142,6 +142,8 @@ ensemble["ensembles"]["nekRS_test"] = {
     "run_dir": [outdir + "/" + r for r in rundirs],
     "cmd_template": f"{os.getenv('NEKRS_HOME')}/bin/nekrs --setup turbChannel --backend dpcpp --device-id 0",
     "cpu_affinity": [1, 8, 16, 24, 32, 40, 53, 60, 68, 76, 84, 92],
+    "stdout_file": "stdout.log",
+    "stderr_file": "stderr.log",
 }
 with open(os.path.join(outdir, "config.json"), "w") as f:
     json.dump(ensemble, f, indent=4)
