@@ -7,6 +7,7 @@ set -e
 : ${NEKRS_BACKEND:="dpcpp"}
 : ${RANKS_PER_NODE:=12}
 : ${CPU_BIND_LIST:="1:8:16:24:32:40:53:60:68:76:84:92"}
+: ${CPU_BIND_LIST_EL:="1,8,16,24,32,40,53,60,68,76,84,92"}
 : ${OCCA_DPCPP_COMPILER_FLAGS:="-O3 -fsycl -fsycl-targets=intel_gpu_pvc -ftarget-register-alloc-mode=pvc:auto -fma"}
 : ${ONEAPI_SDK:=""}
 : ${FRAMEWORKS_MODULE:="frameworks"}
@@ -52,7 +53,7 @@ echo -e "\n# Build nekRS cache" >>$RFILE
 echo "mpiexec -n ${RANKS_PER_NODE} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND} --build-only ${RANKS_PER_NODE}" >> $RFILE
 
 echo -e "\n# Create per-member run dirs and EnsembleLauncher configs" >>$RFILE
-echo "python gen_ensemble_inputs.py ${case} --hillScale 0.8,1.2,${nodes} --ppn ${RANKS_PER_NODE} --cpu-bind \"list:${CPU_BIND_LIST}\" --backend ${NEKRS_BACKEND} --system aurora" >> $RFILE
+echo "python gen_ensemble_inputs.py ${case} --hillScale 0.8,1.2,${nodes} --ppn ${RANKS_PER_NODE} --cpu-bind \"${CPU_BIND_LIST_EL}\" --backend ${NEKRS_BACKEND} --system aurora" >> $RFILE
 
 echo -e "\n# Launch the ensemble via the EnsembleLauncher CLI" >>$RFILE
 echo "echo -e \"\\n\\nStarting ensemble on ${nodes} nodes ...\"" >> $RFILE
