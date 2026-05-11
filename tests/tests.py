@@ -131,9 +131,9 @@ class TGVOnlineTrajAdios(NekRSMLOnlineTest):
 
 @rfm.simple_test
 class PeriodicHillEnsemble(EnsembleTest):
-    num_members      = parameter([4])
+    num_members = parameter([4])
     nodes_per_member = parameter([1])
-    ranks_per_node   = parameter([12])
+    ranks_per_node = parameter([12])
 
     def __init__(self):
         super().__init__(
