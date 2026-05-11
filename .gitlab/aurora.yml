@@ -12,6 +12,8 @@ stages:
 setup:
   stage: submit
   extends: .aurora-shell-runner
+  when: manual
+  allow_failure: false
   script:
     - |
       cd ${WRK_DIR}
