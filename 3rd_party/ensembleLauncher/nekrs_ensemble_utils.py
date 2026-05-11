@@ -34,6 +34,8 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
+from ensemble_launcher.config import LauncherConfig, PolicyConfig, SystemConfig
+from ensemble_launcher.helper_functions import get_nodes
 
 _SECTION_RE = re.compile(r"^\s*\[(?P<name>[^\]]+)\]\s*$")
 
@@ -153,8 +155,11 @@ def apply_par_overrides(
     formatted with ``%.10g``; booleans become ``true``/``false``; everything
     else is ``str()``-coerced.
     """
-    pending: Dict[str, Dict[str, str]] = {
-        sect.lower(): {k: _fmt_par_value(v) for k, v in kv.items()}
+    pending: Dict[str, Dict[str, tuple]] = {
+        sect.lower(): {
+            k.strip().lower(): (k.strip(), _fmt_par_value(v))
+            for k, v in kv.items()
+        }
         for sect, kv in overrides.items()
     }
     out: List[str] = []
@@ -176,7 +181,7 @@ def apply_par_overrides(
             key, _, _rest = stripped.partition("=")
             key_lc = key.strip().lower()
             if section in pending and key_lc in pending[section]:
-                value = pending[section].pop(key_lc)
+                _, value = pending[section].pop(key_lc)
                 lead = line[: len(line) - len(line.lstrip())]
                 out.append(f"{lead}{key.strip()} = {value}\n")
                 continue
@@ -188,8 +193,8 @@ def apply_par_overrides(
             out.append("\n")
         for sect, kv in leftover.items():
             out.append(f"\n[{sect.upper()}]\n")
-            for k, v in kv.items():
-                out.append(f"{k} = {v}\n")
+            for _, (orig_key, value) in kv.items():
+                out.append(f"{orig_key} = {value}\n")
 
     return out
 
@@ -207,6 +212,7 @@ def write_ensemble_configs(
     member_dirs: Sequence[Path],
     case_name: str,
     nekrs_home: str,
+    system_name: str,
     *,
     nodes_per_member: int = 1,
     ppn: int = 12,
@@ -214,40 +220,15 @@ def write_ensemble_configs(
     backend: str = "dpcpp",
     cpu_bind: Optional[str] = None,
     ensemble_name: str = "nekrs_ensemble",
-    extra_nrs_args: str = "--device-id 0",
-    sys_name: str = "aurora",
-    ncpus_per_node: int = 104,
-    ngpus_per_node: int = 12,
-    cpus: Optional[Sequence[int]] = None,
-    gpus: Optional[Sequence] = None,
-    launcher_config: Optional[Dict[str, object]] = None,
+    extra_nrs_args: Optional[str] = None,
 ) -> Dict[str, str]:
-    """Write the three JSON files the EnsembleLauncher CLI consumes.
+    """Write the three JSON config files that the EnsembleLauncher CLI consumes.
 
     Files written into ``out_dir``:
 
-    * ``config.json``          -- the ``ensembles`` block. All members share
-                                  ``cmd_template`` (``$NEKRS_HOME/bin/nekrs
-                                  --setup <case> --backend <backend>``); only
-                                  ``run_dir``/``launch_dir`` differ. The
-                                  ``relation`` is ``"one-to-one"`` so member
-                                  *i* runs in ``member_dirs[i]``.
-    * ``system_config.json``   -- ``SystemConfig`` (per-node CPU / GPU
-                                  counts and explicit ID lists). On Aurora,
-                                  ``ncpus_per_node=104``, ``ngpus_per_node=12``
-                                  (one tile per GPU process).
-    * ``launcher_config.json`` -- ``LauncherConfig`` (executor / comm /
-                                  reporting). Sensible defaults for an HPC
-                                  job; override via ``launcher_config``.
-
-    The trio is then launched with::
-
-        el start <out_dir>/config.json \\
-            --system-config-file   <out_dir>/system_config.json \\
-            --launcher-config-file <out_dir>/launcher_config.json
-
-    Per-task fields not set here -- e.g. ``cpu_affinity``, ``gpu_affinity`` --
-    can be added by the caller by editing ``config.json`` after the fact.
+    * ``config.json``          -- defines the ensemble
+    * ``system_config.json``   -- defines the system resources
+    * ``launcher_config.json`` -- defines the launcher configuration
 
     Returns a dict of {kind: written_path}.
     """
@@ -256,52 +237,58 @@ def write_ensemble_configs(
 
     cmd = (
         f"{nekrs_home}/bin/nekrs --setup {case_name} "
-        f"--backend {backend} {extra_nrs_args}"
+        f"--backend {backend} --device-id 0" + (f" {extra_nrs_args}" if extra_nrs_args else "")
     ).strip()
     dirs = [str(p) for p in member_dirs]
 
-    # 1) ensemble config -- the ensembles block
+    # Ensemble config
     ensemble_cfg: Dict[str, object] = {
         "ensembles": {
             ensemble_name: {
                 "nnodes": nodes_per_member,
                 "ppn": ppn,
                 "ngpus_per_process": ngpus_per_process,
-                "launcher": "mpi",
+                "executor_name": "async_mpi",
                 "relation": "one-to-one",
                 "run_dir": dirs,
-                "launch_dir": dirs,
                 "cmd_template": cmd,
+                "cpu_affinity": cpu_bind,
+                "stdout_file": "nekrs.out",
+                "stderr_file": "nekrs.err",
             }
         },
     }
-    if cpu_bind:
-        ensemble_cfg["ensembles"][ensemble_name]["launcher_options"] = {
-            "cpu-bind": cpu_bind,
-        }
 
-    # 2) system config -- SystemConfig
-    sys_cfg: Dict[str, object] = {
-        "name": sys_name,
-        "ncpus": ncpus_per_node,
-        "ngpus": ngpus_per_node,
-        "cpus": list(cpus) if cpus is not None else list(range(ncpus_per_node)),
-        "gpus": list(gpus) if gpus is not None else list(range(ngpus_per_node)),
-    }
+    # System config
+    if system_name == "aurora":
+        cpus = list(range(104))
+        cpus.pop(52)
+        cpus.pop(0)
+        gpus = list(range(12))
+    elif system_name == "polaris":
+        cpus = list(range(32))
+        gpus = list(range(4))
+    else:
+        raise ValueError(f"Unsupported system: {system_name}")
 
-    # 3) launcher config -- LauncherConfig
-    launcher_cfg: Dict[str, object] = {
-        "child_executor_name": "mpi",
-        "task_executor_name": "mpi",
-        "comm_name": "zmq",
-        "report_interval": 10.0,
-        "return_stdout": True,
-        "worker_logs": True,
-        "master_logs": True,
-    }
-    if launcher_config:
-        launcher_cfg.update(launcher_config)
+    sys_config = SystemConfig(
+        name=system_name,
+        cpus=cpus,
+        ncpus=len(cpus),
+        gpus=gpus,
+        ngpus=len(gpus),
+    )
 
+    # Launcher config
+    launcher_config = LauncherConfig(
+        child_executor_name="async_mpi",
+        task_executor_name="async_mpi",
+        return_stdout=True,
+        children_scheduler_policy="fixed_leafs_children_policy",
+        policy_config=PolicyConfig(nlevels=2, leaf_nodes=len(get_nodes()) // nodes_per_member),
+    )
+
+    # Write configs
     paths = {
         "config": str(out / "config.json"),
         "system": str(out / "system_config.json"),
@@ -310,8 +297,8 @@ def write_ensemble_configs(
     with open(paths["config"], "w") as f:
         json.dump(ensemble_cfg, f, indent=4)
     with open(paths["system"], "w") as f:
-        json.dump(sys_cfg, f, indent=4)
+        json.dump(sys_config.model_dump(), f, indent=4)
     with open(paths["launcher"], "w") as f:
-        json.dump(launcher_cfg, f, indent=4)
+        json.dump(launcher_config.model_dump(), f, indent=4)
 
     return paths

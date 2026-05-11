@@ -17,16 +17,12 @@ from pathlib import Path
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
-NEKRS_ML_ROOT = HERE.parents[1]
-sys.path.append(str(NEKRS_ML_ROOT / "3rd_party" / "ensembleLauncher"))
+sys.path.append(os.path.join(os.environ["NEKRS_HOME"], "3rd_party", "ensembleLauncher"))
 
 from nekrs_ensemble_utils import ( 
     setup_ensemble_dirs,
     write_ensemble_configs,
 )
-
-
-CASE_NAME = "periodicHill"
 
 
 def _parse_range(spec: str) -> np.ndarray:
@@ -54,8 +50,12 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument(
+        "case",
+        help="Case name (basename of .par/.udf/.usr/.re2, e.g. 'periodicHill').",
+    )
+    p.add_argument(
         "--hillScale",
-        default="0.8,1.5,4",
+        default="0.8,1.2,4",
         help=(
             "hillScale sweep specified either as 'min,max,N' (linspace) or "
             "as an explicit comma-separated list of values."
@@ -96,7 +96,7 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--cpu-bind",
-        default="list:1:8:16:24:32:40:53:60:68:76:84:92",
+        default="",
         help="mpiexec --cpu-bind argument forwarded via launcher_options.",
     )
     p.add_argument(
@@ -109,9 +109,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-
-    if "NEKRS_HOME" not in os.environ:
-        raise EnvironmentError("NEKRS_HOME must be set before running this script")
+    case_name = args.case
 
     cache_dir = HERE / ".cache"
     if not cache_dir.is_dir():
@@ -143,26 +141,26 @@ def main() -> None:
     )
 
     member_dirs = setup_ensemble_dirs(
-        case_name=CASE_NAME,
+        case_name=case_name,
         members=members,
         base_dir=str(HERE),
         output_dir=args.outdir,
-        copy_files=[f"{CASE_NAME}.udf", f"{CASE_NAME}.usr"],
-        symlink_files=[f"{CASE_NAME}.re2", ".cache"],
+        copy_files=[f"{case_name}.udf", f"{case_name}.usr"],
+        symlink_files=[f"{case_name}.re2", ".cache"],
     )
 
     paths = write_ensemble_configs(
         out_dir=args.outdir,
         member_dirs=member_dirs,
-        case_name=CASE_NAME,
+        case_name=case_name,
         nekrs_home=os.environ["NEKRS_HOME"],
+        system_name=args.system,
         nodes_per_member=args.nodes_per_member,
         ppn=args.ppn,
         ngpus_per_process=args.ngpus_per_process,
         backend=args.backend,
-        cpu_bind=args.cpu_bind,
         ensemble_name=args.ensemble_name,
-        sys_name=args.system,
+        cpu_bind=args.cpu_bind,
     )
 
     print(f"[gen_ensemble_inputs] {len(member_dirs)} run directories under {args.outdir}")
