@@ -229,7 +229,7 @@ def _emit_lselect_option_nodes_only(self, job):
 
     Upstream ``PbsJobScheduler`` emits
     ``-l select=N:mpiprocs=…:ncpus=…`` (see ReFrame's
-    ``reframe/core/schedulers/pbs.py``). 
+    ``reframe/core/schedulers/pbs.py``).
     Remove the mpiprocs and ncpus options since they cause issues
     for some workloads.
     """
