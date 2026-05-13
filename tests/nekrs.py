@@ -829,10 +829,14 @@ class EnsembleTest(NekRSMLTest):
                 "python",
                 "gen_ensemble_inputs.py",
                 self.case,
-                "--ppn", str(self.rpn),
-                "--cpu-bind", f'"{self.cpu_bind_list_el}"',
-                "--backend", backend,
-                "--system", self.system,
+                "--ppn",
+                str(self.rpn),
+                "--cpu-bind",
+                f'"{self.cpu_bind_list_el}"',
+                "--backend",
+                backend,
+                "--system",
+                self.system,
                 *self._gen_args,
             ]),
         ]
@@ -872,25 +876,32 @@ class EnsembleTest(NekRSMLTest):
         # JSON config). Swap the job's launcher to the local one *after* the
         # prerun mpiexec strings have already been baked in above.
         from reframe.core.backends import getlauncher
+
         self.job.launcher = getlauncher("local")()
 
     @sanity_function
     def check_run(self):
         n_members = sn.extractsingle(
             r"ENSEMBLE_SUMMARY n_members=(\d+) n_ok=\d+",
-            self.stdout, 1, int,
+            self.stdout,
+            1,
+            int,
         )
         n_ok = sn.extractsingle(
             r"ENSEMBLE_SUMMARY n_members=\d+ n_ok=(\d+)",
-            self.stdout, 1, int,
+            self.stdout,
+            1,
+            int,
         )
         return sn.all([
             sn.assert_eq(
-                n_members, self._members,
+                n_members,
+                self._members,
                 msg=f"expected {self._members} member dirs, got {{0}}",
             ),
             sn.assert_eq(
-                n_ok, self._members,
+                n_ok,
+                self._members,
                 msg=f"only {{0}} of {self._members} members finished cleanly",
             ),
         ])
