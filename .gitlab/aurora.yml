@@ -12,7 +12,11 @@ stages:
 setup:
   stage: submit
   extends: .aurora-shell-runner
-  when: manual
+  # Trigger/API pipelines (e.g. GitHub Actions → trigger token) run immediately.
+  # MR and web pipelines stay manual so Aurora is not used on every push.
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "trigger"
+    - when: manual
   allow_failure: false
   script:
     - |

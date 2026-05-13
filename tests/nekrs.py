@@ -803,8 +803,20 @@ class EnsembleTest(NekRSMLTest):
 
     @property
     def venv_path(self):
-        # `setup_case --ensemble el` appends `_el` to VENV_PATH
-        return super().venv_path + "_el"
+        return f"{self.venv_path_prefix}_{self.client}_el"
+
+    def setup_cmd(self, extra_args=[]):
+        # No model by default
+        return lst2cmd([
+            self.setup_case_path,
+            self.current_system.name,
+            self.nekrs_home,
+            "--venv_path",
+            self.venv_path_prefix,
+            "--nodes",
+            str(self.nn),
+            *extra_args,
+        ])
 
     def set_prerun_cmds(self):
         backend = self.current_partition.extras["occa_backend"]

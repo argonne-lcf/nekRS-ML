@@ -9,6 +9,9 @@ the `--config-file` / `-cfg` option of `run.sh`.
 The `core.py` contains thin wrappers over `reframe.CompileOnlyRegressionTest` and
 `reframe.RunOnlyRegressionTest` which are named `CompileOnlyTest` and `RunOnlyTest`
 respectively. These classes are used based on the type of test we want to execute.
+They also patch ReFrame's PBS scheduler so submitted jobs use
+`#PBS -l select=<N>` (node count only), instead of the default
+`select=N:mpiprocs=…:ncpus=…` string from upstream ReFrame.
 
 ## Prerequisites
 

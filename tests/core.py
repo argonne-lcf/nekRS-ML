@@ -224,6 +224,53 @@ def wait_fixed(self, job):
         time.sleep(next(intervals))
 
 
+def _emit_lselect_option_nodes_only(self, job):
+    """PBS ``-l select``: node count only (no ``mpiprocs`` / ``ncpus`` / GPUs).
+
+    Upstream ``PbsJobScheduler`` emits
+    ``-l select=N:mpiprocs=…:ncpus=…`` (see ReFrame's
+    ``reframe/core/schedulers/pbs.py``). 
+    Remove the mpiprocs and ncpus options since they cause issues
+    for some workloads.
+    """
+    if job.num_tasks is not None:
+        num_tasks_per_node = job.num_tasks_per_node or 1
+        num_tasks = job.num_tasks
+        num_nodes = num_tasks // num_tasks_per_node
+        select_opt = f"-l select={num_nodes}"
+    else:
+        select_opt = None
+
+    rem_opts = []
+    verb_opts = []
+    if self._sched_access_in_submit:
+        all_opts = (*job.options, *job.cli_options)
+    else:
+        all_opts = (*job.sched_access, *job.options, *job.cli_options)
+
+    for opt in all_opts:
+        if opt.startswith("-"):
+            rem_opts.append(opt)
+        elif opt.startswith("#"):
+            verb_opts.append(opt)
+        else:
+            if select_opt is None:
+                select_opt = f"-l select={opt}"
+            else:
+                select_opt += f":{opt}"
+
+    if select_opt is not None:
+        formatted_opts = [self._format_option(select_opt)]
+    else:
+        formatted_opts = []
+
+    formatted_opts += [
+        *(self._format_option(opt) for opt in rem_opts),
+        *verb_opts,
+    ]
+    return formatted_opts
+
+
 class CompileOnlyTest(rfm.CompileOnlyRegressionTest):
     project = variable(str, value="")
     queue = variable(str, value="")
@@ -246,6 +293,8 @@ class CompileOnlyTest(rfm.CompileOnlyRegressionTest):
         PbsJobScheduler.wait = wait_fixed
         # FIXME: Colleen testing the poll
         PbsJobScheduler.poll = poll_fixed
+        # PBS: request node count only in ``-l select`` (see module docstring).
+        PbsJobScheduler._emit_lselect_option = _emit_lselect_option_nodes_only
 
 
 class RunOnlyTest(rfm.RunOnlyRegressionTest):
@@ -270,6 +319,8 @@ class RunOnlyTest(rfm.RunOnlyRegressionTest):
         PbsJobScheduler.wait = wait_fixed
         # FIXME: Colleen testing the poll
         PbsJobScheduler.poll = poll_fixed
+        # PBS: request node count only in ``-l select`` (see module docstring).
+        PbsJobScheduler._emit_lselect_option = _emit_lselect_option_nodes_only
 
     @run_before("run")
     def set_scheduler_options(self):
