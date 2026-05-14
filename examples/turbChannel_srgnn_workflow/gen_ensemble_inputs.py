@@ -1,17 +1,21 @@
 """
 Stage EnsembleLauncher directories for turbChannel_srgnn_workflow (step 3).
 
-After a single-node nekRS run has written field checkpoints, ``--p-orders``
-lists either **polynomial orders** in ``1..9`` (e.g. ``7,1`` → globs
-``<case>_p70.f*`` and ``<case>_p10.f*``) or **literal p-tags** (e.g. ``70,10``)
-when every value is ``≥ 10`` and divisible by ``10``.
+After a pilot nekRS run has written field checkpoints as ``<case>0.f#####`` (no
+polynomial order in the filename), this script globs those files, takes a
+comma-separated list of **polynomial orders** (``--p-orders``, e.g. ``7,2``),
+and builds the **Cartesian product**: one ensemble member per ``(.f`` file,
+``p``-order) pair.
 
-1. Finds all requested checkpoints under this example directory.
-2. Creates one run directory per checkpoint under ``./run_dir/<member>/``.
-3. Writes a per-member ``.par`` from the template with ``[GENERAL]`` overrides:
-   ``startFrom``, ``numSteps``, and ``polynomialOrder`` from the checkpoint
-   (``p<PP>`` → ``polynomialOrder = PP / 10``, e.g. ``p70`` → ``7``).
-4. Symlinks each checkpoint into its member dir, plus shared ``.re2``, ``.cache``, etc.
+1. Finds all ``<case>0.f*`` checkpoints under this example directory.
+2. Creates one run directory per pair under ``./run_dir/<member>/``; member
+   names tag both the frame and the order (e.g. ``turbChannel0_f00000_p7``).
+3. Writes a per-member ``.par`` with ``[GENERAL]`` overrides: ``startFrom``,
+   ``numSteps``, and ``polynomialOrder`` (from ``--p-orders``, not from the
+   filename).
+4. Symlinks each checkpoint into the member dir as ``restart.fld`` (target is
+   the real ``<case>0.f#####`` next to the template), plus shared ``.re2``,
+   ``.cache``, etc.
 
 Then writes the three EnsembleLauncher JSON configs. Launch with ``el start``
 as in ``periodicHill_ensemble``.
@@ -24,7 +28,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import List, Sequence
+from typing import List
 
 HERE = Path(__file__).resolve().parent
 sys.path.append(
@@ -36,110 +40,57 @@ from nekrs_ensemble_utils import (
     write_ensemble_configs,
 )
 
+# Symlink name in each member cwd; ``startFrom`` in the generated .par must match.
+RESTART_LINK_NAME = "restart.fld"
+
 
 def _field_frame_index(path: Path) -> int:
     m = re.search(r"\.f(\d+)$", path.name, re.IGNORECASE)
     return int(m.group(1)) if m else -1
 
 
-def _pp_tag(path: Path, case_name: str) -> int:
-    """Return the ``PP`` in ``<case>_p<PP>.f#####``."""
-    m = re.search(rf"{re.escape(case_name)}_p(\d+)\.", path.name, re.IGNORECASE)
-    if not m:
-        raise ValueError(
-            f"Checkpoint name {path.name!r} does not match "
-            f"{case_name}_p<PP>.f##### (cannot read p-tag)."
-        )
-    return int(m.group(1))
-
-
-def polynomial_order_from_checkpoint(path: Path, case_name: str) -> int:
-    """Map nek field suffix ``p<PP>`` to ``[GENERAL] polynomialOrder`` (``PP / 10``)."""
-    pp = _pp_tag(path, case_name)
-    if pp % 10 != 0:
-        raise ValueError(
-            f"Expected p-tag in {path.name!r} to be a multiple of 10 (got p{pp}); "
-            "nekRS multiscale naming here is p(10*polynomialOrder)."
-        )
-    return pp // 10
-
-
-def p_file_suffixes_from_p_orders_arg(values: List[int]) -> List[int]:
-    """Map ``--p-orders`` integers to nek filename digits ``PP`` in ``_pPP``.
-
-    * If **every** value is in ``1..9``, treat them as **polynomial orders** and
-      use ``PP = 10 * N`` (``7,1`` → ``70``, ``10`` for ``p70``, ``p10`` files).
-    * If **every** value is ``>= 10`` and divisible by ``10``, treat them as
-      literal **p-tags** (``70,10`` → ``70``, ``10``).
-
-    Mixed lists like ``1,70`` are rejected. For polynomial order ``>= 10``,
-    pass literal p-tags (e.g. ``100`` for ``p100`` files).
-    """
+def parse_p_orders(values: List[int]) -> List[int]:
+    """Comma-separated polynomial orders (each >= 1)."""
     if not values:
         raise ValueError("--p-orders produced an empty list")
     if any(v < 1 for v in values):
         raise ValueError(f"--p-orders values must be >= 1, got {values!r}")
-
-    all_poly_small = all(1 <= v <= 9 for v in values)
-    all_literal_tags = all(v >= 10 and v % 10 == 0 for v in values)
-
-    if all_poly_small:
-        return [10 * v for v in values]
-    if all_literal_tags:
-        return values
-
-    raise ValueError(
-        "--p-orders must be either (a) all polynomial orders in 1..9, e.g. 7,1 "
-        "→ …_p70.f*, …_p10.f*, or (b) all literal nek p-tags (each ≥10 and "
-        f"divisible by 10), e.g. 70,10. Got: {values!r}"
-    )
+    return values
 
 
-def discover_snapshots_for_case(
-    base: Path, case_name: str, patterns: Sequence[str]
-) -> List[Path]:
-    seen: set[Path] = set()
+def discover_pilot_checkpoints(base: Path, case_name: str) -> List[Path]:
+    """All ``<case>0.f#####`` field files directly under ``base``."""
+    pat = re.compile(rf"^{re.escape(case_name)}0\.f\d+$", re.IGNORECASE)
     out: List[Path] = []
-    for pattern in patterns:
-        for p in base.glob(pattern):
-            if not p.is_file():
-                continue
-            try:
-                _pp_tag(p, case_name)
-            except ValueError:
-                continue
-            rp = p.resolve()
-            if rp in seen:
-                continue
-            seen.add(rp)
-            out.append(p)
+    for p in base.glob(f"{case_name}0.f*"):
+        if not p.is_file():
+            continue
+        if not pat.match(p.name):
+            continue
+        out.append(p)
 
-    def sort_key(p: Path) -> tuple:
-        try:
-            pp = _pp_tag(p, case_name)
-        except ValueError:
-            pp = 0
-        return (pp, _field_frame_index(p), p.name)
+    def sort_key(path: Path) -> tuple:
+        return (_field_frame_index(path), path.name.lower())
 
     out.sort(key=sort_key)
     return out
 
 
-def member_name_for_snapshot(path: Path, case_name: str) -> str:
-    """Filesystem-safe directory name; includes p-tag so p70 and p10 differ."""
-    idx = _field_frame_index(path)
-    pp = _pp_tag(path, case_name)
+def member_dir_name(snap: Path, case_name: str, poly_order: int) -> str:
+    """Directory name: checkpoint stem + frame + polynomial order."""
+    idx = _field_frame_index(snap)
     if idx >= 0:
-        return f"from_p{pp}_f{idx:05d}"
-    safe = re.sub(r"[^\w.\-]+", "_", path.name)
-    return f"cp_p{pp}_{safe}"
+        return f"{case_name}0_f{idx:05d}_p{poly_order}"
+    safe = re.sub(r"[^\w.\-]+", "_", snap.name)
+    return f"{safe}_p{poly_order}"
 
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description=(
-            "Build per-checkpoint ensemble run dirs for turbChannel_srgnn_workflow "
-            "(one member per .f; startFrom, numSteps, polynomialOrder from checkpoint)."
+            "Build ensemble run dirs for turbChannel_srgnn_workflow: one member "
+            "per (pilot <case>0.f##### checkpoint, --p-orders entry); restart "
+            f"linked as {RESTART_LINK_NAME}."
         ),
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
@@ -150,11 +101,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--p-orders",
         required=True,
-        help=(
-            "Comma-separated integers: either polynomial orders 1..9 (e.g. 7,1 "
-            "→ globs …_p70.f*, …_p10.f*) or literal p-tags (e.g. 70,10 when each "
-            "value is ≥10 and divisible by 10)."
-        ),
+        help="Comma-separated polynomial orders for each checkpoint (e.g. 7,2).",
     )
     p.add_argument(
         "--num-steps",
@@ -224,39 +171,41 @@ def main() -> None:
         for x in args.p_orders.split(",")
         if x.strip()
     ]
-    pp_tags = p_file_suffixes_from_p_orders_arg(raw_orders)
-    patterns = [f"{case_name}_p{pp}.f*" for pp in pp_tags]
-    pattern_desc = ", ".join(patterns)
+    poly_orders = parse_p_orders(raw_orders)
 
-    snapshots = discover_snapshots_for_case(HERE, case_name, patterns)
+    pattern = f"{case_name}0.f*"
+    snapshots = discover_pilot_checkpoints(HERE, case_name)
     if not snapshots:
         raise FileNotFoundError(
-            f"No checkpoints matched under {HERE} for {pattern_desc!r}. "
-            "Run the upstream nekRS step first, or adjust --p-orders."
+            f"No pilot checkpoints matched under {HERE} for {pattern!r}. "
+            "Run the upstream nekRS step first (expect "
+            f"'{case_name}0.f#####' files in this directory)."
         )
 
     members = []
     for snap in snapshots:
-        poly = polynomial_order_from_checkpoint(snap, case_name)
-        name = member_name_for_snapshot(snap, case_name)
-        base_name = snap.name
         rel = snap.name
-        members.append(
-            {
-                "name": name,
-                "par_overrides": {
-                    "GENERAL": {
-                        "startFrom": base_name,
-                        "numSteps": float(args.num_steps),
-                        "polynomialOrder": int(poly),
-                    }
-                },
-                "symlinks": {base_name: rel},
-            }
-        )
+        for poly in poly_orders:
+            name = member_dir_name(snap, case_name, poly)
+            members.append(
+                {
+                    "name": name,
+                    "par_overrides": {
+                        "GENERAL": {
+                            "startFrom": RESTART_LINK_NAME,
+                            "numSteps": float(args.num_steps),
+                            "polynomialOrder": int(poly),
+                        }
+                    },
+                    "symlinks": {RESTART_LINK_NAME: rel},
+                }
+            )
 
+    n_snap = len(snapshots)
+    n_poly = len(poly_orders)
     print(
-        f"[gen_ensemble_inputs] {len(members)} members from {pattern_desc!r}: "
+        f"[gen_ensemble_inputs] {len(members)} members "
+        f"({n_snap} checkpoints × {n_poly} p-orders {poly_orders}): "
         f"{[m['name'] for m in members]}"
     )
 
@@ -278,6 +227,15 @@ def main() -> None:
         copy_files=copy_files,
         symlink_files=symlink_files,
     )
+
+    for m, d in zip(members, member_dirs):
+        for dst_name in m.get("symlinks") or {}:
+            link = d / Path(dst_name).name
+            if not link.exists():
+                raise RuntimeError(
+                    f"Expected restart symlink missing: {link} "
+                    f"(member {m['name']!r})."
+                )
 
     paths = write_ensemble_configs(
         out_dir=args.outdir,

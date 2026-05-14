@@ -30,5 +30,4 @@ zLength = 3.141592653
 betaY = 2.2
 
 [ML]
-gnnPolynomialOrder = 1
 srGNNMultiscale = true

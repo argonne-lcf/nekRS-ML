@@ -140,30 +140,11 @@ void UDF_Setup()
   bool verbose = true;
   int nekMeshPOrder;
   platform->options.getArgs("POLYNOMIAL DEGREE",nekMeshPOrder);
-  gnn_t* graph_ho = new gnn_t(nrs,nekMeshPOrder,verbose);
-  graph_ho->gnnSetup();
-  graph_ho->gnnWrite();
-
-  // then write low order input files
-  int gnnMeshPOrder;
-  platform->options.getArgs("GNN POLY ORDER",gnnMeshPOrder);
-  gnn_t* graph_lo = new gnn_t(nrs,gnnMeshPOrder,verbose);
-  graph_lo->gnnSetup();
-  graph_lo->gnnWrite();
+  gnn_t* graph = new gnn_t(nrs,nekMeshPOrder,verbose);
+  graph->gnnSetup();
+  graph->gnnSRGNNWrite();
 }
 
 void UDF_ExecuteStep(double time, int tstep)
 {
-  // Write interpolated checkpoint at polynomial order 1
-  static std::unique_ptr<iofld> iofld_N1;
-  static std::unique_ptr<iofld> iofld_N7;
-  if (nrs->checkpointStep) {
-    outfld_wrapper(nrs, iofld_N1, 1, time, tstep, "turbChannel_p1");
-    outfld_wrapper(nrs, iofld_N7, 7, time, tstep, "turbChannel_p7");
-  }
-
-  if (nrs->lastStep) {
-    if (iofld_N1) iofld_N1->close();
-    if (iofld_N7) iofld_N7->close();
-  }
 }

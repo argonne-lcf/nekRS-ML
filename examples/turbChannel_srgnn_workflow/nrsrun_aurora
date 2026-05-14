@@ -61,34 +61,46 @@ echo "TOTAL_NODES=${nodes}" >> $RFILE
 echo "TOTAL_RANKS=\$(( TOTAL_NODES * RANKS_PER_NODE ))" >> $RFILE
 
 echo -e "\n# Build nekRS cache" >>$RFILE
+echo "echo \"Building nekRS cache\"" >> $RFILE
 echo "mpiexec -n \${RANKS_PER_NODE} -ppn \${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND} --build-only \${RANKS_PER_NODE}" >> $RFILE
 
 echo -e "\n# Run initial nekRS simulation to generate high and low p order checkpoint files" >>$RFILE
+echo "echo \"Running initial nekRS simulation to generate high and low p order checkpoint files\"" >> $RFILE
 echo "mpiexec -n \${NEKRS_RANKS} -ppn \${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND} 2>&1 | tee nekrs.log" >> $RFILE
 
 echo -e "\n# Run ensemble of nekRS simulations starting from each high- and low-p checkpoint .f file" >>$RFILE
+echo "echo \"Preparing nekRS run directories and EnsembleLauncher configs\"" >> $RFILE
 echo "python gen_ensemble_inputs.py ${case} \\" >> $RFILE
-echo "    --p-orders 1,7 \\" >> $RFILE
+echo "    --p-orders 2,7 \\" >> $RFILE
 echo "    --num-steps 200 \\" >> $RFILE
 echo "    --nodes-per-member \${NODES_PER_NEKRS} \\" >> $RFILE
 echo "    --ppn \${RANKS_PER_NODE} \\" >> $RFILE
 echo "    --cpu-bind \"${CPU_BIND_LIST_EL}\" \\" >> $RFILE
 echo "    --backend ${NEKRS_BACKEND} \\" >> $RFILE
 echo "    --system aurora" >> $RFILE
+echo "echo \"Launching ensemble of nekRS simulations\"" >> $RFILE
 echo "el start ./run_dir/config.json \\" >> $RFILE
 echo "    --system-config-file   ./run_dir/system_config.json \\" >> $RFILE
 echo "    --launcher-config-file ./run_dir/launcher_config.json" >> $RFILE
 
+echo -e "\n# Collect snapshot paths from ensemble outputs (collect_ensemble_snaplists.py)" >>$RFILE
+echo "echo \"Collecting ensemble snapshot paths for nek_to_pt\"" >> $RFILE
+echo "eval \"\$(python ./collect_ensemble_snaplists.py ${case} --case-dir \"\$PWD\" --run-dir ${ENSEMBLE_RUN_DIR} --input-p ${ENSEMBLE_INPUT_P} --target-p ${ENSEMBLE_TARGET_P} --emit-shell)\"" >> $RFILE
+
 echo -e "\n# Generate training data from nekRS checkpoint files" >>$RFILE
+echo "echo \"Generating training data from nekRS checkpoint files\"" >> $RFILE
+echo "TARGET_SNAP_LIST=`ls run_dir/turbChannel0_f0000*_p7/*.f0*`" >> $RFILE
+echo "INPUT_SNAP_LIST=`ls run_dir/turbChannel0_f0000*_p2/*.f0*`" >> $RFILE
 echo "python ${NEKRS_HOME}/3rd_party/gnn/sr-gnn/nek_to_pt.py \\" >> $RFILE
 echo "    --case_path $PWD \\" >> $RFILE
-echo "    --target_snap_list turbChannel_p70.f00000 turbChannel_p70.f00001 turbChannel_p70.f00002 turbChannel_p70.f00003 turbChannel_p70.f00004 \\" >> $RFILE
-echo "    --input_snap_list turbChannel_p10.f00000 turbChannel_p10.f00001 turbChannel_p10.f00002 turbChannel_p10.f00003 turbChannel_p10.f00004 \\" >> $RFILE
+echo "    --target_snap_list TARGET_SNAP_LIST \\" >> $RFILE
+echo "    --input_snap_list INPUT_SNAP_LIST \\" >> $RFILE
 echo "    --target_poly_order 7 \\" >> $RFILE
-echo "    --input_poly_order 1 \\" >> $RFILE
+echo "    --input_poly_order 2 \\" >> $RFILE
 echo "    --n_element_neighbors 12" >> $RFILE
 
 echo -e "\n# Train model" >>$RFILE
+echo "echo \"Training model\"" >> $RFILE
 echo "mpiexec -n \${TOTAL_RANKS} -ppn \${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} \\" >> $RFILE
 echo "    python ${NEKRS_HOME}/3rd_party/gnn/sr-gnn/main.py \\" >> $RFILE
 echo "    epochs=5 \\" >> $RFILE
@@ -99,6 +111,7 @@ echo "    model_dir=$PWD/saved_models \\" >> $RFILE
 echo "    2>&1 | tee train.log" >> $RFILE
 
 echo -e "\n# Perform inference and generate files for visualization" >>$RFILE
+echo "echo \"Performing inference and generating files for visualization\"" >> $RFILE
 echo "python ${NEKRS_HOME}/3rd_party/gnn/sr-gnn/postprocess.py \\" >> $RFILE
 echo "    --model_path $PWD/saved_models/gnn_3_7_132_128_3_2_6_True.tar \\" >> $RFILE
 echo "    --case_path $PWD \\" >> $RFILE
@@ -106,7 +119,7 @@ echo "    --output_name ${case} \\" >> $RFILE
 echo "    --target_snap_list turbChannel_p70.f00000 \\" >> $RFILE
 echo "    --input_snap_list turbChannel_p10.f00000 \\" >> $RFILE
 echo "    --target_poly_order 7 \\" >> $RFILE
-echo "    --input_poly_order 1 \\" >> $RFILE
+echo "    --input_poly_order 2 \\" >> $RFILE
 echo "cd predictions/gnn_3_7_132_128_3_2_6_True" >> $RFILE
 echo "$NEKRS_HOME/bin/nrsvis turbChannel_pred" >> $RFILE
 echo "$NEKRS_HOME/bin/nrsvis turbChannel_error" >> $RFILE
