@@ -31,9 +31,7 @@ from pathlib import Path
 from typing import List
 
 HERE = Path(__file__).resolve().parent
-sys.path.append(
-    os.path.join(os.environ["NEKRS_HOME"], "3rd_party", "ensembleLauncher")
-)
+sys.path.append(os.path.join(os.environ["NEKRS_HOME"], "3rd_party", "ensembleLauncher"))
 
 from nekrs_ensemble_utils import (
     setup_ensemble_dirs,
@@ -251,7 +249,9 @@ def main() -> None:
         cpu_bind=args.cpu_bind or None,
     )
 
-    print(f"[gen_ensemble_inputs] {len(member_dirs)} run directories under {args.outdir}")
+    print(
+        f"[gen_ensemble_inputs] {len(member_dirs)} run directories under {args.outdir}"
+    )
     for kind, path in paths.items():
         print(f"[gen_ensemble_inputs] wrote {kind:<8} -> {path}")
     print(
