@@ -49,6 +49,7 @@ jobs:
           resp=$(curl -sS -w '\n%{http_code}' -X POST \
             --form "token=${GITLAB_TRIGGER_TOKEN}" \
             --form "ref=${REF}" \
+            --form "variables[CI_COMMIT_SHA]=${{ github.sha }}" \
             "${url}")
           body=$(echo "$resp" | sed '$d')
           code=$(echo "$resp" | tail -n1)
