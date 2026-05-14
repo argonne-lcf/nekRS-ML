@@ -27,9 +27,7 @@ from pathlib import Path
 from typing import List, Sequence
 
 HERE = Path(__file__).resolve().parent
-sys.path.append(
-    os.path.join(os.environ["NEKRS_HOME"], "3rd_party", "ensembleLauncher")
-)
+sys.path.append(os.path.join(os.environ["NEKRS_HOME"], "3rd_party", "ensembleLauncher"))
 
 from nekrs_ensemble_utils import (
     setup_ensemble_dirs,
@@ -219,11 +217,7 @@ def main() -> None:
             "members can share the same .cache"
         )
 
-    raw_orders = [
-        int(x.strip())
-        for x in args.p_orders.split(",")
-        if x.strip()
-    ]
+    raw_orders = [int(x.strip()) for x in args.p_orders.split(",") if x.strip()]
     pp_tags = p_file_suffixes_from_p_orders_arg(raw_orders)
     patterns = [f"{case_name}_p{pp}.f*" for pp in pp_tags]
     pattern_desc = ", ".join(patterns)
@@ -293,7 +287,9 @@ def main() -> None:
         cpu_bind=args.cpu_bind or None,
     )
 
-    print(f"[gen_ensemble_inputs] {len(member_dirs)} run directories under {args.outdir}")
+    print(
+        f"[gen_ensemble_inputs] {len(member_dirs)} run directories under {args.outdir}"
+    )
     for kind, path in paths.items():
         print(f"[gen_ensemble_inputs] wrote {kind:<8} -> {path}")
     print(
