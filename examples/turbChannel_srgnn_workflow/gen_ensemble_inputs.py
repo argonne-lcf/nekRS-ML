@@ -164,11 +164,7 @@ def main() -> None:
             "members can share the same .cache"
         )
 
-    raw_orders = [
-        int(x.strip())
-        for x in args.p_orders.split(",")
-        if x.strip()
-    ]
+    raw_orders = [int(x.strip()) for x in args.p_orders.split(",") if x.strip()]
     poly_orders = parse_p_orders(raw_orders)
 
     pattern = f"{case_name}0.f*"
@@ -231,8 +227,7 @@ def main() -> None:
             link = d / Path(dst_name).name
             if not link.exists():
                 raise RuntimeError(
-                    f"Expected restart symlink missing: {link} "
-                    f"(member {m['name']!r})."
+                    f"Expected restart symlink missing: {link} (member {m['name']!r})."
                 )
 
     paths = write_ensemble_configs(
