@@ -2,7 +2,8 @@
 
 : ${SYSTEM:="aurora:compute"}
 : ${PREFIX:="${PWD}/test_data"}
-: ${COMMIT="main"}
+#: ${COMMIT="main"}
+: ${COMMIT="$(git -C "$(dirname "$0")/.." rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"}
 : ${QUEUE:="prod"}
 : ${PROJECT:="datascience"}
 : ${FS:="home"}
@@ -36,14 +37,18 @@ print_help() {
   echo "Examples:"
   echo "  To run all the tests:"
   echo "    ./$(basename "$0") -t all -b"
-  echo "  To run all the offline tests:"
+  echo "  To run all the offline training tests:"
   echo "    ./$(basename "$0") -t offline -b"
-  echo "  To run all the online tests:"
+  echo "  To run all the online training tests:"
   echo "    ./$(basename "$0") -t online -b"
-  echo "  To run all the tests based on tgv:"
+  echo "  To run all the tests based on TGV case:"
   echo "    ./$(basename "$0") -t tgv -b"
   echo "  To run just the tgv_offline test:"
   echo "    ./$(basename "$0") -t tgv_offline$ -b"
+  echo "  To run all ensemble tests:"
+  echo "    ./$(basename "$0") -t ensemble -b"
+  echo "  To run only the periodicHill ensemble test:"
+  echo "    ./$(basename "$0") -t periodichill_ensemble$ -b"
   echo "  Please note that \"-b\" parameter is required only for the first run of each tag."
   echo "  You can pass --list-tags or -l to list all the test tags:"
   echo "    ./$(basename "$0") -l"

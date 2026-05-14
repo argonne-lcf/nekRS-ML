@@ -1,6 +1,6 @@
 import reframe as rfm
 import reframe.utility.sanity as sn
-from nekrs import NekRSMLOfflineTest, NekRSMLOnlineTest
+from nekrs import NekRSMLOfflineTest, NekRSMLOnlineTest, EnsembleTest
 import os
 
 
@@ -127,3 +127,21 @@ class TGVOnlineTrajAdios(NekRSMLOnlineTest):
             target_loss=6.9076e-01,
         )
         self.tags |= {"tgv_online_traj_adios"}
+
+
+@rfm.simple_test
+class PeriodicHillEnsemble(EnsembleTest):
+    num_members = parameter([4])
+    nodes_per_member = parameter([1])
+    ranks_per_node = parameter([12])
+
+    def __init__(self):
+        super().__init__(
+            case="periodicHill",
+            directory="periodicHill_ensemble",
+            members=self.num_members,
+            nodes_per_member=self.nodes_per_member,
+            rpn=self.ranks_per_node,
+            gen_args=["--hillScale", f"0.8,1.2,{self.num_members}"],
+        )
+        self.tags |= {"periodichill_ensemble"}
