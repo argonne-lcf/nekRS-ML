@@ -1,5 +1,3 @@
-#include "gnn.hpp"
-
 static dfloat ReTau;
 static dfloat zLength;
 static dfloat xLength;
@@ -134,36 +132,20 @@ void UDF_Setup()
   }
 
   useric(nrs);
-
-  // gnn plugin
-  // first write high order input files
-  bool verbose = true;
-  int nekMeshPOrder;
-  platform->options.getArgs("POLYNOMIAL DEGREE",nekMeshPOrder);
-  gnn_t* graph_hi = new gnn_t(nrs,nekMeshPOrder,verbose);
-  graph_hi->gnnSetup();
-  graph_hi->gnnSRGNNWrite();
-
-  // then write low order input files
-  int gnnMeshPOrder;
-  platform->options.getArgs("GNN POLY ORDER",gnnMeshPOrder);
-  gnn_t* graph_lo = new gnn_t(nrs,gnnMeshPOrder,verbose);
-  graph_lo->gnnSetup();
-  graph_lo->gnnSRGNNWrite();
 }
 
 void UDF_ExecuteStep(double time, int tstep)
 {
-  // Write interpolated checkpoint at polynomial order 2
-  static std::unique_ptr<iofld> iofld_N2;
-  static std::unique_ptr<iofld> iofld_N7;
+  // Write interpolated checkpoint through wrapper
+  int nekMeshPOrder;
+  platform->options.getArgs("POLYNOMIAL DEGREE",nekMeshPOrder);
+  static std::unique_ptr<iofld> iofld_srgnn;
+  std::string iofld_name = "turbChannel_p" + std::to_string(nekMeshPOrder);
   if (nrs->checkpointStep) {
-    outfld_wrapper(nrs, iofld_N2, 2, time, tstep, "turbChannel_p2");
-    outfld_wrapper(nrs, iofld_N7, 7, time, tstep, "turbChannel_p7");
+    outfld_wrapper(nrs, iofld_srgnn, nekMeshPOrder, time, tstep, iofld_name);
   }
 
   if (nrs->lastStep) {
-    if (iofld_N2) iofld_N2->close();
-    if (iofld_N7) iofld_N7->close();
+    if (iofld_N2) iofld_srgnn->close();
   }
 }

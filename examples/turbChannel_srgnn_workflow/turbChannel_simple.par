@@ -28,7 +28,3 @@ ReTau = 550
 xLength = 6.283185307 
 zLength = 3.141592653 
 betaY = 2.2
-
-[ML]
-gnnPolynomialOrder = 2
-srGNNMultiscale = true
