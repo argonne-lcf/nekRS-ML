@@ -1,15 +1,15 @@
-# Offline training of the SR-GNN model for mesh-based, three-dimensional super-resolution
+# SR-GNN Model Training Workflow with EnsembleLauncher
 
-This example demonstrates the pipeline for training and deploying the SR-GNN model on nekRS field data. It builds upon the [turbulent channel example](../turbChannel/) available with nekRS by modifying the `.par` and `.udf` files and calling on the scripts available in the [SR-GNN repository](../../3rd_party/gnn/sr-gnn/).
-The example was adapted from the work of Shivam Barwey (ANL) and is based on this [paper](https://www.sciencedirect.com/science/article/abs/pii/S0045782525003445).
+This example extends the [turbChannel_srgnn](../turbChannel_srgnn/) example to train the SR-GNN model using low-polynomial order nekRS data instead of data projected from high to low p-order. After an initial nekRS run saving both high and projected low p-order checkpoints, EnsembleLauncher (EL) is used to automatically run short nekRS simulations from each of the checkpoints and produce more realistic low-p snapshots to be used as the training inputs.
+The example still uses the [turbulent channel](../turbChannel/) as the flow case.
+The SR-GNN model is based on the [work](https://www.sciencedirect.com/science/article/abs/pii/S0045782525003445) of Prof. Shivam Barwey (U. Notre Dame).
 
-The following important steps and modifications are highlighted for this example:
+This example combines many of the tools demonstrated in the [turbChannel_srgnn](../turbChannel_srgnn/) and [periodicHill_ensemble](../periodicHill_ensemble/) examples, with the following additional details:
 
-* The `.par` file is modified to include the `[ML]` section, under which the polynomial order of the interpolated fields is specified with the `gnnPolynomialOrder` parameter. For this example, it is set to 1 in contrast with the target polynimial order used for the nekRS simulation, which is set to 7. The `srGNNMultiscale` parameter is also set to `true` to enable the multiscale feature in the `gnn` plugin when creating the element indices.
-* The `.udf` file is modified to write both the GNN data structures and the training data at both polynomial orders. In `UDF_Setup()`, we utilize the `gnn` plugin to write the graph data creating the `./gnn_outputs_poly_1` and `./gnn_outputs_poly_7` directories. In `UDF_ExecuteStep()`, we utilize a custom wrapper fuction called `outfld_wrapper()` to write a `p=1` and a `p=7` field each time. The `p=1` fields contain the input data to the SR-GNN model and the `p=7` fields contain the target data for training. Note that these fields must contain the coordinates, thus the `p=7` fields are written out explicitly with the wrapper. While this creates redundency in the field files saved by nekRS in this example, the explict use of the `outfld_wrapper()` to generate training data even at `p=7` is useful to provide ultimate control of the polynomial order desired for the training data (e.g., a `p=7` nekRS simulation could be used to generate training data at `p=1,3,5`).
-* After running neKRS and generating the graph and training data, the training data is generated calling the `nek_to_pt.py` script. This script takes some critical parameters as inputs, including a list of target field and input files to be converted to PyTorch Goemetric Data format. The `--n_element_neighbors` input flat determines how many neighboring elements are used in the super-resolution task, and is set an initial value of 12.
-* Training of the SR-GNN model is performed in parallel with PyTorch DDP calling the `main.py` script located in the `gnn/sr-gnn` directory. For the example, training is performed for a few epochs only. Note that `n_element_neighbors` matches the value used for the preprocessing step. The example uses 6 message passing layers for the GNN model, which has been observed to improve the accuracy of the model.
-* Finally, inference and postprocessing is performed with the `postprocess.py` script, which loads the saved model to produce predicted (super-resolved) and error fields. The script takes as inputs the path to the saved model, the name of the output nek fields, the list of nek fields to load for inference and for measuring the error in the predictions, and the number of neighbors. 
+* The example uses two `.par` files. `turbChannel.par` is very similar to the one used by the regular [turbChannel_srgnn](../turbChannel_srgnn/) example and is used to run the initial nekRS simulation writing the `gnn_outputs_poly_*` directories and the `.f` files for the high p-order used by nekRS and the lower p-order specified with the `gnnPolynomialOrder` parameter (in this case set to 2). The second file called `turbChannel_simple.par` is used by the second set of nekRS simulations launched with EL which start from the aforementioned `.f` files and simply advance the simulation for a small number of time steps writing additional `.f` files to be used for training.
+* The example also uses two `.udf` files. Similarly to above, `turbChannel.udf` is used for the initial simulation and `turbChannel_simple.udf` is used for the additional simulations launched with EL.
+* The example contains a `gen_ensemble_inputs.py` script used to prepare the ensemble of nekRS simulations by creating run directorties with the appropriate files and the JSON configuration for EL all stored in `./run_dir`. The main arguments to the script are the case name, the values of the polynimial orders used to run the additional nekRS simulations, the number of time steps to run. For each additional nekRS simulation, `turbChannel_simple.par` will be copied into the run directory and renamed to `turbChannel.par` with the correct polynomial order and number of time steps. Additionally, the appropriate `.f` checkpoint file from the initial simulation will be linked and renamed to `restart.fld` so the new simulation can restart from the correct snapshot and p-order.
+* The training data from the model is collected from the checkpoint files produced by the ensemble of nekRS simulations, with the low p-order simulations contributing the coarse inputs and the high p-order simulations contributing the target outputs. 
 
 
 ## Building nekRS
@@ -21,6 +21,7 @@ Requirements:
 * CMake version 3.21 or later
 * PyTorch, PyTorch Geometric and PyTorch Cluster
 * Pymech (for reaking nekRS files from Python)
+* EnsembleLauncher for orchestrating the ensemble of nekRS runs
 
 To build nekRS and the required dependencies, first clone our GitHub repository:
 
@@ -29,8 +30,7 @@ https://github.com/argonne-lcf/nekRS-ML.git
 ```
 
 Then, simply execute one of the build scripts contained in the repository.
-The HPC systems currently supported are for this example are:
-* [Polaris](https://docs.alcf.anl.gov/polaris/) (Argonne LCF)
+The HPC systems currently supported for this example are:
 * [Aurora](https://docs.alcf.anl.gov/aurora/) (Argonne LCF)
 
 For example, to build nekRS-ML on Aurora, from the login nodes execute 
@@ -42,33 +42,37 @@ For example, to build nekRS-ML on Aurora, from the login nodes execute
 ## Running the example
 
 Scripts are provided to conveniently generate run scripts and config files for the workflow on the different ALCF systems.
-Note that a virtual environment with PyTorch Geometric and other dependencies is needed to train the SR-GNN.
+Note that a virtual environment with EnsembleLauncher, PyTorch Geometric and PyTorch Cluster is needed to launch the ensemble and training/inference, and by default the `gen_run_script` will create one with the required dependencies.
 
-From a login node execute
-
+**From a login node** execute:
 ```sh
-./gen_run_script <system_name> </path/to/nekRS> -n <number_of_nodes>
+./gen_run_script <system_name> </path/to/nekRS>
 ```
 
-where `-n <number_of_nodes>` is needed to specify the number of nodes to run on. 
+For more information on how to use `gen_run_script`, use `--help`
 
-The script will produce a `run.sh` script specifically tailored to the desired system and using the desired nekRS install directory. **NOTE**: you will need to change the project name in the run script before submission.
-
-The `gen_run_script` takes a number of arguments, to see the list run 
 ```sh
-./gen_run_script <system_name> </path/to/nekRS> -h
+./gen_run_script <system_name> </path/to/nekRS> --help
 ```
 
-Finally, simply submit the run script for execution on the desired system
+The script will produce a `run.sh` script specifically tailored to the desired system and using the desired nekRS install directory. By default, the script is set up to run on 4 nodes. To change the number of nodes to run on, simply add the number of nodes to the script as follows
+
+```sh
+./gen_run_script <system_name> </path/to/nekRS> --nodes 8
+```
+
+Finally, to run the example simply submit the run script with
 
 ```bash
 qsub run.sh
 ```
 
-The `run.sh` script is composed of five steps:
+The `run.sh` script is composed of six steps:
 
-- A precompilation step in which nekRS is run with the --build-only flag. This is done such that the `.cache` directory can be built beforehand.
-- The nekRS simulation to generate the SR-GNN input files. This step produces the graph data at the higher and lower polynomial orders in `./gnn_outputs_poly_7` and `./gnn_outputs_poly_1`. It also produces the field data to be used for training at the two polynomial orders, which will be in `turbChannel_p70.f*` and `turbChannel_p10.f*` files.
-- A preprocessing step to convert the nekRS field data into PyTorch Geometric Data to be used for training. This step produces the `pt_datasets` directory containing the training and validation datasets.
-- SR-GNN training. This step trains the SR-GNN for a few epochs based on the data produced in the previus step. The output of this step is a model checkpoint stored inside `./saved_models`.
-- Finally, the SR-GNN is used to perform inference (i.e., postprocessing) and produce a super-resolved solution field and corresponding error field. This step uses the trained model checkpoint and evaluates it on the low-order `turbChannel_p10.f*` files.
+1. A precompilation step in which nekRS is run with the `--build-only` flag. This is done such that the `.cache` directory can be built beforehand.
+2. The initial nekRS simulation to generate the checkpoint `.f` files at the low and high p-orders and the `gnn_outputs_poly_*` directories. The example sets the higher p-order to 7 and the lower one to 2, however these values can be changed in the `run.sh` script.
+3. The ensemble of additional nek runs. First, `gen_ensemble_inputs.py` is executed to prepare the EL configuration and run directories, then EL is launched with the CLI command `el start`. 
+    * NOTE: The turbulent channel case can easily be run on a single node of Aurora using all PVC 6 GPUs (12 tiles). Therefore, the initial simulation and all other simulations launched by nekRS are set up to run on a single node. With 4 nodes available, this means initially in step 2, 3 nodes are not being utilized, but then all 4 nodes are used to run 4 parallel nekRS simulations during this step. Training also uses all 4 nodes. If more nodes are requested for this example, only the ensemble and training will benefit from these additional resources. Moreover, if this example is to be run on a different case requiring more nodes, simple change the value assigned to `NODES_PER_NEKRS` in the `run.sh` script and allocate sufficient number of nodes to run the workflow.
+4. Training data is collected from the ensemble of runs and the files are passed to the SR-GNN utility `nek_to_pt.py` to create the input data to the model in PyTorch format.
+5. Training of the SR-GNN model is performed in parallel using all available nodes and GPU.
+6. Inference is performed at the end to create `.f` files to be used to visualize the reconstruction of the SR-GNN model. 

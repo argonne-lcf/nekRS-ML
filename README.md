@@ -22,21 +22,22 @@ Some key functionalities of nekRS-ML are:
 * [In-memory data staging with SmartSim](./src/plugins/smartRedis.hpp): nekRS-ML can also be linked to the [SmartRedis](https://github.com/CrayLabs/SmartRedis) library, which when coupled with a [SmartSim](https://github.com/CrayLabs/SmartSim) workflow enables online training and inference with in-memory data-staging.
 * [Efficient deployment of nekRS ensembles](./examples/periodicHill_ensemble/): nekRS-ML provides utilities to setup and launch nekRS ensembles with [EnsembleLauncher](https://github.com/argonne-lcf/ensemble_launcher) (EL), which is a light-weight, scalable task launcher developed at the ALCF. This tool is useful for deploying parameter sweeps, scaling studies or gathering training data from various simulations by launching large ensembles on HPC systems.
 
-### Progression of AI-enabled examples
+### Progression of AI/ML-enabled examples
 
-nekRS-ML hosts a series of AI-enabled examples listed below in order of complexity to provide a smooth learning progression. 
+nekRS-ML hosts a series of AI/ML-enabled examples listed below in order of complexity to provide a smooth learning progression. 
 Users can find more details on each of the examples in the  README files contained within the respective directories. 
 
 * [tgv_gnn_offline](./examples/tgv_gnn_offline/): Offline training pipeline to generate data and perform time independent training of the Dist-GNN model.
 * [tgv_gnn_offline_coarse_mesh](./examples/tgv_gnn_offline_coarse_mesh/): Offline training pipeline to generate data and perform time independent training of the Dist-GNN model on a p-coarsened grid relative to the one used by the nekRS simulation.
 * [tgv_gnn_offline_traj](./examples/tgv_gnn_offline_traj/): Offline training pipeline to generate data and perform time dependent training of the Dist-GNN model.
-* [tuurbChannel_srgnn](./examples/turbChannel_srgnn/): Offline training pipeline to generate data, perform training, and evaluate the model through inference with the SR-GNN model. 
+* [turbChannel_srgnn](./examples/turbChannel_srgnn/): Offline training pipeline to generate data, perform training, and evaluate the model through inference with the SR-GNN model. 
 * [turbChannel_wallModel_ML](./examples/turbChannel_wallModel_ML/): Online training and inference workflows of a data-driven wall shear stress model for LES applied to a turbulent channel flow at a friction Reynolds number of 950. This example is an extension to [turbChannel_wallModel](./examples/turbChannel_wallModel/), which uses an algebraic equilibrium wall model (no ML).
 * [tgv_gnn_online](./examples/tgv_gnn_online/): Online training workflow using SmartSim to concurrently generate data and perform time independent training of the Dist-GNN model.
 * [tgv_gnn_online_traj](./examples/tgv_gnn_online_traj/): Online training workflow using SmartSim to concurrently generate data and perform time dependent training of the Dist-GNN model.
 * [tgv_gnn_online_traj_adios](./examples/tgv_gnn_online_traj_adios/): Online training workflow using ADIOS2 to concurrently generate data and perform time dependent training of the Dist-GNN model.
 * [shooting_workflow_smartredis](./examples/shooting_workflow_smartredis/): Online training workflow using SmartSim to shoot the nekRS solution forward in time leveraging the Dist-GNN model.
 * [shooting_workflow_adios](./examples/shooting_workflow_adios/): Online training workflow using ADIOS2 to shoot the nekRS solution forward in time leveraging the Dist-GNN model.
+* [turbChannel_srgnn_workflow](./examples/turbChannel_srgnn_workflow/): Similar to the [turbChannel_srgnn](./examples/turbChannel_srgnn/), however expanded to train the SR-GNN model using low-polynomial order nekRS data instead of projected data. After an initial run saving both high and low p-order checkpoints, EnsembleLauncher is used to run short nekRS simulations from each of the checkpoints to produce the training data. 
 
 ### Other examples
 

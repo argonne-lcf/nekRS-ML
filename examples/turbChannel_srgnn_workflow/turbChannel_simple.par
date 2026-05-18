@@ -1,7 +1,7 @@
 [GENERAL]
 #verbose = true
 polynomialOrder = 7
-startFrom = "restart.fld" # time 160
+startFrom = "restart.fld" 
 stopAt = numSteps
 numSteps = 1000
 

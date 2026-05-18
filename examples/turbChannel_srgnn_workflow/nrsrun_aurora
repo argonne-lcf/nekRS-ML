@@ -52,7 +52,6 @@ echo "export FI_CXI_RX_MATCH_MODE=hybrid" >> $RFILE # required by parRSB
 # Temporary workaround while waiting on bugfix in runtime
 echo "export UR_L0_USE_COPY_ENGINE=0" >> $RFILE
 
-# Calculate the number of nodes and ranks for the nekRS simulation
 echo -e "\n# Calculate the number of nodes and ranks for the nekRS simulation" >>$RFILE
 echo "RANKS_PER_NODE=${RANKS_PER_NODE}" >> $RFILE
 echo "NODES_PER_NEKRS=${NODES_PER_NEKRS}" >> $RFILE
