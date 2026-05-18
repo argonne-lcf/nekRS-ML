@@ -15,6 +15,7 @@
 | shooting_workflow_smartredis |   x      |        |         |        x           |                  |              |                  |
 | shooting_workflow_adios      |   x      |        |         |                    |        x         |              |                  |
 | periodicHill_ensemble        |          |        |         |                    |                  |              |        x         |
+| turbChannel_srgnn_workflow   |          |    x   |    x    |                    |                  |        x     |        x         |
 
 
 ## Plain nekRS examples

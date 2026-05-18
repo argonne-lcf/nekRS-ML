@@ -63,6 +63,9 @@ def setup_ensemble_dirs(
         ``"par_overrides"``: a mapping ``{section: {key: value, ...}, ...}``
         that is applied to the base ``.par`` (see ``apply_par_overrides``
         for matching/formatting rules).
+        Optional ``"symlinks"``: ``{dest_basename: src_relpath_from_base, ...}``
+        creates extra symlinks in that member directory (e.g. symlink each
+        checkpoint ``.f`` file next to the per-member ``.par`` for ``startFrom``).
     base_dir : str
         Directory containing the source case files (default: current working
         directory).
@@ -137,6 +140,29 @@ def setup_ensemble_dirs(
                 shutil.rmtree(dst)
             os.symlink(src, dst)
 
+        # Optional per-member symlinks: dest filename in member dir -> path
+        # relative to ``base_dir`` (same as ``copy_files`` / ``symlink_files``).
+        extra_links = member.get("symlinks")
+        if extra_links:
+            if not isinstance(extra_links, dict):
+                raise TypeError(
+                    "member['symlinks'] must be a dict "
+                    "{dest_basename: src_relpath_from_base}"
+                )
+            for dst_name, src_rel in extra_links.items():
+                src = (base / str(src_rel)).resolve()
+                if not src.is_file():
+                    raise FileNotFoundError(
+                        f"member['symlinks'] source not found: {src} "
+                        f"(member={member['name']!r})"
+                    )
+                dst = d / Path(dst_name).name
+                if dst.is_symlink() or dst.is_file():
+                    dst.unlink()
+                elif dst.is_dir():
+                    shutil.rmtree(dst)
+                os.symlink(src, dst)
+
         dirs.append(d)
 
     return dirs
@@ -202,6 +228,8 @@ def apply_par_overrides(
 def _fmt_par_value(v) -> str:
     if isinstance(v, bool):
         return "true" if v else "false"
+    if isinstance(v, int):
+        return str(v)
     if isinstance(v, float):
         return f"{v:.10g}"
     return str(v)

@@ -212,6 +212,32 @@ void gnn_t::gnnWrite()
     if (rank == 0) writeToFile(writePath + "/edge_index_element_local_vertex", edge_index_local_vertex, num_vertices_local, 2);
 }
 
+void gnn_t::gnnSRGNNWrite()
+{
+    if (verbose) printf("[RANK %d] -- in gnnSRGNNWrite() \n", rank);
+    MPI_Comm &comm = platform->comm.mpiComm;
+
+    // output directory
+    std::filesystem::path currentPath = std::filesystem::current_path();
+    currentPath /= "gnn_outputs";
+    writePath = currentPath.string();
+    int poly_order = mesh->Nq - 1; 
+    writePath = writePath + "_poly_" + std::to_string(poly_order);
+    //if (multiscale) writePath = writePath + "_multiscale"; // unnecessary and breaks SR-GNN pre-processing pipeline
+    if (rank == 0)
+    {
+        if (!std::filesystem::exists(writePath))
+        {
+            std::filesystem::create_directory(writePath);
+        }
+    }
+    MPI_Barrier(comm);
+
+    // Writing element-local edge index as text file (small)
+    if (rank == 0) writeToFile(writePath + "/edge_index_element_local", edge_index_local, num_edges_local, 2);
+    if (rank == 0) writeToFile(writePath + "/edge_index_element_local_vertex", edge_index_local_vertex, num_vertices_local, 2);
+}
+
 #ifdef NEKRS_ENABLE_SMARTREDIS
 void gnn_t::gnnWriteDB(smartredis_client_t* client)
 {

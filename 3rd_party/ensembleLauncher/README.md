@@ -16,6 +16,9 @@ What this directory provides:
   - **symlinks** to the large/shared paths declared by the caller (typically
     `.re2` and `.cache`, both of which are identical across members when the
     sweep is over runtime parameters rather than over the mesh).
+  - optional per-member **extra symlinks** via each member dict's ``symlinks``
+    key: ``{dest_basename: src_relpath_from_base}`` (e.g. symlink one checkpoint
+    ``.f`` file into each member directory for ``startFrom`` restarts).
 
   The split between copies and symlinks matters: `.cache` in particular is
   large and members must not race to rebuild it.

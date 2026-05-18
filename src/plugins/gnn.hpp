@@ -48,6 +48,7 @@ public:
     // member functions 
     void gnnSetup();
     void gnnWrite();
+    void gnnSRGNNWrite();
     void interpolateField(nrs_t* nrs, occa::memory& o_field_fine, dfloat* field_coarse, int dim);
 #ifdef NEKRS_ENABLE_SMARTREDIS
     void gnnWriteDB(smartredis_client_t* client);

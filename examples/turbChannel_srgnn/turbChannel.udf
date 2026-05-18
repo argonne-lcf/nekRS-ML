@@ -142,14 +142,14 @@ void UDF_Setup()
   platform->options.getArgs("POLYNOMIAL DEGREE",nekMeshPOrder);
   gnn_t* graph_ho = new gnn_t(nrs,nekMeshPOrder,verbose);
   graph_ho->gnnSetup();
-  graph_ho->gnnWrite();
+  graph_ho->gnnSRGNNWrite();
 
   // then write low order input files
   int gnnMeshPOrder;
   platform->options.getArgs("GNN POLY ORDER",gnnMeshPOrder);
   gnn_t* graph_lo = new gnn_t(nrs,gnnMeshPOrder,verbose);
   graph_lo->gnnSetup();
-  graph_lo->gnnWrite();
+  graph_lo->gnnSRGNNWrite();
 }
 
 void UDF_ExecuteStep(double time, int tstep)

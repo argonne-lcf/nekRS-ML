@@ -25,7 +25,7 @@ RFILE=run.sh
 echo "#!/bin/bash -l" > $RFILE
 echo "#PBS -S /bin/bash" >> $RFILE
 echo "#PBS -N nekrs-ml" >> $RFILE
-echo "#PBS -l select=1" >> $RFILE
+echo "#PBS -l select=${nodes}" >> $RFILE
 echo "#PBS -l walltime=00:30:00" >> $RFILE
 echo "#PBS -l filesystems=home:flare" >> $RFILE
 echo "#PBS -A <project_name>" >> $RFILE
