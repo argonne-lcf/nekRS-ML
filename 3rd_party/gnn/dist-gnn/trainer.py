@@ -1065,9 +1065,9 @@ class Trainer:
         n_scale_local = weights.sum() * n_snaps
 
         data_mean_ = (x_full * w).sum(dim=(0, 1)).to(device) / n_scale_local
-        data_var_ = (
-            ((x_full - data_mean_.view(1, 1, -1)) ** 2) * w
-        ).sum(dim=(0, 1)).to(device) / n_scale_local
+        data_var_ = (((x_full - data_mean_.view(1, 1, -1)) ** 2) * w).sum(
+            dim=(0, 1)
+        ).to(device) / n_scale_local
         n_scale_ = torch.tensor(
             [n_scale_local.item()], dtype=self.torch_dtype, device=device
         )
