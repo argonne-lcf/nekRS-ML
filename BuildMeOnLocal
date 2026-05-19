@@ -11,8 +11,6 @@ else
   export NEKRS_HOME=$1
 fi
 
-#... assumes a C/C++/Fortran toolchain and an MPI implementation are on PATH ...
-
 #... set the build and install directories
 CWD=$PWD
 echo -e "\033[35mInstalling nekRS at $NEKRS_HOME\033[m"
