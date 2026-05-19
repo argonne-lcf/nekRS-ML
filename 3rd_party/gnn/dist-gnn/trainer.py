@@ -59,8 +59,8 @@ try:
     COMM = MPI.COMM_WORLD
     RANK = COMM.Get_rank()
     SIZE = COMM.Get_size()
-    LOCAL_RANK = int(os.getenv("PALS_LOCAL_RANKID"))
-    LOCAL_SIZE = int(os.getenv("PALS_LOCAL_SIZE"))
+    LOCAL_RANK = int(os.getenv("PALS_LOCAL_RANKID", default=RANK))
+    LOCAL_SIZE = int(os.getenv("PALS_LOCAL_SIZE", default=SIZE))
     WITH_DDP = True
 except ModuleNotFoundError as e:
     SIZE = 1
@@ -1055,10 +1055,21 @@ class Trainer:
         )
         for i in range(len(data_list)):
             x_full[i, :, :] = data_list[i][var][:n_nodes_local, :]
-        data_mean_ = x_full.mean(axis=(0, 1)).to(device)
-        data_var_ = x_full.var(axis=(0, 1)).to(device)
+
+        # Weight each row by 1/node_degree so halo-unique rows shared with a
+        # neighbor rank are not double-counted in the global mean/variance.
+        weights = (1.0 / self.data_reduced.node_degree[:n_nodes_local]).to(
+            self.torch_dtype
+        )
+        w = weights.view(1, -1, 1)
+        n_scale_local = weights.sum() * n_snaps
+
+        data_mean_ = (x_full * w).sum(dim=(0, 1)).to(device) / n_scale_local
+        data_var_ = (
+            ((x_full - data_mean_.view(1, 1, -1)) ** 2) * w
+        ).sum(dim=(0, 1)).to(device) / n_scale_local
         n_scale_ = torch.tensor(
-            [n_nodes_local * n_snaps], dtype=self.torch_dtype, device=device
+            [n_scale_local.item()], dtype=self.torch_dtype, device=device
         )
 
         data_mean_gather = [
@@ -1421,16 +1432,17 @@ class Trainer:
                 if RANK == 0:
                     log.info(f"Computing training data statistics")
                 x_mean, x_std = self.compute_statistics(data["train"], "x")
+                y_mean, y_std = self.compute_statistics(data["train"], "y")
                 if RANK == 0 and not self.cfg.online:
                     np.savez(
                         data_dir + "/data_stats.npz",
                         x_mean=x_mean.cpu().to(torch.float32).numpy(),
                         x_std=x_std.cpu().to(torch.float32).numpy(),
-                        y_mean=x_mean.cpu().to(torch.float32).numpy(),
-                        y_std=x_std.cpu().to(torch.float32).numpy(),
+                        y_mean=y_mean.cpu().to(torch.float32).numpy(),
+                        y_std=y_std.cpu().to(torch.float32).numpy(),
                     )
                 stats["x"] = [x_mean, x_std]
-                stats["y"] = [x_mean, x_std]
+                stats["y"] = [y_mean, y_std]
                 if RANK == 0:
                     log.info(
                         f"Computed training data statistics for each node feature"
