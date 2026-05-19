@@ -285,19 +285,30 @@ function build_smartsim() {
     export LD_LIBRARY_PATH=$CUDNN_LIBRARY:$LD_LIBRARY_PATH
   fi
 
-  pip install git+https://github.com/rickybalin/SmartRedis.git@develop
-  pip install git+https://github.com/rickybalin/SmartSim.git@rollback_aurora
+  # First install SmartRedis
+  pip install git+https://github.com/CrayLabs/SmartRedis.git@develop
 
+  # Then install SmartSim from source (need patch to use system PyTorch on Aurora)
+  #pip install git+https://github.com/CrayLabs/SmartSim.git@rollback_aurora
+  git clone https://github.com/CrayLabs/SmartSim.git
+  cd SmartSim
+  if [ "${SYSTEM}" == "aurora" ]; then
+    curl -O https://gist.githubusercontent.com/rickybalin/fcf1d15a26dbbc120f42943041ada827/raw/e22485d53250b8a29ead537533bca7c8f229c362/aurora_config.patch
+    git apply aurora_config.patch
+  fi
+  pip install -e .
+  cd ..
+
+  # Build backend
   if [ "${SYSTEM}" == "aurora" ]; then
     DEVICE="cpu"
   elif [ "${SYSTEM}" == "polaris" ]; then
     DEVICE="gpu"
   fi
-
   export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
   export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
   export TORCH_CMAKE_PATH=$( python -c 'import torch;print(torch.utils.cmake_prefix_path)' )
-  smart build -v --device $DEVICE --torch_dir $TORCH_CMAKE_PATH --no_tf
+  smart build -v --device cpu --skip-tensorflow --skip-onnx
   smart validate
 }
 
