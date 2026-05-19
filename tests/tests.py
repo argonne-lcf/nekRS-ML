@@ -41,7 +41,8 @@ class TGVOfflineCoarseMesh(NekRSMLOfflineTest):
 @rfm.simple_test
 class TGVOfflineTraj(NekRSMLOfflineTest):
     num_nodes = parameter([1])
-    ranks_per_node = parameter([4])
+    # Run with 1, 2, and 4 ranks to check consistency of Dist-GNN model
+    ranks_per_node = parameter([1, 2, 4])
 
     def __init__(self):
         super().__init__(
