@@ -82,7 +82,7 @@ class SmartRedisBuild(CompileOnlyTest):
 
     @run_before("compile")
     def configure_buld(self):
-        self.sourcesdir = "https://github.com/rickybalin/SmartRedis.git"
+        self.sourcesdir = "https://github.com/CrayLabs/SmartRedis.git"
         self.build_system = "Make"
         self.build_system.cc = self.current_environ.cc
         self.build_system.cxx = self.current_environ.cxx
