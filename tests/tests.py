@@ -51,7 +51,7 @@ class TGVOfflineTraj(NekRSMLOfflineTest):
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
             time_dependency="time_dependent",
-            target_loss=6.9076e-01,
+            target_loss=6.6139e-01,
         )
         self.tags |= {"tgv_offline_traj"}
 
@@ -107,7 +107,7 @@ class TGVOnlineTraj(NekRSMLOnlineTest):
             rpn=self.ranks_per_node,
             time_dependency="time_dependent",
             client="smartredis",
-            target_loss=6.9076e-01,
+            target_loss=6.6139e-01,
         )
         self.tags |= {"tgv_online_traj"}
 
@@ -125,6 +125,6 @@ class TGVOnlineTrajAdios(NekRSMLOnlineTest):
             rpn=self.ranks_per_node,
             time_dependency="time_dependent",
             client="adios",
-            target_loss=6.9076e-01,
+            target_loss=6.6139e-01,
         )
         self.tags |= {"tgv_online_traj_adios"}
