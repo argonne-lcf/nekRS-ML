@@ -755,3 +755,153 @@ class NekRSMLOnlineTest(NekRSMLTest):
         )
 
         return nekrs_ok and train_out_present and gnn_ok
+
+
+class EnsembleTest(NekRSMLTest):
+    """nekRS ensemble launched via EnsembleLauncher (el CLI).
+
+    Required kwargs (in addition to ``case`` / ``directory`` / ``rpn``):
+        members           Number of ensemble members.
+        nodes_per_member  Nodes assigned to each member by EL.
+        gen_args          Extra args passed to gen_ensemble_inputs.py
+                          (e.g. ['--hillScale', '0.8,1.2,4']).
+    """
+
+    def __init__(self, **args):
+        for arg in ["case", "directory", "rpn", "members", "nodes_per_member"]:
+            if arg not in args:
+                raise KeyError(f"Required kwarg {arg} was not found.")
+
+        members = args.pop("members")
+        nodes_per_member = args.pop("nodes_per_member")
+        gen_args = args.pop("gen_args", [])
+
+        # EnsembleTest is one ReFrame job spanning all members.
+        args["nn"] = members * nodes_per_member
+        # NekRSMLTest requires these; values are irrelevant for ensembles
+        # but feed into the tag set and arg validation.
+        args.setdefault("test_type", "ensemble")
+        args.setdefault("time_dependency", "ensemble")
+
+        super().__init__(**args)
+
+        self._members = members
+        self._nodes_per_member = nodes_per_member
+        self._gen_args = list(gen_args)
+
+        self.descr = f"NekRS-ML ensemble test ({members} members)"
+        self.tags |= {"ensemble", "el"}
+
+    @property
+    def ensemble_run_dir(self):
+        return os.path.join(self.stagedir, "run_dir")
+
+    @property
+    def cpu_bind_list_el(self):
+        # EL config wants commas, mpiexec --cpu-bind=list:... wants colons.
+        return self.current_partition.extras["cpu_bind_list"].replace(":", ",")
+
+    @property
+    def venv_path(self):
+        return f"{self.venv_path_prefix}_{self.client}_el"
+
+    def setup_cmd(self, extra_args=[]):
+        # No model by default
+        return lst2cmd([
+            self.setup_case_path,
+            self.current_system.name,
+            self.nekrs_home,
+            "--venv_path",
+            self.venv_path_prefix,
+            "--nodes",
+            str(self.nn),
+            *extra_args,
+        ])
+
+    def set_prerun_cmds(self):
+        backend = self.current_partition.extras["occa_backend"]
+        build_only_ranks = self._nodes_per_member * self.rpn
+        self.prerun_cmds += [
+            self.setup_cmd(extra_args=["--ensemble", "el"]),
+            self.source_cmd(),
+            self.nekrs_cmd(extra_args=[f"--build-only {build_only_ranks}"]),
+            lst2cmd([
+                "python",
+                "gen_ensemble_inputs.py",
+                self.case,
+                "--ppn",
+                str(self.rpn),
+                "--cpu-bind",
+                f'"{self.cpu_bind_list_el}"',
+                "--backend",
+                backend,
+                "--system",
+                self.system,
+                *self._gen_args,
+            ]),
+        ]
+
+    def set_executable_options(self):
+        self.executable = "el"
+        self.executable_opts = [
+            "start",
+            os.path.join(self.ensemble_run_dir, "config.json"),
+            "--system-config-file",
+            os.path.join(self.ensemble_run_dir, "system_config.json"),
+            "--launcher-config-file",
+            os.path.join(self.ensemble_run_dir, "launcher_config.json"),
+        ]
+
+    def set_postrun_cmds(self):
+        # Summarise per-member outcomes so sanity can inspect self.stdout.
+        self.postrun_cmds += [
+            "n_members=$(ls -d run_dir/*/ 2>/dev/null | wc -l)",
+            'n_ok=$(grep -l "finished with exit code 0" '
+            "run_dir/*/nekrs.out 2>/dev/null | wc -l)",
+            'echo "ENSEMBLE_SUMMARY n_members=$n_members n_ok=$n_ok"',
+        ]
+
+    @run_before("run")
+    def setup_run(self):
+        super().setup_run()
+        # Use a one-member launcher footprint for the shared `--build-only`
+        # call captured by `set_prerun_cmds` (nekrs_cmd reads launcher.options
+        # at the time it is called and bakes them into a plain string).
+        self.set_launcher_options(nn=self._nodes_per_member, rpn=self.rpn)
+        self.set_prerun_cmds()
+        self.set_executable_options()
+        self.set_postrun_cmds()
+        # `el start` must run as a single head-node process WITHOUT mpiexec
+        # (EnsembleLauncher spawns its own mpiexec for each member from the
+        # JSON config). Swap the job's launcher to the local one *after* the
+        # prerun mpiexec strings have already been baked in above.
+        from reframe.core.backends import getlauncher
+
+        self.job.launcher = getlauncher("local")()
+
+    @sanity_function
+    def check_run(self):
+        n_members = sn.extractsingle(
+            r"ENSEMBLE_SUMMARY n_members=(\d+) n_ok=\d+",
+            self.stdout,
+            1,
+            int,
+        )
+        n_ok = sn.extractsingle(
+            r"ENSEMBLE_SUMMARY n_members=\d+ n_ok=(\d+)",
+            self.stdout,
+            1,
+            int,
+        )
+        return sn.all([
+            sn.assert_eq(
+                n_members,
+                self._members,
+                msg=f"expected {self._members} member dirs, got {{0}}",
+            ),
+            sn.assert_eq(
+                n_ok,
+                self._members,
+                msg=f"only {{0}} of {self._members} members finished cleanly",
+            ),
+        ])

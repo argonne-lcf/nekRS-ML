@@ -1,0 +1,60 @@
+# Trigger the Aurora ReFrame pipeline on your GitLab mirror via the Pipeline Trigger API.
+#
+# Prerequisites (one-time):
+#   1. On GitLab: Settings → CI/CD → Pipeline triggers → Add trigger → copy the token.
+#   2. On GitHub: Settings → Secrets and variables → Actions → add:
+#        GITLAB_URL          e.g. https://gitlab.anl.gov  (no trailing slash)
+#        GITLAB_PROJECT_ID   numeric ID or URL-encoded path (group%2Fproject)
+#        GITLAB_TRIGGER_TOKEN the trigger token string
+#   3. In .gitlab-ci.yml: allow CI_PIPELINE_SOURCE == "trigger" (already in repo).
+#   4. Mirror: the branch you pass as "ref" must exist on GitLab before you click Run.
+#
+# Usage: Actions → "Trigger Aurora CI (GitLab)" → Run workflow → set ref → Run workflow.
+
+name: Trigger Aurora CI (GitLab)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch on the GitLab mirror to build (must exist there, e.g. main or your PR branch)
+        required: true
+        type: string
+        default: main
+
+permissions:
+  contents: read
+
+jobs:
+  trigger-gitlab:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger GitLab pipeline
+        env:
+          GITLAB_URL: ${{ secrets.GITLAB_URL }}
+          GITLAB_PROJECT_ID: ${{ secrets.GITLAB_PROJECT_ID }}
+          GITLAB_TRIGGER_TOKEN: ${{ secrets.GITLAB_TRIGGER_TOKEN }}
+          REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          for v in GITLAB_URL GITLAB_PROJECT_ID GITLAB_TRIGGER_TOKEN REF; do
+            if [[ -z "${!v:-}" ]]; then
+              echo "Missing required env: $v (set GitHub Actions secrets)" >&2
+              exit 1
+            fi
+          done
+          base="${GITLAB_URL%/}"
+          url="${base}/api/v4/projects/${GITLAB_PROJECT_ID}/trigger/pipeline"
+          echo "POST ${url} (ref=${REF})"
+          resp=$(curl -sS -w '\n%{http_code}' -X POST \
+            --form "token=${GITLAB_TRIGGER_TOKEN}" \
+            --form "ref=${REF}" \
+            --form "variables[CI_COMMIT_SHA]=${{ github.sha }}" \
+            "${url}")
+          body=$(echo "$resp" | sed '$d')
+          code=$(echo "$resp" | tail -n1)
+          echo "$body"
+          if [[ "$code" != "201" && "$code" != "200" ]]; then
+            echo "GitLab API HTTP status: $code (expected 200 or 201)" >&2
+            exit 1
+          fi

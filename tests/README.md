@@ -9,6 +9,9 @@ the `--config-file` / `-cfg` option of `run.sh`.
 The `core.py` contains thin wrappers over `reframe.CompileOnlyRegressionTest` and
 `reframe.RunOnlyRegressionTest` which are named `CompileOnlyTest` and `RunOnlyTest`
 respectively. These classes are used based on the type of test we want to execute.
+They also patch ReFrame's PBS scheduler so submitted jobs use
+`#PBS -l select=<N>` (node count only), instead of the default
+`select=N:mpiprocs=…:ncpus=…` string from upstream ReFrame.
 
 ## Prerequisites
 
@@ -51,14 +54,18 @@ Options:
 Examples:
   To run all the tests:
     ./run.sh -t all -b
-  To run all the offline tests:
+  To run all the offline training tests:
     ./run.sh -t offline -b
-  To run all the online tests:
+  To run all the online training tests:
     ./run.sh -t online -b
-  To run all the tests based on tgv:
+  To run all the tests based on TGV case:
     ./run.sh -t tgv -b
   To run just the tgv_offline test:
     ./run.sh -t tgv_offline$ -b
+  To run all ensemble tests:
+    ./run.sh -t ensemble -b
+  To run only the periodicHill ensemble test:
+    ./run.sh -t periodichill_ensemble$ -b
   Please note that "-b" parameter is required only for the first run of each tag.
   You can pass --list-tags or -l to list all the test tags:
     ./run.sh -l
