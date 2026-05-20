@@ -5,6 +5,7 @@ set -a
 SYSTEM=
 NEKRS_HOME=
 VENV_PATH="${PWD}/../_env"
+USER_VENV=0
 NODES=
 TIME="01:00"
 PROJ_ID="datascience"
@@ -46,6 +47,7 @@ function parse_args() {
     case $key in
       --venv_path| -v)
         VENV_PATH=$2
+        USER_VENV=1
         shift; shift
         ;;
       --nodes| -n)
@@ -111,14 +113,16 @@ function parse_args() {
 
   # Append model and client to VENV_PATH as what is installed in the environment
   # depends on the model and the client.
-  if [ -n "${MODEL}" ]; then
-    VENV_PATH=${VENV_PATH}_${MODEL}
-  fi
-  if [ -n "${CLIENT}" ]; then
-    VENV_PATH=${VENV_PATH}_${CLIENT}
-  fi
-  if [ -n "${ENSEMBLE}" ]; then
-    VENV_PATH=${VENV_PATH}_${ENSEMBLE}
+  if [ "${USER_VENV}" == 0 ]; then
+    if [ -n "${MODEL}" ]; then
+      VENV_PATH=${VENV_PATH}_${MODEL}
+    fi
+    if [ -n "${CLIENT}" ]; then
+      VENV_PATH=${VENV_PATH}_${CLIENT}
+    fi
+    if [ -n "${ENSEMBLE}" ]; then
+      VENV_PATH=${VENV_PATH}_${ENSEMBLE}
+    fi
   fi
 }
 
@@ -279,7 +283,7 @@ function build_smartsim() {
   if [ "${SYSTEM}" == "polaris" ]; then
     export CC=cc
     export CXX=CC
-    export CUDNN_BASE=/soft/libraries/cudnn/cudnn-12-linux-x64-v9.1.0.70
+    export CUDNN_BASE=/soft/libraries/cudnn/cudnn-cuda12-linux-x64-v9.13.0.50
     export CUDNN_LIBRARY=$CUDNN_BASE/lib/
     export CUDNN_INCLUDE_DIR=$CUDNN_BASE/include/
     export LD_LIBRARY_PATH=$CUDNN_LIBRARY:$LD_LIBRARY_PATH
@@ -288,13 +292,16 @@ function build_smartsim() {
   # First install SmartRedis
   pip install git+https://github.com/CrayLabs/SmartRedis.git@develop
 
-  # Then install SmartSim from source (need patch to use system PyTorch on Aurora)
-  #pip install git+https://github.com/CrayLabs/SmartSim.git@rollback_aurora
+  # Then install SmartSim from source (need patch to use system PyTorch on Aurora and Polaris)
+  #pip install git+https://github.com/CrayLabs/SmartSim.git@develop
   git clone https://github.com/CrayLabs/SmartSim.git
   cd SmartSim
   if [ "${SYSTEM}" == "aurora" ]; then
     curl -O https://gist.githubusercontent.com/rickybalin/fcf1d15a26dbbc120f42943041ada827/raw/e22485d53250b8a29ead537533bca7c8f229c362/aurora_config.patch
     git apply aurora_config.patch
+  elif [ "${SYSTEM}" == "polaris" ]; then
+    curl -O https://gist.githubusercontent.com/rickybalin/9651d5cb02f00da5089905c19ca1c8d8/raw/9d7a07b4a824429a8fe00211aa65c4bfd32736d1/smartsim_polaris_config.patch
+    git apply smartsim_polaris_config.patch
   fi
   pip install -e .
   cd ..
@@ -303,12 +310,12 @@ function build_smartsim() {
   if [ "${SYSTEM}" == "aurora" ]; then
     DEVICE="cpu"
   elif [ "${SYSTEM}" == "polaris" ]; then
-    DEVICE="gpu"
+    DEVICE="cuda-12"
   fi
   export TORCH_PATH=$( python -c 'import torch; print(torch.__path__[0])' )
   export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
   export TORCH_CMAKE_PATH=$( python -c 'import torch;print(torch.utils.cmake_prefix_path)' )
-  smart build -v --device cpu --skip-tensorflow --skip-onnx
+  smart build -v --device $DEVICE --skip-tensorflow --skip-onnx
   smart validate
 }
 
