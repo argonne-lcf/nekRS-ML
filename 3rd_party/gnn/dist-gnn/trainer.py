@@ -1707,14 +1707,15 @@ class Trainer:
         stats = self.data["stats"]
         train_data_scaled = []
         for item in data["train"]:
-            tdict = {}
-            tdict["x"] = (
-                (item["x"] - stats["x_mean"]) / (stats["x_std"] + SMALL)
-            ).to(self.torch_dtype)
-            tdict["y"] = (
-                (item["y"] - stats["y_mean"]) / (stats["y_std"] + SMALL)
-            ).to(self.torch_dtype)
-            train_data_scaled.append(tdict)
+            tmp_data = Data(
+                x=((item["x"] - stats["x_mean"]) / (stats["x_std"] + SMALL)).to(
+                    self.torch_dtype
+                ),
+                y=((item["y"] - stats["y_mean"]) / (stats["y_std"] + SMALL)).to(
+                    self.torch_dtype
+                ),
+            )
+            train_data_scaled.append(tmp_data)
         train_loader = DataLoader(
             dataset=train_data_scaled,
             batch_size=self.cfg.batch_size,
