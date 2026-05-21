@@ -43,7 +43,7 @@ if [ ${ENABLE_SMARTREDIS} == "ON" ]; then
       mkdir -p $NEKRS_HOME
     fi
     cd $NEKRS_HOME
-    git clone https://github.com/rickybalin/SmartRedis.git
+    git clone https://github.com/CrayLabs/SmartRedis.git
     cd SmartRedis
     #pip install -e .
     make lib

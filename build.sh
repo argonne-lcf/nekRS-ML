@@ -20,13 +20,15 @@ fi
 if [[ -z "$INSTALL_DIR" ]]; then
   INSTALL_DIR=$HOME/.local/nekrs
 fi
-if [ -d ${INSTALL_DIR} ]; then
+if [ ! -d ${INSTALL_DIR} ]; then
+  mkdir -p ${INSTALL_DIR}
+elif [ -f ${INSTALL_DIR}/bin/nekrs ]; then
   #rm -r ${INSTALL_DIR}
-  echo -e "\n\033[31mWARNING! Found an install directory already at $INSTALL_DIR, you may want to clean it.\033[m\n"
+  echo -e "\n\033[31mWARNING! Found an existing nekRS installation at $INSTALL_DIR, you may want to clean it.\033[m\n"
 fi
 
 cmake -S . -B ${BUILD_DIR} -DCMAKE_INSTALL_PREFIX=${INSTALL_DIR}  -Wfatal-errors $@
-cmake --build ${BUILD_DIR} --parallel 8
+cmake --build ${BUILD_DIR} --parallel 16
 cmake --install ${BUILD_DIR}
 if [ $? -eq 0 ]; then
   echo ""

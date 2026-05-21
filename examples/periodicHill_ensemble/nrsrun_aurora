@@ -1,0 +1,64 @@
+#!/bin/bash
+set -e
+
+#--------------------------------------
+: ${QUEUE:="debug-scaling"}
+: ${NEKRS_GPU_MPI:=0}
+: ${NEKRS_BACKEND:="dpcpp"}
+: ${RANKS_PER_NODE:=12}
+: ${CPU_BIND_LIST:="1:8:16:24:32:40:53:60:68:76:84:92"}
+: ${CPU_BIND_LIST_EL:="1,8,16,24,32,40,53,60,68,76,84,92"}
+: ${OCCA_DPCPP_COMPILER_FLAGS:="-O3 -fsycl -fsycl-targets=intel_gpu_pvc -ftarget-register-alloc-mode=pvc:auto -fma"}
+: ${ONEAPI_SDK:=""}
+: ${FRAMEWORKS_MODULE:="frameworks"}
+: ${VENV_PATH:=""}
+#--------------------------------------
+
+source $NEKRS_HOME/bin/nrsqsub_utils
+setup $# 1
+
+#--------------------------------------
+# Generate the run script
+RFILE=run.sh
+echo "#!/bin/bash -l" > $RFILE
+echo "#PBS -S /bin/bash" >> $RFILE
+echo "#PBS -N nekrs-ml_el" >> $RFILE
+echo "#PBS -l select=${nodes}" >> $RFILE
+echo "#PBS -l walltime=01:00:00" >> $RFILE
+echo "#PBS -l filesystems=home:flare" >> $RFILE
+echo "#PBS -A <project_name>" >> $RFILE
+echo "#PBS -q ${QUEUE}" >> $RFILE
+echo "#PBS -k doe" >> $RFILE
+echo "#PBS -j oe" >> $RFILE
+echo "cd \$PBS_O_WORKDIR" >> $RFILE
+
+echo -e "\nexport TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
+
+echo -e "\necho Jobid: \$PBS_JOBID" >>$RFILE
+echo "echo Running on host \`hostname\`" >>$RFILE
+echo "echo Running on nodes \`cat \$PBS_NODEFILE\`" >>$RFILE
+
+echo "module restore" >> $RFILE
+echo "module load ${FRAMEWORKS_MODULE}" >> $RFILE
+echo "source ${VENV_PATH}" >> $RFILE
+echo "module list" >> $RFILE
+
+echo -e "\nexport NEKRS_HOME=$NEKRS_HOME" >>$RFILE
+echo "export OCCA_DPCPP_COMPILER_FLAGS=\"$OCCA_DPCPP_COMPILER_FLAGS\"" >> $RFILE
+echo "export FI_CXI_RX_MATCH_MODE=hybrid" >> $RFILE # required by parRSB
+echo "export UR_L0_USE_COPY_ENGINE=0" >> $RFILE
+echo "export ZE_FLAT_DEVICE_HIERARCHY=FLAT" >> $RFILE
+
+echo -e "\n# Build nekRS cache" >>$RFILE
+echo "mpiexec -n ${RANKS_PER_NODE} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND} --build-only ${RANKS_PER_NODE}" >> $RFILE
+
+echo -e "\n# Create per-member run dirs and EnsembleLauncher configs" >>$RFILE
+echo "python gen_ensemble_inputs.py ${case} --hillScale 0.8,1.2,${nodes} --ppn ${RANKS_PER_NODE} --cpu-bind \"${CPU_BIND_LIST_EL}\" --backend ${NEKRS_BACKEND} --system aurora" >> $RFILE
+
+echo -e "\n# Launch the ensemble via the EnsembleLauncher CLI" >>$RFILE
+echo "echo -e \"\\n\\nStarting ensemble on ${nodes} nodes ...\"" >> $RFILE
+echo "el start ./run_dir/config.json \\" >> $RFILE
+echo "    --system-config-file   ./run_dir/system_config.json \\" >> $RFILE
+echo "    --launcher-config-file ./run_dir/launcher_config.json" >> $RFILE
+
+chmod u+x $RFILE
