@@ -52,6 +52,11 @@ dropout_rate: 0.0
 # Halo swap mode 
 halo_swap_mode : none
 
+# transform directions (enforces periodicity in graph)
+transform_x: false
+transform_y: false
+transform_z: false
+
 # Correctness validation
 target_loss: 0
 

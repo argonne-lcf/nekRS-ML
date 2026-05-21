@@ -646,15 +646,38 @@ class DGNTrainer:
         # Address periodicity 
         pos = pos.astype(NP_FLOAT_DTYPE)
         pos_orig = np.copy(pos)
-        zmin_loc = np.amin(pos[:,2])
-        zmin_glob = np.zeros_like(zmin_loc)
-        COMM.Allreduce(zmin_loc, zmin_glob, op=MPI.MIN)
-        zmax_loc = np.amax(pos[:,2])
-        zmax_glob = np.zeros_like(zmax_loc)
-        COMM.Allreduce(zmax_loc, zmax_glob, op=MPI.MAX)
-        L_z = (zmax_glob - zmin_glob) / 2.0
-        # pos[:,2] = np.cos(2.*np.pi*pos[:,2]/L_z) # cosine
-        # pos[:,2] = np.abs((pos[:,2] % L_z) - L_z / 2) # piecewise linear 
+        pos = pos.astype(NP_FLOAT_DTYPE)
+        pos_orig = np.copy(pos)
+        if self.cfg.transform_x:
+            xmin_loc = np.amin(pos[:, 0])
+            xmin_glob = np.zeros_like(xmin_loc)
+            COMM.Allreduce(xmin_loc, xmin_glob, op=MPI.MIN)
+            xmax_loc = np.amax(pos[:, 0])
+            xmax_glob = np.zeros_like(xmax_loc)
+            COMM.Allreduce(xmax_loc, xmax_glob, op=MPI.MAX)
+            L_x = (xmax_glob - xmin_glob) / 2.0
+            pos[:, 0] = np.abs((pos[:, 0] % L_x) - L_x / 2)  # piecewise linear
+
+        if self.cfg.transform_y:
+            ymin_loc = np.amin(pos[:, 1])
+            ymin_glob = np.zeros_like(ymin_loc)
+            COMM.Allreduce(ymin_loc, ymin_glob, op=MPI.MIN)
+            ymax_loc = np.amax(pos[:, 1])
+            ymax_glob = np.zeros_like(ymax_loc)
+            COMM.Allreduce(ymax_loc, ymax_glob, op=MPI.MAX)
+            L_y = (ymax_glob - ymin_glob) / 2.0
+            pos[:, 1] = np.abs((pos[:, 1] % L_y) - L_y / 2)  # piecewise linear
+
+        if self.cfg.transform_z:
+            zmin_loc = np.amin(pos[:, 2])
+            zmin_glob = np.zeros_like(zmin_loc)
+            COMM.Allreduce(zmin_loc, zmin_glob, op=MPI.MIN)
+            zmax_loc = np.amax(pos[:, 2])
+            zmax_glob = np.zeros_like(zmax_loc)
+            COMM.Allreduce(zmax_loc, zmax_glob, op=MPI.MAX)
+            L_z = (zmax_glob - zmin_glob) / 2.0
+            # pos[:,2] = np.cos(2.*np.pi*pos[:,2]/L_z) # cosine
+            pos[:, 2] = np.abs((pos[:, 2] % L_z) - L_z / 2)  # piecewise linear
 
         # ~~~~ Make the full graph: 
         if self.cfg.verbose: log.info('[RANK %d]: Making the FULL GLL-based graph with overlapping nodes' %(RANK))
@@ -740,15 +763,19 @@ class DGNTrainer:
                 if RANK == 0: log.info(f'[RANK {RANK}]: Found {len(self.neighboring_procs)} neighboring processes: {self.neighboring_procs}')
         
             effective_nodes_local = torch.sum(1.0/node_degree[:n_nodes_local])
-            effective_nodes = COMM.allreduce(effective_nodes_local)
+            effective_nodes = torch.zeros(1, dtype=effective_nodes_local.dtype)
+            COMM.Allreduce(effective_nodes_local, effective_nodes, op=MPI.SUM)
         else:
             halo_info = torch.zeros(1, dtype=self.torch_dtype)
             n_nodes_local = self.data_reduced.pos.shape[0]
             n_nodes_halo = 0
-            edge_weight = torch.ones(1, dtype=self.torch_dtype)
-            node_degree = torch.zeros(1, dtype=self.torch_dtype)
-            effective_nodes_local = torch.zeros(1, dtype=self.torch_dtype)
-            effective_nodes = n_nodes_local
+            n_edges_local = self.data_reduced.edge_index.shape[1]
+            edge_weight = torch.ones(n_edges_local, dtype=self.torch_dtype)
+            node_degree = torch.ones(n_nodes_local, dtype=self.torch_dtype)
+            effective_nodes_local = n_nodes_local
+            effective_nodes = torch.tensor(
+                effective_nodes_local, dtype=self.torch_dtype
+            )
 
         self.data_reduced.n_nodes_local = torch.tensor(n_nodes_local, dtype=torch.int64)
         self.data_reduced.n_nodes_halo = torch.tensor(n_nodes_halo, dtype=torch.int64)
@@ -779,36 +806,66 @@ class DGNTrainer:
         return x
 
     def compute_statistics(self, data_list: list, var: str):
-        device = 'cpu'
+        device = "cpu"
         n_features = data_list[0][var].shape[1]
         n_nodes_local = self.data_reduced.n_nodes_local
         n_snaps = len(data_list)
-        x_full = torch.zeros((n_snaps, n_nodes_local, n_features), dtype=self.torch_dtype)
+        x_full = torch.zeros(
+            (n_snaps, n_nodes_local, n_features), dtype=self.torch_dtype
+        )
         for i in range(len(data_list)):
-            x_full[i,:,:] = data_list[i][var][:n_nodes_local, :]
-        data_mean_ = x_full.mean(axis=(0,1)).to(device)
-        data_var_ = x_full.var(axis=(0,1)).to(device)
-        n_scale_ = torch.tensor([n_nodes_local * n_snaps], dtype=self.torch_dtype, device=device)
+            x_full[i, :, :] = data_list[i][var][:n_nodes_local, :]
 
-        data_mean_gather = [torch.zeros(n_features, dtype=self.torch_dtype, device=device) for _ in range(SIZE)]
+        # Weight each row by 1/node_degree so halo-unique rows shared with a
+        # neighbor rank are not double-counted in the global mean/variance.
+        weights = (1.0 / self.data_reduced.node_degree[:n_nodes_local]).to(
+            self.torch_dtype
+        )
+        w = weights.view(1, -1, 1)
+        n_scale_local = weights.sum() * n_snaps
+
+        data_mean_ = (x_full * w).sum(dim=(0, 1)).to(device) / n_scale_local
+        data_var_ = (((x_full - data_mean_.view(1, 1, -1)) ** 2) * w).sum(
+            dim=(0, 1)
+        ).to(device) / n_scale_local
+        n_scale_ = torch.tensor(
+            [n_scale_local.item()], dtype=self.torch_dtype, device=device
+        )
+
+        data_mean_gather = [
+            torch.zeros(n_features, dtype=self.torch_dtype, device=device)
+            for _ in range(SIZE)
+        ]
         data_mean_gather = utils.mpi_all_gather(data_mean_)
 
-        data_var_gather = [torch.zeros(n_features, dtype=self.torch_dtype, device=device) for _ in range(SIZE)]
+        data_var_gather = [
+            torch.zeros(n_features, dtype=self.torch_dtype, device=device)
+            for _ in range(SIZE)
+        ]
         data_var_gather = utils.mpi_all_gather(data_var_)
 
-        n_scale_gather = [torch.zeros(1, dtype=self.torch_dtype, device=device) for _ in range(SIZE)]
+        n_scale_gather = [
+            torch.zeros(1, dtype=self.torch_dtype, device=device)
+            for _ in range(SIZE)
+        ]
         n_scale_gather = utils.mpi_all_gather(n_scale_)
 
         data_mean_gather = torch.stack(data_mean_gather)
         data_var_gather = torch.stack(data_var_gather)
         n_scale_gather = torch.stack(n_scale_gather)
 
-        data_mean = torch.sum(n_scale_gather * data_mean_gather, axis=0)/torch.sum(n_scale_gather)
+        data_mean = torch.sum(
+            n_scale_gather * data_mean_gather, axis=0
+        ) / torch.sum(n_scale_gather)
         data_mean = data_mean.unsqueeze(0)
-            
-        num_1 = torch.sum(n_scale_gather * data_var_gather, axis=0) # n_i * var_i
-        num_2 = torch.sum(n_scale_gather * (data_mean_gather - data_mean)**2, axis=0)
-        data_var = (num_1 + num_2)/torch.sum(n_scale_gather)
+
+        num_1 = torch.sum(
+            n_scale_gather * data_var_gather, axis=0
+        )  # n_i * var_i
+        num_2 = torch.sum(
+            n_scale_gather * (data_mean_gather - data_mean) ** 2, axis=0
+        )
+        data_var = (num_1 + num_2) / torch.sum(n_scale_gather)
         data_std = torch.sqrt(data_var)
         data_std = data_std.unsqueeze(0)
         return data_mean, data_std
