@@ -96,9 +96,10 @@ class DiffusionProcess:
     def forward(
         self,
         field_start:    torch.Tensor,
-        r:              torch.Tensor, 
+        r:              torch.Tensor,
         batch:          torch.Tensor = None,
-        dirichlet_mask: torch.Tensor = None
+        dirichlet_mask: torch.Tensor = None,
+        noise:          torch.Tensor = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         r"""Forwards the diffusion process from 'field_start' to diffusion-step `r`.
 
@@ -110,16 +111,24 @@ class DiffusionProcess:
             dirichlet_mask (torch.Tensor, optional): A mask that indicates which nodes and features have a Dirichlet boudnary condition.
                 Dimensions: [num_nodes, num_fields]. Wherever the mask is 1, the field is not diffused.
                 If 'None', then it is assumed that there are no Dirichlet boundary conditions. Defaults to 'None'.
+            noise (torch.Tensor, optional): Pre-sampled noise to use instead of drawing internally.
+                Dimensions: [num_nodes, num_fields]. Used by the distributed trainer to pass in
+                noise that has already been halo-synchronized across MPI ranks so boundary copies
+                of the same physical node carry identical values. If 'None', noise is sampled
+                internally via torch.randn_like. Defaults to 'None'.
 
         Returns:
             torch.Tensor: The field after 'r' diffusion steps, defined on the nodes of a graph. Dimensions: [num_nodes, num_fields].
             torch.Tensor: The (normalised Gaussian) noise employed to diffuse 'field_start'. Dimensions: [num_nodes, num_fields].
         """
         device = field_start.device
-        if dirichlet_mask is not None:
-            noise = torch.randn_like(field_start) * (~dirichlet_mask) # (num_nodes, num_fields)
-        else:
-            noise = torch.randn_like(field_start) # (num_nodes, num_fields)
+        if noise is None:
+            if dirichlet_mask is not None:
+                noise = torch.randn_like(field_start) * (~dirichlet_mask) # (num_nodes, num_fields)
+            else:
+                noise = torch.randn_like(field_start) # (num_nodes, num_fields)
+        elif dirichlet_mask is not None:
+            noise = noise * (~dirichlet_mask)
         if batch is None:
             batch = torch.zeros(field_start.size(0), device=device, dtype=torch.long)
         

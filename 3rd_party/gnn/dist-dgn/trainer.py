@@ -414,7 +414,7 @@ class DGNTrainer:
             for i in self.neighboring_procs:
                 req_send = dist.isend(tensor=buff_send[i], dst=i)
                 req_send_list.append(req_send)
-            
+
             req_recv_list = []
             for i in self.neighboring_procs:
                 req_recv = dist.irecv(tensor=buff_recv[i], src=i)
@@ -428,10 +428,64 @@ class DGNTrainer:
 
             dist.barrier()
 
-            # Fill halo nodes 
+            # Fill halo nodes
             for i in self.neighboring_procs:
                 input_tensor[self.mask_recv[i]] = buff_recv[i]
-        return input_tensor 
+        return input_tensor
+
+    def halo_replace(self, tensor, batch_size: int = 1):
+        """Overwrite halo rows of `tensor` with owner-rank values via point-to-point
+        exchange. Unlike model-internal halo_swap (which reuses pre-allocated
+        mlp_hidden_channels-sized buffers), this allocates buffers matching the
+        tensor's feature dimension on the fly, so it can be used on per-step inputs
+        with arbitrary feature counts (e.g., diffusion noise).
+
+        Handles PyG-batched data: graphs of identical structure are concatenated in
+        order, so batch element b lives at indices [b*n_nodes_local, (b+1)*n_nodes_local).
+        The send/recv masks are strided across batch elements and the exchange runs
+        in a single round per neighbor (not batch_size rounds).
+        """
+        if SIZE <= 1:
+            return tensor
+        n_features = tensor.shape[1]
+        n_nodes_local = int(self.data_reduced.n_nodes_local)
+        offsets = torch.arange(batch_size, dtype=torch.long) * n_nodes_local
+
+        # Build batch-strided masks once for this call (kept on CPU for the
+        # index-arithmetic, moved to tensor.device for the actual gather/scatter).
+        strided_send = [None] * SIZE
+        strided_recv = [None] * SIZE
+        buf_send = [torch.empty(0, device=tensor.device, dtype=tensor.dtype)] * SIZE
+        buf_recv = [torch.empty(0, device=tensor.device, dtype=tensor.dtype)] * SIZE
+        for i in self.neighboring_procs:
+            ms = self.mask_send[i].long()
+            mr = self.mask_recv[i].long()
+            strided_send[i] = (ms.unsqueeze(0) + offsets.unsqueeze(1)).flatten().to(tensor.device)
+            strided_recv[i] = (mr.unsqueeze(0) + offsets.unsqueeze(1)).flatten().to(tensor.device)
+            buf_send[i] = torch.empty([len(strided_send[i]), n_features],
+                                      dtype=tensor.dtype, device=tensor.device)
+            buf_recv[i] = torch.empty([len(strided_recv[i]), n_features],
+                                      dtype=tensor.dtype, device=tensor.device)
+
+        # Gather owned values into send buffers
+        for i in self.neighboring_procs:
+            buf_send[i] = tensor[strided_send[i]]
+
+        # Exchange
+        req_send_list = [dist.isend(tensor=buf_send[i], dst=i)
+                         for i in self.neighboring_procs]
+        req_recv_list = [dist.irecv(tensor=buf_recv[i], src=i)
+                         for i in self.neighboring_procs]
+        for req in req_send_list:
+            req.wait()
+        for req in req_recv_list:
+            req.wait()
+        dist.barrier()
+
+        # Scatter received values into halo positions (overwrite, not accumulate)
+        for i in self.neighboring_procs:
+            tensor[strided_recv[i]] = buf_recv[i]
+        return tensor
 
     def build_masks(self):
         """
@@ -1237,15 +1291,31 @@ class DGNTrainer:
         # Sample a batch of random diffusion steps
         batch_size = torch.max(data.batch) + 1
         r, importance_weights = self.step_sampler.sample(batch_size=batch_size)
+        # Broadcast r and importance_weights from rank 0 for cross-rank consistency.
+        # Same-seeded RNGs are not enough: the first per-rank-sized random op (the
+        # noise tensor below) advances each rank's RNG state by a different number
+        # of draws, so subsequent calls to step_sampler.sample would pick a
+        # different r on each rank from iteration 1 onward.
+        if SIZE > 1 and self.cfg.consistency:
+            dist.broadcast(r, src=0)
+            dist.broadcast(importance_weights, src=0)
         if self.cfg.verbose and RANK == 0:
             log.info(f"Sampled diffusion steps: {r.cpu().numpy().tolist()}")
 
-        # Diffuse the solution/target field
+        # Diffuse the solution/target field. Pre-sample the noise on each rank and
+        # halo-replace it so the two copies of each partition-boundary node carry
+        # identical noise values; otherwise the noised input to the model differs
+        # at boundaries across ranks, breaking rank consistency.
         BC_mask = None # no BCs for now
-        field_r, noise, snr = self.diffusion_process.forward(data.x[:,:self.cfg.input_node_features],
-                                                             r, 
-                                                             batch=data.batch, 
-                                                             dirichlet_mask=BC_mask)
+        field_start = data.x[:, :self.cfg.input_node_features]
+        noise = torch.randn_like(field_start)
+        if SIZE > 1 and self.cfg.consistency and self.cfg.halo_swap_mode != 'none':
+            noise = self.halo_replace(noise, batch_size=int(batch_size))
+        field_r, noise, snr = self.diffusion_process.forward(field_start,
+                                                             r,
+                                                             batch=data.batch,
+                                                             dirichlet_mask=BC_mask,
+                                                             noise=noise)
         if self.cfg.postprocess and self.iteration%100 == 0:
             postprocess.plot_2d_field(COMM, graph.pos.numpy(), field_r[data.batch==0].cpu().numpy(), f'field_r_r{r[0]}_iter{self.iteration}.png')
             postprocess.plot_2d_field(COMM, graph.pos.numpy(), data.x[data.batch==0,:self.cfg.input_node_features].cpu().numpy(), f'data_x_r{r[0]}_iter{self.iteration}.png')

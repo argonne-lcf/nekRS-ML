@@ -37,7 +37,7 @@ function parse_args() {
     exit 1
   fi
 
-  SYSTEM="${1,,}"
+  SYSTEM=$(echo "$1" | tr '[:upper:]' '[:lower:]')
   shift
   NEKRS_HOME=$1
   shift
@@ -63,19 +63,19 @@ function parse_args() {
         shift; shift
         ;;
       --model| -m)
-        MODEL=${2,,}
+        MODEL=$(echo "$2" | tr '[:upper:]' '[:lower:]')
         shift; shift
         ;;
       --deployment| -d)
-        DEPLOYMENT=${2,,}
+        DEPLOYMENT=$(echo "$2" | tr '[:upper:]' '[:lower:]')
         shift; shift
         ;;
       --ml_task| -ml)
-        ML_TASK=${2,,}
+        ML_TASK=$(echo "$2" | tr '[:upper:]' '[:lower:]')
         shift; shift
         ;;
       --client| -c)
-        CLIENT=${2,,}
+        CLIENT=$(echo "$2" | tr '[:upper:]' '[:lower:]')
         shift; shift
         ;;
       --db_nodes| -dn)
@@ -91,7 +91,7 @@ function parse_args() {
         shift; shift
         ;;
       --ensemble| -e)
-        ENSEMBLE=${2,,}
+        ENSEMBLE=$(echo "$2" | tr '[:upper:]' '[:lower:]')
         shift; shift
         ;;
       --help| -h)
