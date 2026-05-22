@@ -49,19 +49,29 @@ set -u
 echo
 
 # 2. venv -------------------------------------------------------------------
+# If the venv directory already exists, assume it's complete -- just source it
+# and skip the install steps. Saves time on re-runs and avoids unnecessary
+# pip traffic on the login node. To force a fresh install pass FORCE_REINSTALL=1
+# (or delete the venv directory).
+VENV_PRE_EXISTED=0
 if [ -d "$VENV_PATH" ]; then
-  echo "[setup] venv already exists at $VENV_PATH, reusing"
+  echo "[setup] venv already exists at $VENV_PATH, reusing (set FORCE_REINSTALL=1 to refresh)"
+  VENV_PRE_EXISTED=1
 else
   echo "[setup] Creating venv at $VENV_PATH ..."
   python -m venv --system-site-packages "$VENV_PATH"
 fi
 source "$VENV_PATH/bin/activate"
-python -m pip install --upgrade pip
 
 # 3. Install ----------------------------------------------------------------
-echo "[setup] Installing globus-compute-endpoint and the agentic package ..."
-pip install "globus-compute-endpoint>=2.27"
-pip install -e "$REPO_ROOT/agentic"
+if [ "$VENV_PRE_EXISTED" = "1" ] && [ "${FORCE_REINSTALL:-0}" != "1" ]; then
+  echo "[setup] Skipping pip install (venv was pre-existing)."
+else
+  echo "[setup] Installing globus-compute-endpoint and the agentic package ..."
+  python -m pip install --upgrade pip
+  pip install "globus-compute-endpoint>=2.27"
+  pip install -e "$REPO_ROOT/agentic"
+fi
 echo
 
 # 4. Endpoint config --------------------------------------------------------

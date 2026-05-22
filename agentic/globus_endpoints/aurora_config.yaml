@@ -21,14 +21,10 @@ display_name: nekRS-ML Aurora login endpoint
 engine:
   type: GlobusComputeEngine
   max_workers_per_node: 2
-  worker_debug: false
   provider:
     type: LocalProvider
     init_blocks: 1
     min_blocks: 0
     max_blocks: 1
-  strategy:
-    type: SimpleStrategy
-    max_idletime: 300
 idle_heartbeats_soft: 10
 idle_heartbeats_hard: 5760
