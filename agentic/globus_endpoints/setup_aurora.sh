@@ -36,10 +36,16 @@ echo "[setup] FRAMEWORKS_MOD = $FRAMEWORKS_MODULE"
 echo
 
 # 1. Modules ----------------------------------------------------------------
+# Aurora's Lmod modulefiles reference shell-specific variables like
+# ZSH_EVAL_CONTEXT that aren't set under bash; with `set -u` active that
+# triggers "unbound variable". Relax `-u` just for the module calls so the
+# rest of the script keeps catching typos.
 echo "[setup] Loading $FRAMEWORKS_MODULE module ..."
+set +u
 module restore >/dev/null 2>&1 || true
 module load "$FRAMEWORKS_MODULE"
 module list 2>&1 | sed 's/^/    /'
+set -u
 echo
 
 # 2. venv -------------------------------------------------------------------
