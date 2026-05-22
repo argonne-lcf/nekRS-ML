@@ -15,7 +15,7 @@ class DiffusionProcess:
         beta_start (float, optional): The initial value of the beta parameter of the diffusion process. Defaults to 0.0001.
         beta_end (float, optional): The final value of the beta parameter of the diffusion process. Defaults to 0.02.
         max_beta (float, optional): The maximum value of the beta parameter of the diffusion process. Defaults to 0.999.
-    
+
     Methods:
         get_betas: Returns the schedule of the beta parameter of the diffusion process.
         __call__: Forwards the diffusion process from 'field_start' for 'r' diffusion-steps.
@@ -23,50 +23,74 @@ class DiffusionProcess:
         get_posterior_mean_and_variance: Returns the posterior mean and variance of the field after 'r' diffusion steps.
         get_index_from_list: Returns the 'r'-th element of 'values' for each node in 'batch'.
     """
+
     def __init__(
         self,
-        num_steps:     int,
-        schedule_type: str   = 'linear',
-        beta_start:    float = 0.0001,
-        beta_end:      float = 0.02,
-        max_beta:      float = 0.999
+        num_steps: int,
+        schedule_type: str = "linear",
+        beta_start: float = 0.0001,
+        beta_end: float = 0.02,
+        max_beta: float = 0.999,
     ) -> None:
         super().__init__()
         # Validate inputs
-        assert schedule_type in ['linear', 'cosine'], f"Schedule type {schedule_type} not supported. Supported types are 'linear' and 'cosine'."
+        assert schedule_type in ["linear", "cosine"], (
+            f"Schedule type {schedule_type} not supported. Supported types are 'linear' and 'cosine'."
+        )
         # Define parameters of the diffusion process
-        self.num_steps     = num_steps
+        self.num_steps = num_steps
         self.schedule_type = schedule_type
-        self.beta_start    = beta_start
-        self.beta_end      = beta_end
-        self.max_beta      = max_beta
+        self.beta_start = beta_start
+        self.beta_end = beta_end
+        self.max_beta = max_beta
         # Get beta schedule (on the CPU)
         self.betas = self.get_betas()
         # Precompute some constant coefficients (on the CPU)
         self.init_coefficients()
 
     def init_coefficients(self):
-        self.alphas = 1. - self.betas
+        self.alphas = 1.0 - self.betas
         self.alphas_cumprod = torch.cumprod(self.alphas, axis=0)
-        self.alphas_cumprod_prev = F.pad(self.alphas_cumprod[:-1], (1, 0), value=1.0)
-        self.sqrt_recip_alphas = torch.sqrt(1. / self.alphas)
+        self.alphas_cumprod_prev = F.pad(
+            self.alphas_cumprod[:-1], (1, 0), value=1.0
+        )
+        self.sqrt_recip_alphas = torch.sqrt(1.0 / self.alphas)
         self.sqrt_alphas_cumprod = torch.sqrt(self.alphas_cumprod)
-        self.sqrt_one_minus_alphas_cumprod = torch.sqrt(1. - self.alphas_cumprod)
-        self.posterior_variance = self.betas * (1. - self.alphas_cumprod_prev) / (1. - self.alphas_cumprod)
-        self.posterior_log_variance_clipped = torch.log(torch.cat([self.posterior_variance[[1]], self.posterior_variance[1:]])) # This is clipped to avoind nan in the backward pass
-        self.posterior_mean_coef1 = self.betas * torch.sqrt(self.alphas_cumprod_prev) / (1. - self.alphas_cumprod)
-        self.posterior_mean_coef2 = (1. - self.alphas_cumprod_prev) * torch.sqrt(self.alphas) / (1. - self.alphas_cumprod)
-    
+        self.sqrt_one_minus_alphas_cumprod = torch.sqrt(
+            1.0 - self.alphas_cumprod
+        )
+        self.posterior_variance = (
+            self.betas
+            * (1.0 - self.alphas_cumprod_prev)
+            / (1.0 - self.alphas_cumprod)
+        )
+        self.posterior_log_variance_clipped = torch.log(
+            torch.cat([
+                self.posterior_variance[[1]],
+                self.posterior_variance[1:],
+            ])
+        )  # This is clipped to avoind nan in the backward pass
+        self.posterior_mean_coef1 = (
+            self.betas
+            * torch.sqrt(self.alphas_cumprod_prev)
+            / (1.0 - self.alphas_cumprod)
+        )
+        self.posterior_mean_coef2 = (
+            (1.0 - self.alphas_cumprod_prev)
+            * torch.sqrt(self.alphas)
+            / (1.0 - self.alphas_cumprod)
+        )
+
     @property
     def steps(self) -> list[int]:
         return list(range(self.num_steps))
 
     def __repr__(self):
-        if self.schedule_type == 'linear':
+        if self.schedule_type == "linear":
             return f"DiffusionProcess(num_steps={self.num_steps}, schedule_type={self.schedule_type}, beta_start={self.beta_start}, beta_end={self.beta_end}, max_beta={self.max_beta})"
-        elif self.schedule_type == 'cosine':
+        elif self.schedule_type == "cosine":
             return f"DiffusionProcess(num_steps={self.num_steps}, schedule_type={self.schedule_type}, max_beta={self.max_beta})"
-    
+
     def __str__(self) -> str:
         return self.__repr__()
 
@@ -76,12 +100,12 @@ class DiffusionProcess:
         Returns:
             torch.Tensor: The betas of the diffusion process. Dimensions: [num_steps].
         """
-        if self.schedule_type == 'linear':
+        if self.schedule_type == "linear":
             scale = 1000 / self.num_steps
             beta_start = scale * self.beta_start
             beta_end = scale * self.beta_end
             betas = torch.linspace(beta_start, beta_end, self.num_steps)
-        elif self.schedule_type == "cosine":        
+        elif self.schedule_type == "cosine":
             f_t = lambda t: math.cos((t + 0.008) / 1.008 * math.pi / 2) ** 2
             betas = []
             for i in range(self.num_steps):
@@ -91,15 +115,15 @@ class DiffusionProcess:
             betas = torch.tensor(betas)
         # Truncate the betas to the maximum value
         betas = torch.minimum(betas, torch.tensor(self.max_beta))
-        return betas # Dimensions: (num_steps)
+        return betas  # Dimensions: (num_steps)
 
     def forward(
         self,
-        field_start:    torch.Tensor,
-        r:              torch.Tensor,
-        batch:          torch.Tensor = None,
+        field_start: torch.Tensor,
+        r: torch.Tensor,
+        batch: torch.Tensor = None,
         dirichlet_mask: torch.Tensor = None,
-        noise:          torch.Tensor = None,
+        noise: torch.Tensor = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         r"""Forwards the diffusion process from 'field_start' to diffusion-step `r`.
 
@@ -124,29 +148,49 @@ class DiffusionProcess:
         device = field_start.device
         if noise is None:
             if dirichlet_mask is not None:
-                noise = torch.randn_like(field_start) * (~dirichlet_mask) # (num_nodes, num_fields)
+                noise = torch.randn_like(field_start) * (
+                    ~dirichlet_mask
+                )  # (num_nodes, num_fields)
             else:
-                noise = torch.randn_like(field_start) # (num_nodes, num_fields)
+                noise = torch.randn_like(field_start)  # (num_nodes, num_fields)
         elif dirichlet_mask is not None:
             noise = noise * (~dirichlet_mask)
         if batch is None:
-            batch = torch.zeros(field_start.size(0), device=device, dtype=torch.long)
-        
+            batch = torch.zeros(
+                field_start.size(0), device=device, dtype=torch.long
+            )
+
         # Get the coefficients for the diffusion process
-        sqrt_alphas_cumprod_t = self.get_index_from_list(self.sqrt_alphas_cumprod, batch, r) # Dimensions: (num_nodes, 1)
-        sqrt_one_minus_alphas_cumprod_t = self.get_index_from_list(self.sqrt_one_minus_alphas_cumprod, batch, r) # Dimensions: (num_nodes, 1)
-        sig_to_noise_ratio_t = (sqrt_alphas_cumprod_t / sqrt_one_minus_alphas_cumprod_t) ** 2 # Dimensions: (num_nodes, 1)
-        idx = torch.cat([torch.tensor([0], device=device),(batch[1:] != batch[:-1]).nonzero(as_tuple=True)[0] + 1])
-        sig_to_noise_ratio_t = sig_to_noise_ratio_t[idx] # Dimensions: (batch_size,)
-        
+        sqrt_alphas_cumprod_t = self.get_index_from_list(
+            self.sqrt_alphas_cumprod, batch, r
+        )  # Dimensions: (num_nodes, 1)
+        sqrt_one_minus_alphas_cumprod_t = self.get_index_from_list(
+            self.sqrt_one_minus_alphas_cumprod, batch, r
+        )  # Dimensions: (num_nodes, 1)
+        sig_to_noise_ratio_t = (
+            sqrt_alphas_cumprod_t / sqrt_one_minus_alphas_cumprod_t
+        ) ** 2  # Dimensions: (num_nodes, 1)
+        idx = torch.cat([
+            torch.tensor([0], device=device),
+            (batch[1:] != batch[:-1]).nonzero(as_tuple=True)[0] + 1,
+        ])
+        sig_to_noise_ratio_t = sig_to_noise_ratio_t[
+            idx
+        ]  # Dimensions: (batch_size,)
+
         # Apply the diffusion process. The coefficients are shared across the field dimension.
-        field_r = sqrt_alphas_cumprod_t * field_start + sqrt_one_minus_alphas_cumprod_t * noise
-        return field_r, noise, sig_to_noise_ratio_t.squeeze(-1) # Dimensions: (num_nodes, num_fields), (num_nodes, num_fields), (batch_size)
+        field_r = (
+            sqrt_alphas_cumprod_t * field_start
+            + sqrt_one_minus_alphas_cumprod_t * noise
+        )
+        return (
+            field_r,
+            noise,
+            sig_to_noise_ratio_t.squeeze(-1),
+        )  # Dimensions: (num_nodes, num_fields), (num_nodes, num_fields), (batch_size)
 
     def sample_r(
-        self,
-        batch_size: int          = 1,
-        device:     torch.device = torch.device('cpu')
+        self, batch_size: int = 1, device: torch.device = torch.device("cpu")
     ) -> torch.Tensor:
         r"""Samples the index of the diffusion step `r` from a uniform distribution.
 
@@ -156,15 +200,16 @@ class DiffusionProcess:
         Returns:
             torch.Tensor: The index of the diffusion step `r`. Dimensions: [batch_size].
         """
-        return torch.randint(0, self.num_steps, (batch_size,), device=device).long() # Dimensions: [batch_size]
-        
+        return torch.randint(
+            0, self.num_steps, (batch_size,), device=device
+        ).long()  # Dimensions: [batch_size]
 
     def predict_x0_from_noise(
         self,
-        field_r:    torch.Tensor,
-        noise:      torch.Tensor,
-        r:          torch.Tensor,
-        batch:      torch.Tensor
+        field_r: torch.Tensor,
+        noise: torch.Tensor,
+        r: torch.Tensor,
+        batch: torch.Tensor,
     ) -> torch.Tensor:
         r"""Recovers the clean field x_0 from the noisy field x_t and the noise.
 
@@ -179,16 +224,22 @@ class DiffusionProcess:
         Returns:
             torch.Tensor: The predicted clean field x_0. Dimensions: [num_nodes, num_fields].
         """
-        sqrt_alphas_cumprod_t = self.get_index_from_list(self.sqrt_alphas_cumprod, batch, r)
-        sqrt_one_minus_alphas_cumprod_t = self.get_index_from_list(self.sqrt_one_minus_alphas_cumprod, batch, r)
-        return (field_r - sqrt_one_minus_alphas_cumprod_t * noise) / sqrt_alphas_cumprod_t
+        sqrt_alphas_cumprod_t = self.get_index_from_list(
+            self.sqrt_alphas_cumprod, batch, r
+        )
+        sqrt_one_minus_alphas_cumprod_t = self.get_index_from_list(
+            self.sqrt_one_minus_alphas_cumprod, batch, r
+        )
+        return (
+            field_r - sqrt_one_minus_alphas_cumprod_t * noise
+        ) / sqrt_alphas_cumprod_t
 
     def predict_noise_from_x0(
         self,
-        field_r:     torch.Tensor,
+        field_r: torch.Tensor,
         field_start: torch.Tensor,
-        r:           torch.Tensor,
-        batch:       torch.Tensor
+        r: torch.Tensor,
+        batch: torch.Tensor,
     ) -> torch.Tensor:
         r"""Recovers the noise eps from the noisy field x_t and the clean field x_0.
 
@@ -203,16 +254,22 @@ class DiffusionProcess:
         Returns:
             torch.Tensor: The predicted noise eps. Dimensions: [num_nodes, num_fields].
         """
-        sqrt_alphas_cumprod_t = self.get_index_from_list(self.sqrt_alphas_cumprod, batch, r)
-        sqrt_one_minus_alphas_cumprod_t = self.get_index_from_list(self.sqrt_one_minus_alphas_cumprod, batch, r)
-        return (field_r - sqrt_alphas_cumprod_t * field_start) / sqrt_one_minus_alphas_cumprod_t
+        sqrt_alphas_cumprod_t = self.get_index_from_list(
+            self.sqrt_alphas_cumprod, batch, r
+        )
+        sqrt_one_minus_alphas_cumprod_t = self.get_index_from_list(
+            self.sqrt_one_minus_alphas_cumprod, batch, r
+        )
+        return (
+            field_r - sqrt_alphas_cumprod_t * field_start
+        ) / sqrt_one_minus_alphas_cumprod_t
 
     def get_v_target(
         self,
         field_start: torch.Tensor,
-        noise:       torch.Tensor,
-        r:           torch.Tensor,
-        batch:       torch.Tensor
+        noise: torch.Tensor,
+        r: torch.Tensor,
+        batch: torch.Tensor,
     ) -> torch.Tensor:
         r"""Computes the v-prediction target: v = sqrt(alpha_bar) * eps - sqrt(1 - alpha_bar) * x_0.
 
@@ -229,16 +286,23 @@ class DiffusionProcess:
         Returns:
             torch.Tensor: The v-prediction target. Dimensions: [num_nodes, num_fields].
         """
-        sqrt_alphas_cumprod_t = self.get_index_from_list(self.sqrt_alphas_cumprod, batch, r)
-        sqrt_one_minus_alphas_cumprod_t = self.get_index_from_list(self.sqrt_one_minus_alphas_cumprod, batch, r)
-        return sqrt_alphas_cumprod_t * noise - sqrt_one_minus_alphas_cumprod_t * field_start
+        sqrt_alphas_cumprod_t = self.get_index_from_list(
+            self.sqrt_alphas_cumprod, batch, r
+        )
+        sqrt_one_minus_alphas_cumprod_t = self.get_index_from_list(
+            self.sqrt_one_minus_alphas_cumprod, batch, r
+        )
+        return (
+            sqrt_alphas_cumprod_t * noise
+            - sqrt_one_minus_alphas_cumprod_t * field_start
+        )
 
     def predict_x0_from_v(
         self,
         field_r: torch.Tensor,
-        v:       torch.Tensor,
-        r:       torch.Tensor,
-        batch:   torch.Tensor
+        v: torch.Tensor,
+        r: torch.Tensor,
+        batch: torch.Tensor,
     ) -> torch.Tensor:
         r"""Recovers the clean field x_0 from the noisy field x_t and the predicted v.
 
@@ -253,16 +317,23 @@ class DiffusionProcess:
         Returns:
             torch.Tensor: The predicted clean field x_0. Dimensions: [num_nodes, num_fields].
         """
-        sqrt_alphas_cumprod_t = self.get_index_from_list(self.sqrt_alphas_cumprod, batch, r)
-        sqrt_one_minus_alphas_cumprod_t = self.get_index_from_list(self.sqrt_one_minus_alphas_cumprod, batch, r)
-        return sqrt_alphas_cumprod_t * field_r - sqrt_one_minus_alphas_cumprod_t * v
+        sqrt_alphas_cumprod_t = self.get_index_from_list(
+            self.sqrt_alphas_cumprod, batch, r
+        )
+        sqrt_one_minus_alphas_cumprod_t = self.get_index_from_list(
+            self.sqrt_one_minus_alphas_cumprod, batch, r
+        )
+        return (
+            sqrt_alphas_cumprod_t * field_r
+            - sqrt_one_minus_alphas_cumprod_t * v
+        )
 
     def predict_noise_from_v(
         self,
         field_r: torch.Tensor,
-        v:       torch.Tensor,
-        r:       torch.Tensor,
-        batch:   torch.Tensor
+        v: torch.Tensor,
+        r: torch.Tensor,
+        batch: torch.Tensor,
     ) -> torch.Tensor:
         r"""Recovers the noise eps from the noisy field x_t and the predicted v.
 
@@ -277,16 +348,23 @@ class DiffusionProcess:
         Returns:
             torch.Tensor: The predicted noise eps. Dimensions: [num_nodes, num_fields].
         """
-        sqrt_alphas_cumprod_t = self.get_index_from_list(self.sqrt_alphas_cumprod, batch, r)
-        sqrt_one_minus_alphas_cumprod_t = self.get_index_from_list(self.sqrt_one_minus_alphas_cumprod, batch, r)
-        return sqrt_one_minus_alphas_cumprod_t * field_r + sqrt_alphas_cumprod_t * v
+        sqrt_alphas_cumprod_t = self.get_index_from_list(
+            self.sqrt_alphas_cumprod, batch, r
+        )
+        sqrt_one_minus_alphas_cumprod_t = self.get_index_from_list(
+            self.sqrt_one_minus_alphas_cumprod, batch, r
+        )
+        return (
+            sqrt_one_minus_alphas_cumprod_t * field_r
+            + sqrt_alphas_cumprod_t * v
+        )
 
     def get_posterior_mean_and_variance(
         self,
         field_start: torch.Tensor,
         field_r: torch.Tensor,
         batch: torch.Tensor,
-        r: torch.Tensor
+        r: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         r"""Returns the posterior mean and variance of the field after 'r' diffusion steps.
 
@@ -300,15 +378,20 @@ class DiffusionProcess:
             torch.Tensor: The posterior mean of the field after 'r' diffusion steps, defined on the nodes of a graph. Dimensions: (num_nodes, num_fields).
             torch.Tensor: The posterior variance of the field after 'r' diffusion steps, defined on the nodes of a graph. Dimensions: (num_nodes,).
         """
-        posterior_mean = self.get_index_from_list(self.posterior_mean_coef1, batch, r) * field_start + self.get_index_from_list(self.posterior_mean_coef2, batch, r) * field_r
-        posterior_variance = self.get_index_from_list(self.posterior_variance, batch, r)
+        posterior_mean = (
+            self.get_index_from_list(self.posterior_mean_coef1, batch, r)
+            * field_start
+            + self.get_index_from_list(self.posterior_mean_coef2, batch, r)
+            * field_r
+        )
+        posterior_variance = self.get_index_from_list(
+            self.posterior_variance, batch, r
+        )
         return posterior_mean, posterior_variance
 
     @staticmethod
     def get_index_from_list(
-        values: torch.Tensor,
-        batch: torch.Tensor,
-        r: torch.Tensor
+        values: torch.Tensor, batch: torch.Tensor, r: torch.Tensor
     ) -> torch.Tensor:
         r"""Returns the `r`-th element of `values` for each node in `batch`. These values are the same for all the nodes in the same graph.
 
@@ -317,22 +400,32 @@ class DiffusionProcess:
             batch (torch.Tensor): The batch indices of the nodes in the graph. Dimensions: [num_nodes].
             r (torch.Tensor): The indices to use. Dimensions: [batch_size].
         """
-        assert batch.device == r.device, f"The device of batch and r must be the same."
+        assert batch.device == r.device, (
+            f"The device of batch and r must be the same."
+        )
         device = batch.device
         batch_size = len(r)
         # Validate that the batch_size is the same as the number of graphs in 'batch'
-        assert batch.max().item() + 1 == batch_size, f"The batch_size of r and the number of graphs in batch must be the same."
+        assert batch.max().item() + 1 == batch_size, (
+            f"The batch_size of r and the number of graphs in batch must be the same."
+        )
         # Get the 'r'-th element of 'fields' for each graph in 'batch'
-        node_r = values.to(device)[r] # Dimensions: [batch_size]
+        node_r = values.to(device)[r]  # Dimensions: [batch_size]
         # Get the number of nodes in each graph
         try:
             num_nodes_per_graph = torch.bincount(batch)
-        except NotImplementedError: 
+        except NotImplementedError:
             # torch.bincount is not implemented for float on xpu devices
             size = int(batch.max().item()) + 1
-            num_nodes_per_graph = torch.zeros(size, dtype=torch.long, device=device)
-            num_nodes_per_graph.scatter_add_(0, batch, torch.ones_like(batch, dtype=torch.long))
+            num_nodes_per_graph = torch.zeros(
+                size, dtype=torch.long, device=device
+            )
+            num_nodes_per_graph.scatter_add_(
+                0, batch, torch.ones_like(batch, dtype=torch.long)
+            )
         # Stack the repeated values for each graph in the batch
-        node_r = node_r.repeat_interleave(num_nodes_per_graph) # Dimensions: [num_nodes]
+        node_r = node_r.repeat_interleave(
+            num_nodes_per_graph
+        )  # Dimensions: [num_nodes]
         # Add a pseudo-field dimension
-        return node_r.unsqueeze(-1) # Dimensions: (num_nodes, 1)
+        return node_r.unsqueeze(-1)  # Dimensions: (num_nodes, 1)

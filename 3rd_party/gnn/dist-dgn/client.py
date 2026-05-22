@@ -8,8 +8,9 @@ from time import sleep, perf_counter
 
 log = logging.getLogger(__name__)
 
+
 class OnlineClient:
-    """Class for the online training client
-    """
+    """Class for the online training client"""
+
     def __init__(self) -> None:
         self.client = None
