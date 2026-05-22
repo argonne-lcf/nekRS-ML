@@ -14,15 +14,6 @@ import torch
 from torch.cuda.amp.grad_scaler import GradScaler
 import torch.nn as nn
 import torch.optim as optim
-#from torch.utils.data import DataLoader
-#torch.use_deterministic_algorithms(True)
-#import torch.utils.data
-#import torch.utils.data.distributed
-#import torch.multiprocessing as mp
-#import torch.distributions as tdist 
-#from torch.profiler import profile, record_function, ProfilerActivity
-#import torch.nn.functional as F
-#from torchvision import datasets, transforms
 
 import torch.distributed as dist
 import torch.distributed.nn as distnn
@@ -33,7 +24,6 @@ import torch_geometric
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 import torch_geometric.utils as pyg_utils
-#import torch_geometric.nn as tgnn
 
 # Local imports
 import utils
@@ -226,13 +216,7 @@ class DGNTrainer:
         if self.cfg.model_task == 'inference':
             if RANK == 0: log.info(f'Loading model checkpoint from {self.model_path}')
             ckpt = torch.load(self.model_path, weights_only=False)
-            try:
-                self.model.load_state_dict(ckpt['state_dict'])
-            except (KeyError) as e:
-                self.model.load_state_dict(ckpt['model_state_dict'])
-            else:
-                log.error('Error loading model checkpoint')
-                COMM.Abort(1)
+            self.model.load_state_dict(ckpt['model_state_dict'])
 
         # ~~~~ Set optimizer
         self.optimizer = self.build_optimizer(self.model)
@@ -317,11 +301,11 @@ class DGNTrainer:
                 arch = self.model.get_arch()
 
             save_dict = {
-                        'state_dict' : sd,
+                        'iteration' : self.iteration,
+                        'model_state_dict' : sd,
                         'arch_dict' : arch,
                         'loss_hist_train' : self.loss_hist_train,
                         'loss_hist_val' : self.loss_hist_val,
-                        'iteration' : self.iteration,
                         }
             torch.save(save_dict, self.model_path)
         COMM.Barrier()
@@ -377,9 +361,7 @@ class DGNTrainer:
 
     def setup_torch(self):
         # Random seeds
-        seed = self.cfg.seed
-        if self.cfg.model_task == 'inference':
-            seed += self.rank
+        seed = self.cfg.seed + self.rank
         torch.manual_seed(seed)
         np.random.seed(seed)
 
@@ -760,11 +742,11 @@ class DGNTrainer:
         # Checks on mappings
         try:
             assert torch.allclose(
-                self.data_full.pos[self.idx_full2reduced], self.data_reduced.pos
+                data_full.pos[idx_full2reduced], data_reduced.pos
             )
         except AssertionError as e:
             idx = torch.where(
-                self.data_full.pos[self.idx_full2reduced] != self.data_reduced.pos
+                data_full.pos[idx_full2reduced] != data_reduced.pos
             )
             log.error("RANK %i: AssertionError: Non-matching nodes found in idx_full2reduced", RANK)
             log.error("Number of non-matching nodes:", len(idx[0]))
@@ -1288,7 +1270,7 @@ class DGNTrainer:
             self.buffer_recv = None
         if self.cfg.timers: self.update_timer('bufferInit', self.timer_step, time.time() - tic)
         
-        # Sample a batch of random diffusion steps
+        # Sample a batch of random diffusion steps (all ranks need same sample)
         batch_size = torch.max(data.batch) + 1
         r, importance_weights = self.step_sampler.sample(batch_size=batch_size)
         # Broadcast r and importance_weights from rank 0 for cross-rank consistency.
@@ -1514,9 +1496,9 @@ class DGNTrainer:
         if self.cfg.timers: self.update_timer('bufferInit', self.timer_step, time.time() - tic)
 
         # Sync halo nodes of the initial noise
-        postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_step{100}.png")
+        #postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_step{100}.png")
         field_r = self.sync_halo_nodes(field_r)
-        postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_con_step{100}.png")
+        #postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_con_step{100}.png")
         
         # Prediction (de-noise step by step)
         for step in diff_process.steps[::-1]:
@@ -1539,9 +1521,9 @@ class DGNTrainer:
                                 cond_node_features = self.data['graph'].cond_node_features if self.cfg.cond_node_features else None,
                                 batch = self.data['graph'].batch)
             if self.cfg.timers: self.update_timer('forwardPass', self.timer_step, time.time() - tic)
-            if self.cfg.postprocess and step%10 == 0:
-                postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), model_pred.cpu().numpy(), f"model_pred_step{step}.png")
-                COMM.Barrier()
+            #if self.cfg.postprocess and step%10 == 0:
+            #    postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), model_pred.cpu().numpy(), f"model_pred_step{step}.png")
+            #    COMM.Barrier()
             
             # Get the posterior mean and variance from the model output
             # get_posterior_mean_and_variance_from_output handles both epsilon and x0 prediction types
@@ -1562,11 +1544,11 @@ class DGNTrainer:
             # overwrite the stale halo copies.  Without this, each rank's
             # independent noise causes field_r to diverge at sub-graph
             # boundaries, and the errors accumulate through subsequent steps.
-            if step%10 == 0:
-                postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_step{step}.png")
+            #if step%10 == 0:
+            #    postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_step{step}.png")
             field_r = self.sync_halo_nodes(field_r)
-            if step%10 == 0:
-                postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_con_step{step}.png")
+            #if step%10 == 0:
+            #    postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_con_step{step}.png")
 
         # Update timers
         self.synchronize()
@@ -1576,6 +1558,48 @@ class DGNTrainer:
                 self.timer_step += 1
 
         return field_r
+
+    @torch.no_grad()
+    def sync_boundary_field(self, field: Tensor, batch: Tensor) -> Tensor:
+        """Synchronize tier-2 boundary node values across ranks after per-rank noise.
+
+        During training, ``diffusion_process.forward`` draws independent noise on
+        every rank.  Tier-2 halo nodes are physically coincident across neighbouring
+        ranks, so after the forward diffusion both copies of the same physical node
+        hold different noisy values — making the noisy field inconsistent at partition
+        interfaces and polluting message-passing for nearby tier-1 nodes.
+
+        When ``consistency=True`` the training tensors already include tier-3 exchange
+        slots (appended as zeros by ``prepare_snapshot_data``), so for each batch
+        element we can call ``sync_halo_nodes`` directly on the per-element slice.
+        ``sync_halo_nodes`` overwrites the tier-3 slots with the neighbour's tier-2
+        values in its first step, so whatever noise happens to sit in those slots is
+        harmlessly discarded.
+
+        This method is a no-op when ``SIZE <= 1``, ``consistency=False``, or
+        ``halo_swap_mode="none"``.
+
+        Args:
+            field: Node feature tensor of shape ``[n_nodes_total * batch_size, F]``
+                   where ``n_nodes_total = n_tier1 + n_tier2 + n_tier3``.
+            batch: PyG batch index tensor of shape ``[n_nodes_total * batch_size]``.
+
+        Returns:
+            The same tensor with tier-2 boundary nodes replaced by their average
+            across all sharing ranks (same shape as input).
+        """
+        if SIZE <= 1 or not self.cfg.consistency or self.cfg.halo_swap_mode == "none":
+            return field
+
+        batch_size = int(torch.max(batch).item()) + 1
+        for b in range(batch_size):
+            node_mask = (batch == b)
+            # field[node_mask] has shape [n_nodes_total, F] — tier-3 slots included.
+            # sync_halo_nodes overwrites tier-3 slots, averages tier-2, then returns
+            # the full [n_nodes_total, F] tensor with consistent tier-2 values.
+            field[node_mask] = self.sync_halo_nodes(field[node_mask])
+
+        return field
 
     @torch.no_grad()
     def sync_halo_nodes(self, field: Tensor) -> Tensor:
