@@ -83,11 +83,12 @@ The script:
 5. Prints the next-step instructions, including **the Python version
    under `frameworks`** — write it down, you'll need it in Part 2.
 
-Now start the endpoint. You have three options depending on whether you
-want it to survive logout:
+Now start the endpoint. The very first start needs to be **foreground or
+inside tmux** so you can see and complete the Globus auth URL (browser
+flow). After that the token is cached and you can use `--detach`.
 
-**Option A — foreground (simplest, for one-off testing)**. Runs in your
-SSH session and dies when you log out. Good for first-time verification.
+**Option A — foreground (one-off testing or first-time auth)**. Runs in
+your SSH session and dies when you Ctrl-C.
 
 ```bash
 module load frameworks
@@ -97,8 +98,9 @@ globus-compute-endpoint start nekrs-ml-aurora
 # Ctrl-C when you're done
 ```
 
-**Option B — tmux (recommended for ongoing use)**. Endpoint survives
-logout; reattach later to check on it or restart.
+**Option B — tmux (good for first-time auth + live log access)**. Same
+as Option A but inside a tmux session so you can detach the terminal
+and reattach later for log scrollback.
 
 ```bash
 tmux new -s gc-endpoint
@@ -108,18 +110,21 @@ globus-compute-endpoint start nekrs-ml-aurora
 # detach: Ctrl-b d    reattach later: tmux a -t gc-endpoint
 ```
 
-**Option C — nohup (also persistent, no terminal multiplexer)**. Writes
-output to a log file so you can find the auth URL there.
+**Option C — detached daemon (`--detach`, simplest persistent option)**.
+The endpoint daemonises itself, no terminal session required. **Only use
+this after you've completed first-time auth via Option A or B**, because
+`--detach` returns immediately and won't show the auth URL.
 
 ```bash
-nohup bash -c "module load frameworks \
-    && source <repo>/_env-agentic/bin/activate \
-    && globus-compute-endpoint start nekrs-ml-aurora" \
-    > endpoint.log 2>&1 &
-# grep endpoint.log for the auth URL
+module load frameworks
+source <repo>/_env-agentic/bin/activate
+globus-compute-endpoint start nekrs-ml-aurora --detach
+# Endpoint logs end up in ~/.globus_compute/nekrs-ml-aurora/EndpointLogs/
+# Stop with:   globus-compute-endpoint stop nekrs-ml-aurora
+# Restart:     globus-compute-endpoint restart nekrs-ml-aurora --detach
 ```
 
-Whichever option you pick, after authenticating, grab the UUID:
+After the endpoint is running (any option), grab the UUID:
 
 ```bash
 globus-compute-endpoint list
@@ -260,7 +265,7 @@ You shouldn't need to re-run any setup unless something changes:
 | If you ...                                              | Run                                                                |
 |---------------------------------------------------------|--------------------------------------------------------------------|
 | Restart your laptop                                     | nothing — config is on disk                                        |
-| The Aurora login node reboots / endpoint dies           | restart it on Aurora (foreground, tmux, or nohup — see Part 1 Option A/B/C) |
+| The Aurora login node reboots / endpoint dies           | SSH back in and run `globus-compute-endpoint start nekrs-ml-aurora --detach` (auth is already cached) |
 | Edit the body of a function in [functions.py](functions.py) | `python -m agentic.client.register --force`                       |
 | Add a new function to [functions.py](functions.py)      | append to `REGISTERED_FUNCTIONS`, then `python -m agentic.client.register --only <name>` |
 | Change the endpoint UUID (rare)                         | `python -m agentic.client.setup --uuid <NEW> --repo-root <PATH>`   |
