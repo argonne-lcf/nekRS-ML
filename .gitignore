@@ -15,6 +15,7 @@ logfile
 # ML related items
 __pycache__/
 _env*/
+*.egg-info/
 
 # SmartSim/SmartRedis outputs
 SmartSim/
