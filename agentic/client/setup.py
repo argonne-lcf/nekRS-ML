@@ -54,6 +54,8 @@ def _register(force: bool) -> int:
 
 
 def _ping(system: str) -> int:
+    import re
+
     from agentic.client.system import System
 
     print(f"\n[setup] Pinging endpoint for {system!r} ...")
@@ -66,9 +68,30 @@ def _ping(system: str) -> int:
     if not result.get("ok"):
         print(f"  ping failed: {result.get('error')}", file=sys.stderr)
         return 1
+    py_str = result.get("python", "")
     print(f"  hostname : {result.get('hostname')}")
     print(f"  user     : {result.get('user')}")
-    print(f"  python   : {result.get('python', '').splitlines()[0]}")
+    print(f"  python   : {py_str.splitlines()[0] if py_str else ''}")
+
+    # Globus Compute serialises functions/results between laptop and endpoint
+    # via pickle. MAJOR.MINOR mismatch is a real foot-gun: pickle can succeed
+    # at register-time and then fail at call-time on unfamiliar types. Warn
+    # loudly rather than refuse, because (a) some workloads do tolerate it and
+    # (b) the user may have no choice (Aurora's frameworks module pins Python).
+    m = re.match(r"(\d+)\.(\d+)", py_str)
+    if m:
+        endpoint_major, endpoint_minor = int(m.group(1)), int(m.group(2))
+        local_major, local_minor = sys.version_info[:2]
+        if (endpoint_major, endpoint_minor) != (local_major, local_minor):
+            print(
+                f"\n  WARNING: Python version mismatch.\n"
+                f"    laptop  : {local_major}.{local_minor}\n"
+                f"    endpoint: {endpoint_major}.{endpoint_minor}\n"
+                f"  Globus Compute pickling is sensitive to MAJOR.MINOR drift; "
+                f"function calls may fail at runtime. Recreate the laptop venv "
+                f"with python{endpoint_major}.{endpoint_minor} if possible.",
+                file=sys.stderr,
+            )
     return 0
 
 
