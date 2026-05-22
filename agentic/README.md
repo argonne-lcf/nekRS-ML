@@ -145,15 +145,40 @@ and then fail unpredictably at call time. The Aurora `frameworks` module
 currently ships Python 3.12.x; use the version your Part 1 setup script
 reported, exactly.
 
-On macOS, install a matching Python via Homebrew or pyenv if you don't
-have one. Examples assume 3.12; substitute your actual version.
+Install a matching Python first. Pick one of the two options below
+(all assume 3.12; substitute your actual version), then continue with the
+shared "Create the venv and run setup" block.
+
+**Option 1 — conda / miniconda / micromamba** (cross-platform, most
+flexible — Python versions and venvs in one tool):
 
 ```bash
-brew install python@3.12   # or: pyenv install 3.12.x
+# Creates a named env with the right interpreter and activates it.
+conda create -n nekrs-ml-agentic python=3.12 -y
+conda activate nekrs-ml-agentic
+# `python` and `pip` are now the 3.12 ones from this env --
+# skip the venv step below and jump straight to `pip install -e ./agentic`.
+```
 
-cd </path/to>/nekRS-ML     # your laptop clone
+**Option 2 — Homebrew (macOS)**:
+
+```bash
+brew install python@3.12
+# `python3.12` is now on your PATH but Homebrew doesn't activate it
+# globally; you'll use it explicitly in the venv step below.
+```
+
+**Create the venv and run setup** — the venv step is needed for
+Options 2; with Option 1 the conda env replaces it, so jump
+straight to `pip install -e ./agentic`.
+
+```bash
+cd </path/to>/nekRS-ML            # your laptop clone
+
+# (Options 2/3 only) create the venv with the matching interpreter
 python3.12 -m venv _env-agentic   # name is gitignored
 source _env-agentic/bin/activate
+
 pip install -e ./agentic
 
 python -m agentic.client.setup \
@@ -172,10 +197,17 @@ installs and want to pass the path explicitly each time.
 
 The setup command:
 1. Writes the endpoint entry to `~/.config/nekrs-ml-agentic/endpoints.json`
-2. Registers all functions in `agentic.functions` with Globus Compute and
+2. **Authenticates with Globus Compute.** First run opens a browser tab
+   to log in via your ALCF identity; the token is cached under
+   `~/.globus_compute/` for ~30 days. If the browser doesn't open
+   automatically, the terminal prints a URL — visit it manually and paste
+   the returned auth code back. Pass `--reauth` to clear the cached token
+   and force a fresh login (use this when sessions expire or get into a
+   bad state — same recovery as `rm -r ~/.globus_compute/storage.db*`).
+3. Registers all functions in `agentic.functions` with Globus Compute and
    saves their UUIDs to `~/.config/nekrs-ml-agentic/functions.json`
-3. Calls `ping()` on the Aurora endpoint as a round-trip smoke test
-4. Compares your laptop's Python MAJOR.MINOR with the endpoint's and
+4. Calls `ping()` on the Aurora endpoint as a round-trip smoke test
+5. Compares your laptop's Python MAJOR.MINOR with the endpoint's and
    prints a loud warning if they differ — re-create the laptop venv with
    the matching interpreter and re-run if you see one
 
@@ -272,6 +304,7 @@ You shouldn't need to re-run any setup unless something changes:
 | Edit the body of a function in [functions.py](functions.py) | `python -m agentic.client.register --force`                       |
 | Add a new function to [functions.py](functions.py)      | append to `REGISTERED_FUNCTIONS`, then `python -m agentic.client.register --only <name>` |
 | Change the endpoint UUID (rare)                         | `python -m agentic.client.setup --uuid <NEW> --repo-root <PATH>`   |
+| Globus Compute token expires / says "auth required"     | `python -m agentic.client.setup --uuid <UUID> --repo-root <PATH> --reauth` (re-runs the browser auth flow) |
 | Add a new HPC system                                    | add an entry to `agentic.schedulers._SCHEDULERS`, write a per-system skill, re-run `setup` with `--system <name>` |
 
 ## Layout of this package
@@ -302,7 +335,8 @@ You shouldn't need to re-run any setup unless something changes:
 | `python -m agentic.client.setup` hangs on registration               | First-time Globus auth needs your browser                            | Watch the terminal for an auth URL and complete it                                              |
 | `setup` ends with `WARNING: Python version mismatch`                 | Laptop venv uses a different MAJOR.MINOR than the Aurora endpoint     | Recreate the laptop venv with `python<MAJOR.MINOR>` matching the endpoint, then re-run setup    |
 | `ping` returns immediately with `ok=False, error="EndpointDownError"` | Endpoint process on Aurora is not running                            | Restart it on Aurora (Part 1 Option A/B/C)                                                     |
-| `ping` times out after 5 minutes                                     | Endpoint process is wedged                                            | `globus-compute-endpoint stop nekrs-ml-aurora && globus-compute-endpoint start nekrs-ml-aurora`|
+| `ping` times out after 5 minutes                                     | Endpoint process is wedged                                            | `globus-compute-endpoint stop nekrs-ml-aurora && globus-compute-endpoint start nekrs-ml-aurora --detach` |
+| `ComputeAPIError ... 409 RESOURCE_CONFLICT ... Endpoint ... already in use` | Transient Globus Compute lock right after a burst of API calls (e.g., setup) | `System._call` already retries with exponential backoff (1s, 2s, 4s). If it still fails after 4 attempts, check the endpoint isn't being driven by another process; otherwise re-run the call after a few seconds. |
 | `build_nekrs` fails with cmake errors                                | Usually a missing module on the login node                            | Read the stderr tail; fix the environment, re-run                                              |
 | `LoginNodePolicyError: Refusing to run 'mpiexec'`                    | Something in the call path tried to launch MPI on the login node      | This is by design — route through `submit_job` instead                                         |
 | `AttributeError: 'System' has no remote function 'foo'`              | Calling something not in `REGISTERED_FUNCTIONS`                       | Check the list in [functions.py](functions.py); add + re-register if needed                    |

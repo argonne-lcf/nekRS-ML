@@ -11,12 +11,14 @@ here and this script does the rest:
 
 By default it:
   1. Writes/updates ~/.config/nekrs-ml-agentic/endpoints.json
-  2. Registers every function in agentic.functions with Globus Compute
-  3. Runs ping() against the endpoint to confirm the round-trip
+  2. Ensures a valid Globus Compute auth session (opens browser if needed)
+  3. Registers every function in agentic.functions with Globus Compute
+  4. Runs ping() against the endpoint to confirm the round-trip
 
 Pass --skip-register to keep existing UUIDs, --skip-ping to defer the smoke
 check, --force-register to re-register everything (use after changing a
-function body).
+function body), --reauth to clear cached Globus Compute tokens and force a
+fresh login.
 """
 
 from __future__ import annotations
@@ -41,6 +43,43 @@ def _write_endpoint(system: str, uuid: str, repo_root: str, extras: dict | None 
     return endpoints
 
 
+def _prepare_auth(reauth: bool) -> int:
+    """Optional token cleanup + clear messaging about what's about to happen.
+
+    The Globus Compute SDK handles auth lazily on first API call. It prints
+    a URL and prompts for the auth code via terminal input -- which is the
+    behaviour we want (works fine over SSH, no browser-open guessing). All
+    we do here is:
+
+      (a) if --reauth, delete the SDK's cached token files so the next API
+          call goes through a fresh login flow (matches the alcf reference's
+          `rm -r ~/.globus_compute` recovery, but narrower -- we only touch
+          token storage, not per-endpoint config dirs that sit alongside it),
+      (b) print up-front messaging so the user isn't surprised when the SDK
+          interrupts the script with a URL and a prompt.
+    """
+    from pathlib import Path
+
+    token_dir = Path.home() / ".globus_compute"
+    if reauth and token_dir.exists():
+        cleared = 0
+        for pattern in ("storage.db*", "tokens.json", "*.tokens.json"):
+            for p in token_dir.glob(pattern):
+                print(f"  --reauth: removing {p}")
+                p.unlink()
+                cleared += 1
+        if cleared == 0:
+            print("  --reauth: nothing to clear (no cached tokens found).")
+
+    print("\n[setup] Globus Compute auth note:")
+    print("        On first run (or after --reauth), the SDK will print an")
+    print("        authentication URL and then pause for input. Open the URL")
+    print("        in your browser, complete the ALCF login, and paste the")
+    print("        returned auth code back into this terminal. Subsequent")
+    print("        runs reuse the cached token under ~/.globus_compute/.")
+    return 0
+
+
 def _register(force: bool) -> int:
     from agentic.client import register as _register_mod
 
@@ -60,18 +99,19 @@ def _ping(system: str) -> int:
 
     print(f"\n[setup] Pinging endpoint for {system!r} ...")
     try:
-        hpc = System(system)
+        hpc_cm = System(system)
     except RuntimeError as e:
         print(f"  setup error: {e}", file=sys.stderr)
         return 2
-    result = hpc.ping(message="setup-smoke")
-    if not result.get("ok"):
-        print(f"  ping failed: {result.get('error')}", file=sys.stderr)
-        return 1
-    py_str = result.get("python", "")
-    print(f"  hostname : {result.get('hostname')}")
-    print(f"  user     : {result.get('user')}")
-    print(f"  python   : {py_str.splitlines()[0] if py_str else ''}")
+    with hpc_cm as hpc:
+        result = hpc.ping(message="setup-smoke")
+        if not result.get("ok"):
+            print(f"  ping failed: {result.get('error')}", file=sys.stderr)
+            return 1
+        py_str = result.get("python", "")
+        print(f"  hostname : {result.get('hostname')}")
+        print(f"  user     : {result.get('user')}")
+        print(f"  python   : {py_str.splitlines()[0] if py_str else ''}")
 
     # Globus Compute serialises functions/results between laptop and endpoint
     # via pickle. MAJOR.MINOR mismatch is a real foot-gun: pickle can succeed
@@ -103,6 +143,7 @@ def main() -> int:
     parser.add_argument("--nekrs-home", default=None, help="Optional: default NEKRS_HOME on the HPC, stored alongside the endpoint entry.")
     parser.add_argument("--skip-register", action="store_true", help="Don't (re)register functions; keep whatever's already in functions.json.")
     parser.add_argument("--force-register", action="store_true", help="Re-register every function, replacing existing UUIDs.")
+    parser.add_argument("--reauth", action="store_true", help="Clear cached Globus Compute tokens and force a fresh browser login.")
     parser.add_argument("--skip-ping", action="store_true", help="Don't run the round-trip ping at the end.")
     args = parser.parse_args()
 
@@ -111,8 +152,17 @@ def main() -> int:
     _write_endpoint(args.system, args.uuid, args.repo_root, extras)
 
     if args.skip_register:
+        # Even with --skip-register the ping call needs auth, so do it unless
+        # the user also skips the ping.
+        if not args.skip_ping:
+            rc = _prepare_auth(reauth=args.reauth)
+            if rc != 0:
+                return rc
         print("[setup] --skip-register: leaving functions.json untouched.")
     else:
+        rc = _prepare_auth(reauth=args.reauth)
+        if rc != 0:
+            return rc
         print(f"\n[setup] Registering functions (force={args.force_register}) ...")
         rc = _register(force=args.force_register)
         if rc != 0:

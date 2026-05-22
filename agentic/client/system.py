@@ -51,6 +51,11 @@ class System:
             )
         from globus_compute_sdk import Executor  # noqa: F401, deferred to keep module import light
         self._Executor = Executor
+        # Cached, reused across calls. Globus Compute's recommended pattern is
+        # one Executor per (endpoint, process) -- opening a fresh one per call
+        # not only churns AMQP connections but can itself trigger the 409
+        # RESOURCE_CONFLICT we used to retry around.
+        self._executor = None
 
     # ---- read-only views of the endpoint config ---------------------------
 
@@ -105,9 +110,57 @@ class System:
         # Make tab-completion in REPLs reveal the dynamic remote functions.
         return sorted(set(super().__dir__()) | set(REGISTERED_FUNCTIONS))
 
+    # ---- lifecycle --------------------------------------------------------
+
+    def close(self) -> None:
+        """Shut down the cached Executor and release its AMQP connection.
+
+        Called automatically by __exit__ / __del__. Safe to call multiple
+        times. After close(), the next _call will lazily build a fresh
+        Executor -- which is what the 409-retry path relies on.
+        """
+        if self._executor is not None:
+            try:
+                self._executor.shutdown(wait=True)
+            except Exception:
+                pass  # best-effort; we're about to drop the reference anyway
+            finally:
+                self._executor = None
+
+    def __enter__(self) -> "System":
+        return self
+
+    def __exit__(self, *exc_info) -> None:
+        self.close()
+
+    def __del__(self):
+        # Best-effort cleanup if the user forgets to call close() / use a
+        # context manager. Wrapped in try/except because __del__ runs during
+        # interpreter teardown when imports may be gone.
+        try:
+            self.close()
+        except Exception:
+            pass
+
     # ---- the one place that touches Globus Compute ------------------------
 
+    # The Globus Compute service occasionally returns 409 RESOURCE_CONFLICT
+    # ("endpoint is already in use: possibly due to concurrent requests --
+    # please try again"). The recommended fix is to drop our Executor (which
+    # may itself be the source of the conflict if its AMQP connection is in a
+    # bad state) and retry with a fresh one. Bounded so a wedged endpoint
+    # doesn't hang the agent indefinitely.
+    _MAX_CONFLICT_RETRIES = 4
+    _INITIAL_CONFLICT_BACKOFF_S = 1.0
+
+    def _get_executor(self):
+        if self._executor is None:
+            self._executor = self._Executor(endpoint_id=self.endpoint_uuid)
+        return self._executor
+
     def _call(self, name: str, /, **kwargs: Any) -> dict:
+        import time
+
         try:
             fn_uuid = self._functions[name]
         except KeyError as e:
@@ -115,6 +168,49 @@ class System:
                 f"Function {name!r} not registered with Globus Compute. Run "
                 f"`python -m agentic.client.register --only {name}`."
             ) from e
-        with self._Executor(endpoint_id=self.endpoint_uuid) as ex:
-            fut = ex.submit_to_registered_function(fn_uuid, kwargs=kwargs)
-            return fut.result(timeout=self.timeout_s)
+
+        backoff = self._INITIAL_CONFLICT_BACKOFF_S
+        last_exc: Exception | None = None
+        for attempt in range(1, self._MAX_CONFLICT_RETRIES + 1):
+            try:
+                ex = self._get_executor()
+                fut = ex.submit_to_registered_function(fn_uuid, kwargs=kwargs)
+                return fut.result(timeout=self.timeout_s)
+            except Exception as e:
+                msg = str(e)
+                is_conflict = "RESOURCE_CONFLICT" in msg or ("409" in msg and "in use" in msg)
+                if is_conflict:
+                    last_exc = e
+                    # The cached Executor may itself be the source of the
+                    # conflict (stale AMQP claim). Drop it so the next attempt
+                    # builds a fresh one.
+                    self.close()
+                    if attempt < self._MAX_CONFLICT_RETRIES:
+                        print(
+                            f"  endpoint busy (409 RESOURCE_CONFLICT); "
+                            f"dropped Executor, retrying in {backoff:.1f}s "
+                            f"(attempt {attempt}/{self._MAX_CONFLICT_RETRIES})"
+                        )
+                        time.sleep(backoff)
+                        backoff *= 2
+                        continue
+                # Either non-retryable or out of attempts: surface the original
+                # with actionable guidance for the persistent case.
+                if is_conflict:
+                    import sys as _sys
+                    print(
+                        "\nGlobus Compute keeps returning 409 RESOURCE_CONFLICT for this endpoint.\n"
+                        "This is usually a stuck endpoint state on the HPC side. Try, in order:\n"
+                        f"  1. On the HPC, restart the endpoint:\n"
+                        f"       globus-compute-endpoint stop {self.name}    # or whatever you named it\n"
+                        f"       globus-compute-endpoint start <name> --detach\n"
+                        f"  2. Check the endpoint logs for clues:\n"
+                        f"       tail -100 ~/.globus_compute/<name>/EndpointLogs/EndpointInterchange.log\n"
+                        f"  3. If your endpoint is configured for a single worker (init_blocks=1,\n"
+                        f"     max_blocks=1) and you have a previous task that hasn't finished, wait\n"
+                        f"     for it or `qdel` it (compute side) before retrying.",
+                        file=_sys.stderr,
+                    )
+                raise
+        assert last_exc is not None
+        raise last_exc

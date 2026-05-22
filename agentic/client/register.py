@@ -52,9 +52,14 @@ def main() -> int:
             print(f"  keep {name}: {existing[name]}")
             continue
         fn = getattr(fn_module, name)
-        uuid = client.register_function(fn, function_name=f"nekrs_ml_{name}")
+        # Newer globus_compute_sdk dropped the `function_name=` kwarg;
+        # the registered name now comes from the function's __name__. Our
+        # functions are already named like `ping`, `build_nekrs`, etc., so
+        # no prefix juggling is needed.
+        is_update = name in existing
+        uuid = client.register_function(fn)
         existing[name] = uuid
-        action = "re-registered" if name in existing else "registered"
+        action = "re-registered" if is_update else "registered"
         print(f"  {action} {name}: {uuid}")
 
     save_functions(existing)
