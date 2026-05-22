@@ -84,41 +84,53 @@ cp "$SOURCE_CONFIG" "$TARGET_CONFIG"
 echo
 
 # 5. Next steps -------------------------------------------------------------
+# Detect the Python MAJOR.MINOR provided by the frameworks module so we can
+# tell the user exactly which version to match on their laptop. Done outside
+# the heredoc so awk doesn't have to fight backslash-escaping rules.
+ENDPOINT_PY_VERSION="$(python --version 2>&1 | awk '{print $2}' | cut -d. -f1-2)"
+if [ -z "$ENDPOINT_PY_VERSION" ]; then
+  ENDPOINT_PY_VERSION="<check with: python --version>"
+fi
+
 cat <<EOF
 [setup] Done with bootstrap. The endpoint is configured but NOT started --
-        you start it manually so you can complete the Globus auth flow and
-        capture the UUID. Pick whichever option fits your workflow:
+        you start it manually so you can complete the Globus auth flow
+        and capture the UUID.
 
-  # ---- Start options ----
-  # A) Foreground (simplest, dies on logout -- fine for one-off testing):
-  source $VENV_PATH/bin/activate
+        Your FIRST start must be foreground or in tmux so you can see and
+        complete the browser auth URL. After that the token is cached
+        and you can use --detach.
+
+  # ---- A) Foreground (use this for first-time auth) ----
   module load $FRAMEWORKS_MODULE
+  source $VENV_PATH/bin/activate
   globus-compute-endpoint start $ENDPOINT_NAME
-  # follow the printed URL, authenticate, Ctrl-C to stop later
+  # follow the printed URL, authenticate, Ctrl-C to stop
 
-  # B) tmux (recommended for ongoing use -- survives logout):
+  # ---- B) tmux (foreground inside a session that survives logout) ----
   tmux new -s gc-endpoint
   # ...then the same three commands as (A); detach with Ctrl-b d
 
-  # C) nohup (no multiplexer -- also survives logout):
-  nohup bash -c "source $VENV_PATH/bin/activate \\
-      && module load $FRAMEWORKS_MODULE \\
-      && globus-compute-endpoint start $ENDPOINT_NAME" \\
-      > endpoint.log 2>&1 &
-  # the auth URL will appear in endpoint.log
+  # ---- C) --detach (after first-time auth is done) ----
+  module load $FRAMEWORKS_MODULE
+  source $VENV_PATH/bin/activate
+  globus-compute-endpoint start $ENDPOINT_NAME --detach
+  # endpoint daemonises; logs in ~/.globus_compute/$ENDPOINT_NAME/EndpointLogs/
+  # stop later with: globus-compute-endpoint stop $ENDPOINT_NAME
 
-  # ---- Grab the UUID ----
+  # ---- Grab the UUID after starting ----
   globus-compute-endpoint list   # line for $ENDPOINT_NAME shows the UUID
 
   # ---- On your laptop ----
   # IMPORTANT: your laptop venv MUST use the same Python MAJOR.MINOR as the
-  # frameworks module here (currently $(python --version 2>/dev/null | awk '{print \$2}' | cut -d. -f1-2)). Globus Compute serializes functions
-  # between machines and version mismatch breaks unpickling.
+  # frameworks module here (currently $ENDPOINT_PY_VERSION). Globus Compute
+  # serializes functions between machines and version mismatch breaks unpickling.
   #
-  #   python3.X -m venv _env-agentic    # X matches the version above
+  #   python$ENDPOINT_PY_VERSION -m venv _env-agentic
   #   source _env-agentic/bin/activate
   #   pip install -e ./agentic
   #   python -m agentic.client.setup \\
-  #       --uuid <paste UUID here> \\
-  #       --repo-root $REPO_ROOT
+  #       --uuid       <paste UUID here> \\
+  #       --repo-root  $REPO_ROOT \\
+  #       --nekrs-home <e.g., /home/$USER/.local/nekrs>
 EOF
