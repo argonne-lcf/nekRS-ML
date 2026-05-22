@@ -21,6 +21,7 @@ Some key functionalities of nekRS-ML are:
 * [Data streaming with ADIOS2](./src/plugins/adiosStreamer.hpp): nekRS v24 comes with ADIOS2 for I/O, thus nekRS-ML expands the usage of ADIOS2 to enable data streaming between nekRS and GNN training, enabling online (or *in-situ*) training/fine-tuning of the ML models.  
 * [In-memory data staging with SmartSim](./src/plugins/smartRedis.hpp): nekRS-ML can also be linked to the [SmartRedis](https://github.com/CrayLabs/SmartRedis) library, which when coupled with a [SmartSim](https://github.com/CrayLabs/SmartSim) workflow enables online training and inference with in-memory data-staging.
 * [Efficient deployment of nekRS ensembles](./examples/periodicHill_ensemble/): nekRS-ML provides utilities to setup and launch nekRS ensembles with [EnsembleLauncher](https://github.com/argonne-lcf/ensemble_launcher) (EL), which is a light-weight, scalable task launcher developed at the ALCF. This tool is useful for deploying parameter sweeps, scaling studies or gathering training data from various simulations by launching large ensembles on HPC systems.
+* [Agentic AI driver for HPC](./agentic/): laptop-side driver that lets a Claude Code agent build nekRS, set up cases, submit and monitor PBS jobs on ALCF Aurora via a Globus Compute login-node endpoint — without SSH'ing in. See the [agentic/ README](./agentic/README.md) for the first-time walkthrough. Aurora-only in v1; Polaris and Frontier are planned.
 
 ### Progression of AI-enabled examples
 

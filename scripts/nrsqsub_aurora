@@ -91,5 +91,9 @@ if [ $BUILD_ONLY -eq 0 ]; then
   echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- ./${CMD} $bin --setup ${case} --backend ${NEKRS_BACKEND} --device-id 0 $extra_args" >> $SFILE
 fi
 
-qsub -q $QUEUE $SFILE
+if [ "${NEKRS_AGENTIC_NO_SUBMIT:-0}" = "1" ]; then
+  echo "NEKRS_AGENTIC_NO_SUBMIT=1 set; generated $SFILE but skipping qsub."
+else
+  qsub -q $QUEUE $SFILE
+fi
 

@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nekrs-ml-agentic"
+version = "0.1.0"
+description = "Login-node-safe Globus Compute functions and Claude skills for driving nekRS-ML on HPC from a laptop agent."
+requires-python = ">=3.10"
+dependencies = [
+    "globus-compute-sdk>=2.27",
+]
+
+[project.optional-dependencies]
+endpoint = [
+    "globus-compute-endpoint>=2.27",
+]
+dev = [
+    "pytest>=7",
+]
+
+[tool.setuptools.packages.find]
+include = ["agentic*"]
