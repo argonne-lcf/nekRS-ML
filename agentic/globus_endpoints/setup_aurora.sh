@@ -75,22 +75,33 @@ fi
 echo
 
 # 4. Endpoint config --------------------------------------------------------
+# Mirrors the ALCF reference flow
+#   (https://github.com/argonne-lcf/alcf-agentics-workflow/tree/main/remoteGlobusToAurora):
+# pass our engine template to `configure --template-config`. globus-compute-
+# endpoint 4.x writes it to ~/.globus_compute/<name>/user_config_template.yaml.j2
+# and auto-generates a sensible config.yaml -- we don't touch that file.
+#
+# On re-runs the endpoint dir already exists and `configure` would error, so we
+# just refresh the template by copy (backing up any divergent existing version).
 CONFIG_DIR="$HOME/.globus_compute/$ENDPOINT_NAME"
+USER_TEMPLATE_SRC="$REPO_ROOT/agentic/globus_endpoints/aurora_user_config.yaml.j2"
+USER_TEMPLATE_DEST="$CONFIG_DIR/user_config_template.yaml.j2"
+
 if [ -d "$CONFIG_DIR" ]; then
   echo "[setup] Endpoint $ENDPOINT_NAME already configured at $CONFIG_DIR"
-  echo "        (delete $CONFIG_DIR to re-initialise)"
+  echo "        Refreshing user_config_template.yaml.j2 from source ..."
+  if [ -f "$USER_TEMPLATE_DEST" ] && ! cmp -s "$USER_TEMPLATE_DEST" "$USER_TEMPLATE_SRC"; then
+    cp "$USER_TEMPLATE_DEST" "$USER_TEMPLATE_DEST.bak.$(date +%s)"
+    echo "        backed up existing template as $USER_TEMPLATE_DEST.bak.<ts>"
+  fi
+  cp "$USER_TEMPLATE_SRC" "$USER_TEMPLATE_DEST"
+  echo "        wrote $USER_TEMPLATE_DEST"
 else
-  echo "[setup] Initialising endpoint $ENDPOINT_NAME ..."
-  globus-compute-endpoint configure "$ENDPOINT_NAME"
+  echo "[setup] Initialising endpoint $ENDPOINT_NAME with --template-config ..."
+  globus-compute-endpoint configure \
+    --template-config "$USER_TEMPLATE_SRC" \
+    "$ENDPOINT_NAME"
 fi
-
-echo "[setup] Installing LocalProvider config (preserving existing as .bak) ..."
-TARGET_CONFIG="$CONFIG_DIR/config.yaml"
-SOURCE_CONFIG="$REPO_ROOT/agentic/globus_endpoints/aurora_config.yaml"
-if [ -f "$TARGET_CONFIG" ] && ! cmp -s "$TARGET_CONFIG" "$SOURCE_CONFIG"; then
-  cp "$TARGET_CONFIG" "$TARGET_CONFIG.bak.$(date +%s)"
-fi
-cp "$SOURCE_CONFIG" "$TARGET_CONFIG"
 echo
 
 # 5. Next steps -------------------------------------------------------------

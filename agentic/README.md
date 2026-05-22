@@ -77,9 +77,12 @@ The script:
 2. Creates a venv inside the repo at `<repo>/_env-agentic`. Override with
    `VENV_PATH=...` if you want it elsewhere.
 3. Installs `globus-compute-endpoint` and the local `agentic` package
-4. Initialises an endpoint named `nekrs-ml-aurora` and writes the
-   `LocalProvider` config from
-   [globus_endpoints/aurora_config.yaml](globus_endpoints/aurora_config.yaml)
+4. Initialises an endpoint named `nekrs-ml-aurora` via
+   `globus-compute-endpoint configure --template-config ...`, pointing at
+   the `LocalProvider` engine template
+   [globus_endpoints/aurora_user_config.yaml.j2](globus_endpoints/aurora_user_config.yaml.j2)
+   (matches the ALCF reference flow). On re-runs it just refreshes that
+   one file so any edits to the source propagate.
 5. Prints the next-step instructions, including **the Python version
    under `frameworks`** — write it down, you'll need it in Part 2.
 

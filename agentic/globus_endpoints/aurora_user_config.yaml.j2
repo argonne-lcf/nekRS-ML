@@ -1,0 +1,31 @@
+# Per-user engine config template for the nekRS-ML Aurora login-node endpoint.
+#
+# globus-compute-endpoint 4.x renders this Jinja2 template once per task to
+# produce the effective engine config. Ours has no Jinja variables -- it's
+# plain YAML -- but the .j2 extension is required and the template engine just
+# passes the content through.
+#
+# Design intent (do NOT change without thinking):
+#   LocalProvider           runs workers on whichever host the endpoint is
+#                           started on. We start the endpoint on a login node
+#                           so functions execute on the login node -- by design,
+#                           never on compute. Compute goes through submit_job
+#                           which qsubs onto compute nodes.
+#   max_workers_per_node 2  caps concurrency so a runaway loop can't fork a
+#                           swarm of subprocess shells on the login node.
+#                           Increase only after measuring.
+#   init/min/max_blocks     single static block. No autoscaling -- this is a
+#                           login-node endpoint, there are no other nodes to
+#                           scale onto.
+#
+# Installed to ~/.globus_compute/<endpoint>/user_config_template.yaml.j2 by
+# setup_aurora.sh.
+
+engine:
+  type: GlobusComputeEngine
+  max_workers_per_node: 2
+  provider:
+    type: LocalProvider
+    init_blocks: 1
+    min_blocks: 0
+    max_blocks: 1
