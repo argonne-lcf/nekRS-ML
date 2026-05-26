@@ -138,44 +138,48 @@ Copy the UUID. You'll need it (and the Python version) in Part 2.
 
 ### Part 2 — set up your laptop (one time)
 
-**Important: match the Python MAJOR.MINOR between laptop and endpoint.**
-Globus Compute serialises functions and arguments with pickle, which is
-sensitive to Python-version drift — a mismatch can succeed at registration
-and then fail unpredictably at call time. The Aurora `frameworks` module
-currently ships Python 3.12.x; use the version your Part 1 setup script
-reported, exactly.
+**Important: match the Python version between laptop and endpoint.**
+Use the same `MAJOR.MINOR.PATCH` your Part 1 setup script reported
+(e.g., `3.12.12` — *not* just `3.12`). Two reasons:
 
-Install a matching Python first. Pick one of the two options below
-(all assume 3.12; substitute your actual version), then continue with the
-shared "Create the venv and run setup" block.
+1. **Correctness.** Globus Compute serialises functions and arguments with
+   pickle. A `MAJOR.MINOR` mismatch can succeed at registration and then
+   fail unpredictably at call time with `ModuleNotFoundError` or worse.
+2. **Cleanliness.** While a `PATCH`-only mismatch (e.g., `3.12.13` vs
+   `3.12.12`) is harmless for pickle, but the SDK prints a
+   `UserWarning: Environment differences detected` on every single call.
+   Matching exactly silences that warning and keeps the output legible.
 
-**Option 1 — conda / miniconda / micromamba** (cross-platform, most
-flexible — Python versions and venvs in one tool):
+**Install Python version**
+
+Option 1 — conda / miniconda / micromamba (recommended — easiest to
+pin an exact patch):
 
 ```bash
-# Creates a named env with the right interpreter and activates it.
-conda create -n nekrs-ml-agentic python=3.12 -y
+# Substitute the EXACT version your Part 1 setup printed (e.g., 3.12.12).
+conda create -n nekrs-ml-agentic python=3.12.12 -y
 conda activate nekrs-ml-agentic
-# `python` and `pip` are now the 3.12 ones from this env --
 # skip the venv step below and jump straight to `pip install -e ./agentic`.
 ```
 
-**Option 2 — Homebrew (macOS)**:
+Option 2 — pyenv:
 
 ```bash
-brew install python@3.12
-# `python3.12` is now on your PATH but Homebrew doesn't activate it
-# globally; you'll use it explicitly in the venv step below.
+pyenv install 3.12.12     # exact version
+pyenv shell 3.12.12       # use it in this shell
+# Then create the venv with that interpreter (see block below).
 ```
 
 **Create the venv and run setup** — the venv step is needed for
-Options 2; with Option 1 the conda env replaces it, so jump
+Option 2; with Option 1 the conda env replaces it, so jump
 straight to `pip install -e ./agentic`.
 
 ```bash
 cd </path/to>/nekRS-ML            # your laptop clone
 
-# (Options 2/3 only) create the venv with the matching interpreter
+# (Options 2/3 only) create the venv with the matching interpreter.
+# Use the exact version you installed above (e.g., `python3.12` from Homebrew
+# or `$(pyenv which python)` for pyenv).
 python3.12 -m venv _env-agentic   # name is gitignored
 source _env-agentic/bin/activate
 

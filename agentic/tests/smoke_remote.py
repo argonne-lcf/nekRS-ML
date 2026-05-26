@@ -9,10 +9,12 @@ What it does:
 
   1. Constructs `System(<system>)` and prints the endpoint UUID / repo root.
   2. Calls `ping()` and prints hostname / user / Python version.
-  3. If `--case-dir` is given, calls `list_results(case_dir)` and prints the
-     five most recently modified output files.
-  4. If `--case-dir` is given AND there's at least one matching file, tails
-     the most recent one (default 20 lines).
+  3. If `--case-dir` is given, calls `list_results(case_dir)` with a broad
+     pattern set covering both input files (*.par, *.usr, ...) and post-run
+     output (*.log, *.o<jobid>, *.fld*, ...). Prints the five most recent.
+     If nothing matches, falls back to `*` so you can see whether the
+     directory is empty vs the patterns are too narrow vs the path is wrong.
+  4. If a file was found, tails the most recent one (default 20 lines).
 
 Examples:
 
@@ -42,6 +44,17 @@ def main() -> int:
     parser.add_argument("--system", default="aurora", help="HPC system label (default: aurora).")
     parser.add_argument("--case-dir", default=None, help="Absolute path on the HPC to a case directory. If set, exercise list_results + tail_log.")
     parser.add_argument("--tail-lines", type=int, default=20, help="Lines to tail from the most recent file (default: 20).")
+    parser.add_argument(
+        "--patterns",
+        default=None,
+        help=(
+            "Comma-separated glob patterns for list_results. "
+            "Defaults to a broad set that covers BOTH nekRS input files "
+            "(*.par, *.usr, *.udf, *.re2, *.box, *.oudf, *.sh) and post-run "
+            "output (*.log, *.o*, *.e*, *.fld*, out*, logfile*) -- so the "
+            "test reports something whether or not the case has been run yet."
+        ),
+    )
     parser.add_argument("--json", action="store_true", help="Print full JSON results in addition to the pretty summary.")
     args = parser.parse_args()
 
@@ -79,8 +92,22 @@ def main() -> int:
         return 0
 
     # ---- 2. list_results ---------------------------------------------------
+    # Default to a broad pattern set: covers both fresh case dirs (input files
+    # like *.par, *.usr) and post-run dirs (*.log, *.o<jobid>). The defaults in
+    # list_results itself target post-run output only -- which is the right
+    # default for the agent's normal use (finding fresh results), but makes
+    # this smoke test useless on an unrun case directory. Override via --patterns.
+    DEFAULT_SMOKE_PATTERNS = [
+        "*.par", "*.usr", "*.udf", "*.re2", "*.box", "*.oudf", "*.sh",
+        "*.log", "*.o*", "*.e*", "*.fld*", "out*", "logfile*",
+    ]
+    patterns = (
+        [p.strip() for p in args.patterns.split(",") if p.strip()]
+        if args.patterns else DEFAULT_SMOKE_PATTERNS
+    )
     print(f"\n[smoke] list_results(case_dir={args.case_dir!r}) ...")
-    lr = hpc.list_results(case_dir=args.case_dir)
+    print(f"        patterns={patterns}")
+    lr = hpc.list_results(case_dir=args.case_dir, patterns=patterns)
     if args.json:
         print(json.dumps(lr, indent=2, default=str))
     if not lr.get("ok"):
@@ -91,7 +118,19 @@ def main() -> int:
     for f in files[:5]:
         _print("  ->", f"{f['size']:>10}  {f['mtime']:.0f}  {f['path']}")
     if not files:
-        print("  (no files matched; nothing to tail.)")
+        # Last-resort: glob "*" to confirm the directory actually has SOMETHING,
+        # so the user can tell "patterns don't match" apart from "wrong path".
+        print("  (no files matched the patterns; trying '*' to show what's there)")
+        lr_all = hpc.list_results(case_dir=args.case_dir, patterns=["*"])
+        all_files = (lr_all.get("files") or [])[:10]
+        if not all_files:
+            print("  directory appears empty (or path is wrong / unreadable)")
+        else:
+            print(f"  directory contains {len(lr_all.get('files', []))} entries; first 10:")
+            for f in all_files:
+                _print("  ->", f"{f['size']:>10}  {f['mtime']:.0f}  {f['path']}")
+        print("  Pass --patterns to narrow, or point --case-dir at a post-run case.")
+        return 0
         return 0
 
     # ---- 3. tail_log on the most recent file -------------------------------

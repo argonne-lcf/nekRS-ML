@@ -129,13 +129,14 @@ fi
 echo
 
 # 5. Next steps -------------------------------------------------------------
-# Detect the Python MAJOR.MINOR provided by the frameworks module so we can
-# tell the user exactly which version to match on their laptop. Done outside
-# the heredoc so awk doesn't have to fight backslash-escaping rules.
-ENDPOINT_PY_VERSION="$(python --version 2>&1 | awk '{print $2}' | cut -d. -f1-2)"
+# Detect the full Python version (MAJOR.MINOR.PATCH) provided by the frameworks
+# module so we can tell the user exactly which version to pin on their laptop.
+ENDPOINT_PY_VERSION="$(python --version 2>&1 | awk '{print $2}')"
 if [ -z "$ENDPOINT_PY_VERSION" ]; then
   ENDPOINT_PY_VERSION="<check with: python --version>"
 fi
+# MAJOR.MINOR alone (e.g., '3.12') for the `python3.X -m venv` example.
+ENDPOINT_PY_MINOR="$(echo "$ENDPOINT_PY_VERSION" | cut -d. -f1-2)"
 
 cat <<EOF
 [setup] Done with bootstrap. The endpoint is configured but NOT started --
@@ -167,12 +168,21 @@ cat <<EOF
   globus-compute-endpoint list   # line for $ENDPOINT_NAME shows the UUID
 
   # ---- On your laptop ----
-  # IMPORTANT: your laptop venv MUST use the same Python MAJOR.MINOR as the
-  # frameworks module here (currently $ENDPOINT_PY_VERSION). Globus Compute
-  # serializes functions between machines and version mismatch breaks unpickling.
+  # IMPORTANT: match the laptop Python to the frameworks module EXACTLY
+  # (down to the patch). The frameworks module here provides:
+  #   Python $ENDPOINT_PY_VERSION
   #
-  #   python$ENDPOINT_PY_VERSION -m venv _env-agentic
-  #   source _env-agentic/bin/activate
+  # MAJOR.MINOR drift breaks Globus Compute pickling at runtime; but even a PATCH
+  # drift still triggers a "UserWarning: Environment differences detected" on
+  # every single call -- annoying noise. Easiest way to pin exactly:
+  #
+  #   conda create -n nekrs-ml-agentic python=$ENDPOINT_PY_VERSION -y
+  #   conda activate nekrs-ml-agentic
+  #
+  # (or with pyenv: pyenv install $ENDPOINT_PY_VERSION; pyenv shell $ENDPOINT_PY_VERSION;
+  #  then `python$ENDPOINT_PY_MINOR -m venv _env-agentic`.)
+  #
+  # Then:
   #   pip install -e ./agentic
   #   python -m agentic.client.setup \\
   #       --uuid       <paste UUID here> \\

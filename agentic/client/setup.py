@@ -113,23 +113,30 @@ def _ping(system: str) -> int:
         print(f"  user     : {result.get('user')}")
         print(f"  python   : {py_str.splitlines()[0] if py_str else ''}")
 
-    # Globus Compute serialises functions/results between laptop and endpoint
-    # via pickle. MAJOR.MINOR mismatch is a real foot-gun: pickle can succeed
-    # at register-time and then fail at call-time on unfamiliar types. Warn
-    # loudly rather than refuse, because (a) some workloads do tolerate it and
-    # (b) the user may have no choice (Aurora's frameworks module pins Python).
-    m = re.match(r"(\d+)\.(\d+)", py_str)
+    # Globus Compute serialises functions/results between laptop and endpoint via pickle. 
+    m = re.match(r"(\d+)\.(\d+)\.(\d+)", py_str)
     if m:
-        endpoint_major, endpoint_minor = int(m.group(1)), int(m.group(2))
-        local_major, local_minor = sys.version_info[:2]
-        if (endpoint_major, endpoint_minor) != (local_major, local_minor):
+        endpoint_full = (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        local_full = sys.version_info[:3]
+        if endpoint_full[:2] != local_full[:2]:
             print(
-                f"\n  WARNING: Python version mismatch.\n"
-                f"    laptop  : {local_major}.{local_minor}\n"
-                f"    endpoint: {endpoint_major}.{endpoint_minor}\n"
+                f"\n  WARNING: Python MAJOR.MINOR mismatch.\n"
+                f"    laptop  : {local_full[0]}.{local_full[1]}.{local_full[2]}\n"
+                f"    endpoint: {endpoint_full[0]}.{endpoint_full[1]}.{endpoint_full[2]}\n"
                 f"  Globus Compute pickling is sensitive to MAJOR.MINOR drift; "
                 f"function calls may fail at runtime. Recreate the laptop venv "
-                f"with python{endpoint_major}.{endpoint_minor} if possible.",
+                f"with python{endpoint_full[0]}.{endpoint_full[1]}.{endpoint_full[2]} "
+                f"(see README Part 2).",
+                file=sys.stderr,
+            )
+        elif endpoint_full != local_full:
+            print(
+                f"\n  Note: Python PATCH mismatch ({local_full[0]}.{local_full[1]}.{local_full[2]} "
+                f"laptop vs {endpoint_full[0]}.{endpoint_full[1]}.{endpoint_full[2]} endpoint).\n"
+                f"  Calls will still work, but the Globus Compute SDK will print a\n"
+                f"  'UserWarning: Environment differences detected' on every call.\n"
+                f"  To silence it, recreate the laptop venv pinned to {endpoint_full[0]}.{endpoint_full[1]}.{endpoint_full[2]}\n"
+                f"  (e.g., `conda create -n nekrs-ml-agentic python={endpoint_full[0]}.{endpoint_full[1]}.{endpoint_full[2]} -y`).",
                 file=sys.stderr,
             )
     return 0
