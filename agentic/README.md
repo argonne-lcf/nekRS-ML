@@ -282,7 +282,7 @@ matches its triggers. Try, in order of growing scope:
    `build_nekrs` and wait for it; on failure, surface the tail of stderr
    from cmake/make.
 
-4. **"Set up the `tgv_gnn_offline` example on Aurora for a 1-node,
+3. **"Set up the `tgv_gnn_offline` example on Aurora for a 1-node,
    1-hour run using my project `<your_project>` and the dist-gnn model
    in offline deployment. Show me the generated submit script before
    queuing it. Then submit and monitor every couple of minutes until

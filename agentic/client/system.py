@@ -31,15 +31,28 @@ import inspect
 from typing import Any, Callable
 
 from agentic.client._config import load_functions, require_endpoint
-from agentic.functions import REGISTERED_FUNCTIONS
+from agentic.functions import DEFAULT_TIMEOUTS_S, REGISTERED_FUNCTIONS
 
 
 class System:
     """Handle for one HPC system's Globus Compute endpoint."""
 
-    def __init__(self, name: str, timeout_s: float = 300.0):
+    # Fallback used when a function isn't in agentic.functions.DEFAULT_TIMEOUTS_S
+    # AND the user didn't pass timeout_s. 600s is a middle ground -- long
+    # enough that small calls won't trip it, short enough that a wedged
+    # endpoint doesn't hang the agent for an hour. Per-function defaults
+    # (especially build_nekrs at 3900s) take precedence over this.
+    _DEFAULT_TIMEOUT_S: float = 600.0
+
+    def __init__(self, name: str, timeout_s: float | None = None):
+        """If `timeout_s` is given, it overrides per-function defaults
+        for every call on this System instance. If None (the usual case),
+        each call uses the per-function default from DEFAULT_TIMEOUTS_S
+        (or _DEFAULT_TIMEOUT_S as fallback). Per-call overrides via the
+        `_timeout` kwarg take highest precedence.
+        """
         self.name = name
-        self.timeout_s = timeout_s
+        self.timeout_s = timeout_s  # None = use per-function defaults
         self._endpoint = require_endpoint(name)
         self._functions = load_functions()
         if not self._functions:
@@ -94,13 +107,16 @@ class System:
         params = inspect.signature(fn).parameters
 
         def call(**kwargs: Any) -> dict:
+            # Per-call timeout override; pulled out before forwarding so the
+            # underlying function never sees it.
+            timeout_override = kwargs.pop("_timeout", None)
             if "system" in params and "system" not in kwargs:
                 kwargs["system"] = self.name
             if "repo_root" in params and "repo_root" not in kwargs and self.repo_root:
                 kwargs["repo_root"] = self.repo_root
             if "nekrs_home" in params and "nekrs_home" not in kwargs and self.nekrs_home:
                 kwargs["nekrs_home"] = self.nekrs_home
-            return self._call(attr, **kwargs)
+            return self._call(attr, _timeout=timeout_override, **kwargs)
 
         call.__name__ = attr
         call.__doc__ = fn.__doc__
@@ -158,7 +174,22 @@ class System:
             self._executor = self._Executor(endpoint_id=self.endpoint_uuid)
         return self._executor
 
-    def _call(self, name: str, /, **kwargs: Any) -> dict:
+    def _resolve_timeout(self, name: str, override: float | None) -> float:
+        """Pick the client-side Future.result timeout for a call.
+
+        Priority:
+          1. per-call _timeout kwarg (if provided)
+          2. instance-level self.timeout_s (if user set it explicitly)
+          3. per-function default from DEFAULT_TIMEOUTS_S
+          4. _DEFAULT_TIMEOUT_S fallback (600s)
+        """
+        if override is not None:
+            return float(override)
+        if self.timeout_s is not None:
+            return float(self.timeout_s)
+        return float(DEFAULT_TIMEOUTS_S.get(name, self._DEFAULT_TIMEOUT_S))
+
+    def _call(self, name: str, /, _timeout: float | None = None, **kwargs: Any) -> dict:
         import time
 
         try:
@@ -169,13 +200,15 @@ class System:
                 f"`python -m agentic.client.register --only {name}`."
             ) from e
 
+        timeout = self._resolve_timeout(name, _timeout)
+
         backoff = self._INITIAL_CONFLICT_BACKOFF_S
         last_exc: Exception | None = None
         for attempt in range(1, self._MAX_CONFLICT_RETRIES + 1):
             try:
                 ex = self._get_executor()
                 fut = ex.submit_to_registered_function(fn_uuid, kwargs=kwargs)
-                return fut.result(timeout=self.timeout_s)
+                return fut.result(timeout=timeout)
             except Exception as e:
                 msg = str(e)
                 is_conflict = "RESOURCE_CONFLICT" in msg or ("409" in msg and "in use" in msg)

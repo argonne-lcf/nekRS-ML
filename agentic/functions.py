@@ -252,6 +252,23 @@ def setup_case(
         if n not in before or before[n] < mt
     ]
     result["generated_scripts"] = sorted(new_or_modified)
+
+    # Build a `pbs_hints` dict the agent can splat into submit_job. Per-example
+    # nrsrun scripts (e.g., tgv_gnn_offline/run.sh) generate plain bash with
+    # no #PBS directives -- qsub needs -A / -l walltime / -l select from
+    # somewhere, and the only source of truth is what was passed to setup_case.
+    opts = options or {}
+    pbs_hints: dict = {}
+    if "proj_id" in opts:
+        pbs_hints["account"] = opts["proj_id"]
+    if "time" in opts:
+        pbs_hints["walltime"] = str(opts["time"])
+    if "nodes" in opts:
+        pbs_hints["nodes"] = int(opts["nodes"])
+    # System-specific filesystem hint (Aurora needs `home:flare`).
+    if system.lower() == "aurora":
+        pbs_hints["filesystems"] = "home:flare"
+    result["pbs_hints"] = pbs_hints
     return result
 
 
@@ -263,9 +280,27 @@ def submit_job(
     system: str,
     script_path: str,
     queue: str | None = None,
+    account: str | None = None,
+    walltime: str | None = None,
+    nodes: int | None = None,
+    filesystems: str | None = None,
+    extra_flags: list | None = None,
     cwd: str | None = None,
 ) -> dict:
-    """Submit a generated PBS script via qsub. Returns the job_id on success.
+    """Submit a generated script via qsub. Returns the job_id on success.
+
+    PBS attributes (queue, account, walltime, nodes, filesystems) can either be
+    embedded in the script as #PBS directives OR passed here as kwargs and
+    forwarded to qsub. Scripts produced by `scripts/nrsqsub_<system>` embed
+    them; scripts produced by per-example `nrsrun_<system>` (like
+    `tgv_gnn_offline/run.sh`) do NOT and need the kwargs here.
+
+    `setup_case` returns a `pbs_hints` dict you can splat directly:
+        sub = hpc.submit_job(script_path=..., queue="debug", **setup["pbs_hints"])
+
+    `walltime` accepts either `HH:MM` (matching setup_case's `time` option) or
+    full `HH:MM:SS`. `extra_flags` is a list of strings for anything not
+    covered above (e.g., ["-M", "user@example.com"]).
 
     Does NOT poll for completion. Use get_job_status (with care) for that.
     """
@@ -284,6 +319,18 @@ def submit_job(
     cmd = list(sched.submit_cmd)
     if queue:
         cmd.extend(["-q", queue])
+    if account:
+        cmd.extend(["-A", account])
+    if walltime:
+        # Accept "01:00" (HH:MM, matches setup_case) or full "HH:MM:SS"
+        wt = walltime if walltime.count(":") == 2 else f"{walltime}:00"
+        cmd.extend(["-l", f"walltime={wt}"])
+    if nodes is not None:
+        cmd.extend(["-l", f"select={int(nodes)}"])
+    if filesystems:
+        cmd.extend(["-l", f"filesystems={filesystems}"])
+    if extra_flags:
+        cmd.extend(str(f) for f in extra_flags)
     cmd.append(str(script))
     work_dir = cwd or str(script.parent)
     result = _run(cmd, cwd=work_dir, timeout_s=120.0)
@@ -445,3 +492,24 @@ REGISTERED_FUNCTIONS = (
     "tail_log",
     "list_results",
 )
+
+# Client-side timeouts for `Future.result(timeout=...)`, per function. The
+# default System timeout (300s) was too short for build_nekrs and would cut
+# the client off mid-build while the work kept running server-side. Each
+# entry should comfortably exceed the corresponding server-side subprocess
+# timeout (the `_run(..., timeout_s=...)` in this file) so the client only
+# ever times out after the server has already given up.
+#
+# When a function isn't listed here, System falls back to its instance-level
+# timeout_s (default 600s) -- pick a generous-but-not-infinite default by
+# adding it to this dict rather than bumping the global fallback.
+DEFAULT_TIMEOUTS_S = {
+    "ping": 60,
+    "build_nekrs": 3900,    # server-side _run timeout is 3600s
+    "setup_case": 1900,     # server-side _run timeout is 1800s
+    "submit_job": 180,      # server-side _run timeout is 120s
+    "get_job_status": 90,   # server-side _run timeout is 60s
+    "cancel_job": 90,
+    "tail_log": 120,
+    "list_results": 120,
+}
