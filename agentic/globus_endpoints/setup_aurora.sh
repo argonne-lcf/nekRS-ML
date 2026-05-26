@@ -49,14 +49,12 @@ set -u
 echo
 
 # 2. venv -------------------------------------------------------------------
-# If the venv directory already exists, assume it's complete -- just source it
-# and skip the install steps. Saves time on re-runs and avoids unnecessary
-# pip traffic on the login node. To force a fresh install pass FORCE_REINSTALL=1
-# (or delete the venv directory).
-VENV_PRE_EXISTED=0
+# Create the venv if missing. Even if it exists, we still verify that the two
+# packages we need (agentic, globus-compute-endpoint) are importable -- a venv
+# left over from an earlier iteration may be missing one or both. Pass
+# FORCE_REINSTALL=1 to re-run all installs unconditionally.
 if [ -d "$VENV_PATH" ]; then
-  echo "[setup] venv already exists at $VENV_PATH, reusing (set FORCE_REINSTALL=1 to refresh)"
-  VENV_PRE_EXISTED=1
+  echo "[setup] venv already exists at $VENV_PATH, reusing"
 else
   echo "[setup] Creating venv at $VENV_PATH ..."
   python -m venv --system-site-packages "$VENV_PATH"
@@ -64,13 +62,30 @@ fi
 source "$VENV_PATH/bin/activate"
 
 # 3. Install ----------------------------------------------------------------
-if [ "$VENV_PRE_EXISTED" = "1" ] && [ "${FORCE_REINSTALL:-0}" != "1" ]; then
-  echo "[setup] Skipping pip install (venv was pre-existing)."
+# Quick completeness check: are the two packages we depend on importable?
+# If either is missing we run the installs (cheap when they're already there).
+NEED_INSTALL=0
+if [ "${FORCE_REINSTALL:-0}" = "1" ]; then
+  NEED_INSTALL=1
+  echo "[setup] FORCE_REINSTALL=1 -- will re-run pip installs"
 else
+  if ! python -c "import agentic" 2>/dev/null; then
+    echo "[setup] 'agentic' not importable from this venv -- will install"
+    NEED_INSTALL=1
+  fi
+  if ! python -c "import globus_compute_endpoint" 2>/dev/null; then
+    echo "[setup] 'globus_compute_endpoint' not importable -- will install"
+    NEED_INSTALL=1
+  fi
+fi
+
+if [ "$NEED_INSTALL" = "1" ]; then
   echo "[setup] Installing globus-compute-endpoint and the agentic package ..."
   python -m pip install --upgrade pip
   pip install "globus-compute-endpoint>=2.27"
   pip install -e "$REPO_ROOT/agentic"
+else
+  echo "[setup] venv already has agentic + globus-compute-endpoint, skipping pip"
 fi
 echo
 
@@ -87,19 +102,28 @@ CONFIG_DIR="$HOME/.globus_compute/$ENDPOINT_NAME"
 USER_TEMPLATE_SRC="$REPO_ROOT/agentic/globus_endpoints/aurora_user_config.yaml.j2"
 USER_TEMPLATE_DEST="$CONFIG_DIR/user_config_template.yaml.j2"
 
+# Render the template (sed-substitute __VENV_PATH__ and __FRAMEWORKS_MODULE__)
+# so the deployed YAML has absolute paths for worker_init -- without this,
+# workers spawn without our venv activated and can't import `agentic`.
+USER_TEMPLATE_RENDERED="$(mktemp -t nekrs_ml_user_config.XXXXXX.yaml.j2)"
+trap 'rm -f "$USER_TEMPLATE_RENDERED"' EXIT
+sed -e "s|__VENV_PATH__|$VENV_PATH|g" \
+    -e "s|__FRAMEWORKS_MODULE__|$FRAMEWORKS_MODULE|g" \
+    "$USER_TEMPLATE_SRC" > "$USER_TEMPLATE_RENDERED"
+
 if [ -d "$CONFIG_DIR" ]; then
   echo "[setup] Endpoint $ENDPOINT_NAME already configured at $CONFIG_DIR"
   echo "        Refreshing user_config_template.yaml.j2 from source ..."
-  if [ -f "$USER_TEMPLATE_DEST" ] && ! cmp -s "$USER_TEMPLATE_DEST" "$USER_TEMPLATE_SRC"; then
+  if [ -f "$USER_TEMPLATE_DEST" ] && ! cmp -s "$USER_TEMPLATE_DEST" "$USER_TEMPLATE_RENDERED"; then
     cp "$USER_TEMPLATE_DEST" "$USER_TEMPLATE_DEST.bak.$(date +%s)"
     echo "        backed up existing template as $USER_TEMPLATE_DEST.bak.<ts>"
   fi
-  cp "$USER_TEMPLATE_SRC" "$USER_TEMPLATE_DEST"
-  echo "        wrote $USER_TEMPLATE_DEST"
+  cp "$USER_TEMPLATE_RENDERED" "$USER_TEMPLATE_DEST"
+  echo "        wrote $USER_TEMPLATE_DEST (worker_init pinned to $VENV_PATH)"
 else
   echo "[setup] Initialising endpoint $ENDPOINT_NAME with --template-config ..."
   globus-compute-endpoint configure \
-    --template-config "$USER_TEMPLATE_SRC" \
+    --template-config "$USER_TEMPLATE_RENDERED" \
     "$ENDPOINT_NAME"
 fi
 echo

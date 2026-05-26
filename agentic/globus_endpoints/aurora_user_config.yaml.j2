@@ -1,25 +1,37 @@
 # Per-user engine config template for the nekRS-ML Aurora login-node endpoint.
 #
 # globus-compute-endpoint 4.x renders this Jinja2 template once per task to
-# produce the effective engine config. Ours has no Jinja variables -- it's
-# plain YAML -- but the .j2 extension is required and the template engine just
-# passes the content through.
+# produce the effective engine config. We don't use any Jinja variables (the
+# .j2 extension is required by the runtime; the file is passed through), BUT
+# setup_aurora.sh sed-substitutes two placeholders below before deploying:
+#
+#   __FRAMEWORKS_MODULE__   ->  $FRAMEWORKS_MODULE (default: "frameworks")
+#   __VENV_PATH__           ->  $VENV_PATH (default: <repo>/_env-agentic)
+#
+# This bakes in the absolute paths so the spawned worker subprocesses pick up
+# the right Python and the right site-packages -- without it, workers land in
+# a default Python where `agentic` isn't importable.
 #
 # Design intent (do NOT change without thinking):
 #   LocalProvider           runs workers on whichever host the endpoint is
 #                           started on. We start the endpoint on a login node
-#                           so functions execute on the login node -- by design,
-#                           never on compute. Compute goes through submit_job
-#                           which qsubs onto compute nodes.
+#                           so functions execute on the login node -- by
+#                           design, never on compute. Compute goes through
+#                           submit_job, which qsubs onto compute nodes.
 #   max_workers_per_node 2  caps concurrency so a runaway loop can't fork a
 #                           swarm of subprocess shells on the login node.
 #                           Increase only after measuring.
 #   init/min/max_blocks     single static block. No autoscaling -- this is a
 #                           login-node endpoint, there are no other nodes to
 #                           scale onto.
+#   worker_init             bash script run before each worker process starts.
+#                           Loads frameworks (so PATH/PYTHONPATH have the
+#                           ALCF-managed Python) and activates our venv (so
+#                           `agentic` and `globus_compute_sdk` are importable).
 #
-# Installed to ~/.globus_compute/<endpoint>/user_config_template.yaml.j2 by
-# setup_aurora.sh.
+# Installed (after substitution) to
+#   ~/.globus_compute/<endpoint>/user_config_template.yaml.j2
+# by setup_aurora.sh.
 
 engine:
   type: GlobusComputeEngine
@@ -29,3 +41,4 @@ engine:
     init_blocks: 1
     min_blocks: 0
     max_blocks: 1
+    worker_init: "module load __FRAMEWORKS_MODULE__ && source __VENV_PATH__/bin/activate"

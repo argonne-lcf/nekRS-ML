@@ -199,16 +199,27 @@ class System:
                 if is_conflict:
                     import sys as _sys
                     print(
-                        "\nGlobus Compute keeps returning 409 RESOURCE_CONFLICT for this endpoint.\n"
-                        "This is usually a stuck endpoint state on the HPC side. Try, in order:\n"
-                        f"  1. On the HPC, restart the endpoint:\n"
-                        f"       globus-compute-endpoint stop {self.name}    # or whatever you named it\n"
-                        f"       globus-compute-endpoint start <name> --detach\n"
-                        f"  2. Check the endpoint logs for clues:\n"
-                        f"       tail -100 ~/.globus_compute/<name>/EndpointLogs/EndpointInterchange.log\n"
-                        f"  3. If your endpoint is configured for a single worker (init_blocks=1,\n"
-                        f"     max_blocks=1) and you have a previous task that hasn't finished, wait\n"
-                        f"     for it or `qdel` it (compute side) before retrying.",
+                        f"\nGlobus Compute keeps returning 409 RESOURCE_CONFLICT for endpoint\n"
+                        f"  {self.endpoint_uuid}\n"
+                        f"Persistent (not transient) 409 almost always means one of:\n"
+                        f"\n"
+                        f"  1. UUID MISMATCH (most common): your endpoints.json points at an OLD\n"
+                        f"     endpoint UUID that no longer matches the live one on the HPC. On the\n"
+                        f"     HPC, run\n"
+                        f"         globus-compute-endpoint list\n"
+                        f"     and note the *Running* UUID. If it differs from the one above, fix it:\n"
+                        f"         python -m agentic.client.setup --uuid <NEW UUID> \\\n"
+                        f"             --repo-root <PATH> --force-register\n"
+                        f"     If a stale UUID is also listed (Disconnected), purge it:\n"
+                        f"         globus-compute-endpoint delete <stale_name>\n"
+                        f"         rm -rf ~/.globus_compute/<stale_name>\n"
+                        f"\n"
+                        f"  2. Wedged endpoint: restart it on the HPC.\n"
+                        f"         globus-compute-endpoint stop <name>\n"
+                        f"         globus-compute-endpoint start <name> --detach\n"
+                        f"\n"
+                        f"  3. Check the endpoint log for clues:\n"
+                        f"         tail -100 ~/.globus_compute/<name>/endpoint.log",
                         file=_sys.stderr,
                     )
                 raise
