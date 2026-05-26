@@ -19,5 +19,17 @@ dev = [
     "pytest>=7",
 ]
 
-[tool.setuptools.packages.find]
-include = ["agentic*"]
+# Need to explicitly enumerate the packages and pin their source dirs via package-dir. 
+[tool.setuptools]
+packages = [
+    "agentic",
+    "agentic.client",
+    "agentic.globus_endpoints",
+    "agentic.tests",
+]
+
+[tool.setuptools.package-dir]
+"agentic" = "."
+"agentic.client" = "client"
+"agentic.globus_endpoints" = "globus_endpoints"
+"agentic.tests" = "tests"
