@@ -13,7 +13,16 @@ def plot_2d_field(comm, pos: np.ndarray, field: np.ndarray, filename: str):
     """
     Plot a 2D field as filled contours (useful for the ext_cyl example).
     Uses Delaunay triangulation on the unstructured mesh points.
+
+    pos and field must be sliced to owned nodes only (length n_nodes_local).
+    Halo rows must not be passed in — concatenating mismatched halo-padded
+    arrays across ranks scrambles the field-to-position mapping.
     """
+    assert pos.shape[0] == field.shape[0], (
+        f"plot_2d_field: pos ({pos.shape[0]} rows) and field "
+        f"({field.shape[0]} rows) must match — slice both to n_nodes_local "
+        "before calling."
+    )
     size = comm.Get_size()
     rank = comm.Get_rank()
     if size > 1:

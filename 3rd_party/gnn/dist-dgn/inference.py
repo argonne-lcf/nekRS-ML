@@ -137,8 +137,10 @@ def infer(cfg: DictConfig, client: Optional[OnlineClient] = None) -> None:
     local_throughput = []
     for i in range(cfg.num_gen_samples):
         # Generate sample prediction
+        if RANK == 0:
+            log.info("\nPredicting Dist-DGN sample ...")
         pred = trainer.sample()
-        pred = pred.cpu().numpy()
+        pred = pred[:n_nodes_local].cpu().numpy()
 
         # Undo scaling
         pred = pred * stats["x_std"] + stats["x_mean"]

@@ -4,7 +4,7 @@ timers: False
 postprocess: False
 statistics: False
 seed: 12
-backend: nccl
+backend: null
 num_threads: 1
 logfreq: 10
 ckptfreq: 500

@@ -5,7 +5,7 @@ Trainer for distributed, consistent graph neural network
 import sys
 import os
 import socket
-from typing import Optional, Union, Tuple
+from typing import Optional, Union, Tuple, Dict, Any
 import logging
 import numpy as np
 import time
@@ -132,7 +132,7 @@ class DGNTrainer:
                 MASTER_ADDR = str(cfg.master_addr)
             os.environ["MASTER_ADDR"] = MASTER_ADDR
             os.environ["MASTER_PORT"] = str(cfg.master_port)
-            utils.init_process_group(RANK, SIZE, backend=self.backend)
+            utils.init_process_group(RANK, SIZE)
 
         # ~~~~ Init torch stuff
         self.setup_torch()
@@ -223,6 +223,7 @@ class DGNTrainer:
 
         # ~~~~ Load model parameters if we are restarting from checkpoint
         self.iteration = 0
+        self.sample_counter = 0
         if self.cfg.restart:
             if RANK == 0:
                 log.info(f"Loading model checkpoint from {self.ckpt_path}")
@@ -424,8 +425,8 @@ class DGNTrainer:
         return scheduler
 
     def setup_torch(self):
-        # Random seeds
-        seed = self.cfg.seed + self.rank
+        # Random seeds — unified across ranks so any RNG draws agree on every rank. 
+        seed = self.cfg.seed
         torch.manual_seed(seed)
         np.random.seed(seed)
 
@@ -448,114 +449,145 @@ class DGNTrainer:
                 "Only fp32, fp64 and bf16 data types are currently supported"
             )
 
+        # Dedicated generator for rank-consistent noise draws. Kept separate
+        # from the global RNG so noise generation never perturbs DataLoader
+        # shuffle order or weight init.
+        self.noise_generator = torch.Generator(device=self.device)
+
+    def _consistent_noise(
+        self,
+        batch_size: int,
+        n_features: int,
+        salt: int = 0,
+        extra_counter: int = 0,
+    ) -> Tensor:
+        """Draw standard-normal noise that is identical across ranks on
+        physically-coincident nodes, without any collective and without
+        materialising a full-graph tensor.
+
+        Each node is keyed by the byte representation of its untransformed
+        mesh position (pos_orig_full, float64 -> 3 x uint64). Two ranks that
+        both hold the same physical node see the same key bytes and therefore
+        the same noise. The C++-side "global_ids" turned out to be
+        partition-local indices (interior nodes share gids across ranks
+        without referring to the same physical node), so we cannot rely on
+        them; the float64 positions read straight from the C++ binary dump
+        are byte-stable across processes and serve as a robust per-node key.
+
+        Per-rank work scales with n_local + n_halo only -- no tensor sized by
+        the global mesh is ever allocated.
+
+        Implementation: SplitMix64 over a per-element 64-bit counter built
+        from (seed, iteration, batch, salt) keyed material plus per-node
+        mixing of the three position u64 lanes; paired through Box-Muller to
+        produce standard normals. uint64 wraparound is exactly what
+        SplitMix64 expects, so numpy's overflow warning is silenced.
+        """
+        graph = self.data["graph"]
+        # Untransformed mesh positions for all local slots (tier-1 + tier-2
+        # + tier-3 halo padding), filled by setup_halo via a one-time
+        # neighbor exchange so tier-3 entries carry their owner's true pos.
+        pos = graph.pos_orig_full.cpu().numpy().astype(np.float64)
+        n_local = pos.shape[0]
+        n_pairs = (n_features + 1) // 2  # Box-Muller yields 2 normals per call
+
+        # View float64 (x,y,z) as three uint64s, lossless and byte-stable.
+        pos_u64 = pos.view(np.uint64)  # shape (n_local, 3)
+        px = pos_u64[:, 0]
+        py = pos_u64[:, 1]
+        pz = pos_u64[:, 2]
+
+        feats = np.arange(n_pairs, dtype=np.uint64)[None, :]
+        mix_xor = np.uint64(0xDEADBEEFCAFEBABE)
+        denom = float(1 << 53)
+        two_pi = 2.0 * float(np.pi)
+
+        def _splitmix64(x: np.ndarray) -> np.ndarray:
+            x = x + np.uint64(0x9E3779B97F4A7C15)
+            x = (x ^ (x >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
+            x = (x ^ (x >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
+            x = x ^ (x >> np.uint64(31))
+            return x
+
+        # uint64 arithmetic wraps modulo 2^64 — that wraparound is the entire
+        # point of SplitMix64, so silence numpy's overflow warnings for the
+        # mixing math.
+        parts = []
+        with np.errstate(over="ignore"):
+            seed_u = np.uint64(int(self.cfg.seed) & 0xFFFFFFFFFFFFFFFF)
+            iter_u = np.uint64(int(self.iteration) & 0xFFFFFFFFFFFFFFFF)
+            salt_u = np.uint64(int(salt) & 0xFFFFFFFFFFFFFFFF)
+            # extra_counter mixes in linearly (default 0 -> no perturbation)
+            # so training behaviour stays bit-identical; sample() advances it
+            # once per call to give independent draws.
+            extra_u = np.uint64(int(extra_counter) & 0xFFFFFFFFFFFFFFFF)
+            key = (
+                seed_u * np.uint64(0x9E3779B97F4A7C15)
+                + iter_u * np.uint64(0xBF58476D1CE4E5B9)
+                + salt_u * np.uint64(0x94D049BB133111EB)
+                + extra_u * np.uint64(0xD1342543DE82EF95)
+            )
+            # Per-node static mix of all three position lanes (independent of
+            # batch / feature). Run it through SplitMix64 once so small
+            # position changes propagate to all output bits.
+            pos_mix = _splitmix64(
+                px * np.uint64(0xD1342543DE82EF95)
+                ^ py * np.uint64(0x9E6C63D0676A9A99)
+                ^ pz * np.uint64(0x6A5D39EAE12657AA)
+            )
+            pos_mix_2d = np.broadcast_to(pos_mix[:, None], (n_local, n_pairs))
+            feat_mix = feats * np.uint64(0xCBF29CE484222325)
+
+            for b in range(batch_size):
+                b_u = np.uint64(int(b) & 0xFFFFFFFFFFFFFFFF)
+                counter = (
+                    pos_mix_2d
+                    + feat_mix
+                    + b_u * np.uint64(0x6A5D39EAE12657AA)
+                    + key
+                )
+                h1 = _splitmix64(counter)
+                h2 = _splitmix64(counter ^ mix_xor)
+
+                # Map to uniforms. Take top 53 bits (mantissa width of f64)
+                # and divide by 2^53. Bump u1 off zero so log is finite.
+                u1 = (h1 >> np.uint64(11)).astype(np.float64) / denom
+                u2 = (h2 >> np.uint64(11)).astype(np.float64) / denom
+                np.clip(u1, 1e-300, None, out=u1)
+
+                r = np.sqrt(-2.0 * np.log(u1))
+                theta = two_pi * u2
+                z0 = r * np.cos(theta)
+                z1 = r * np.sin(theta)
+
+                pair = np.stack((z0, z1), axis=-1).reshape(
+                    n_local, n_pairs * 2
+                )
+                parts.append(pair[:, :n_features])
+
+        arr = np.concatenate(parts, axis=0)
+        return torch.from_numpy(arr).to(self.device).to(self.torch_dtype)
+
     def halo_swap(self, input_tensor, buff_send, buff_recv):
         """
-        Performs halo swap using send/receive buffers
+        Performs halo swap of a per-node tensor via the all_to_all collective.
+
+        buff_send / buff_recv must be a length-SIZE list where buff_send[i]
+        has shape (n_nodes_to_exchange[i], n_features) — i.e. one slot per
+        neighbour rank, sized per-neighbour. Use the same buffer layout as
+        the all_to_all_opt branch in DistributedMessagePassingLayer.halo_swap.
         """
         if SIZE > 1:
-            # Fill send buffer
             for i in self.neighboring_procs:
-                buff_send[i] = input_tensor[self.mask_send[i]]
+                n_send = len(self.mask_send[i])
+                buff_send[i][:n_send, :] = input_tensor[self.mask_send[i]]
 
-            # Perform swap
-            req_send_list = []
+            dist.all_to_all(buff_recv, buff_send)
+
             for i in self.neighboring_procs:
-                req_send = dist.isend(tensor=buff_send[i], dst=i)
-                req_send_list.append(req_send)
-
-            req_recv_list = []
-            for i in self.neighboring_procs:
-                req_recv = dist.irecv(tensor=buff_recv[i], src=i)
-                req_recv_list.append(req_recv)
-
-            for req_send in req_send_list:
-                req_send.wait()
-
-            for req_recv in req_recv_list:
-                req_recv.wait()
-
-            dist.barrier()
-
-            # Fill halo nodes
-            for i in self.neighboring_procs:
-                input_tensor[self.mask_recv[i]] = buff_recv[i]
+                n_recv = len(self.mask_recv[i])
+                input_tensor[self.mask_recv[i]] = buff_recv[i][:n_recv, :]
         return input_tensor
-
-    def halo_replace(self, tensor, batch_size: int = 1):
-        """Overwrite halo rows of `tensor` with owner-rank values via point-to-point
-        exchange. Unlike model-internal halo_swap (which reuses pre-allocated
-        mlp_hidden_channels-sized buffers), this allocates buffers matching the
-        tensor's feature dimension on the fly, so it can be used on per-step inputs
-        with arbitrary feature counts (e.g., diffusion noise).
-
-        Handles PyG-batched data: graphs of identical structure are concatenated in
-        order, so batch element b lives at indices [b*n_nodes_local, (b+1)*n_nodes_local).
-        The send/recv masks are strided across batch elements and the exchange runs
-        in a single round per neighbor (not batch_size rounds).
-        """
-        if SIZE <= 1:
-            return tensor
-        n_features = tensor.shape[1]
-        n_nodes_local = int(self.data_reduced.n_nodes_local)
-        offsets = torch.arange(batch_size, dtype=torch.long) * n_nodes_local
-
-        # Build batch-strided masks once for this call (kept on CPU for the
-        # index-arithmetic, moved to tensor.device for the actual gather/scatter).
-        strided_send = [None] * SIZE
-        strided_recv = [None] * SIZE
-        buf_send = [
-            torch.empty(0, device=tensor.device, dtype=tensor.dtype)
-        ] * SIZE
-        buf_recv = [
-            torch.empty(0, device=tensor.device, dtype=tensor.dtype)
-        ] * SIZE
-        for i in self.neighboring_procs:
-            ms = self.mask_send[i].long()
-            mr = self.mask_recv[i].long()
-            strided_send[i] = (
-                (ms.unsqueeze(0) + offsets.unsqueeze(1))
-                .flatten()
-                .to(tensor.device)
-            )
-            strided_recv[i] = (
-                (mr.unsqueeze(0) + offsets.unsqueeze(1))
-                .flatten()
-                .to(tensor.device)
-            )
-            buf_send[i] = torch.empty(
-                [len(strided_send[i]), n_features],
-                dtype=tensor.dtype,
-                device=tensor.device,
-            )
-            buf_recv[i] = torch.empty(
-                [len(strided_recv[i]), n_features],
-                dtype=tensor.dtype,
-                device=tensor.device,
-            )
-
-        # Gather owned values into send buffers
-        for i in self.neighboring_procs:
-            buf_send[i] = tensor[strided_send[i]]
-
-        # Exchange
-        req_send_list = [
-            dist.isend(tensor=buf_send[i], dst=i)
-            for i in self.neighboring_procs
-        ]
-        req_recv_list = [
-            dist.irecv(tensor=buf_recv[i], src=i)
-            for i in self.neighboring_procs
-        ]
-        for req in req_send_list:
-            req.wait()
-        for req in req_recv_list:
-            req.wait()
-        dist.barrier()
-
-        # Scatter received values into halo positions (overwrite, not accumulate)
-        for i in self.neighboring_procs:
-            tensor[strided_recv[i]] = buf_recv[i]
-        return tensor
 
     def build_masks(self):
         """
@@ -961,6 +993,15 @@ class DGNTrainer:
             )
         data_reduced, idx_full2reduced = gcon.get_reduced_graph(data_full)
 
+        # Snapshot the raw global ids before get_upsample_indices runs --
+        # update_global_ids() inside it mutates data_reduced.global_ids by
+        # overwriting zero sentinels with *rank-local* consecutive negatives,
+        # which destroys cross-rank consistency. Keep the raw mesh ids here
+        # so _consistent_noise can hash a physically-consistent key. Zero
+        # sentinels still collide (all gid=0 nodes share noise) but that
+        # collision is identical on every rank.
+        data_reduced.global_ids_raw = data_reduced.global_ids.clone()
+
         # ~~~~ Get the indices to go from reduced back to full graph
         if self.cfg.verbose:
             log.info("[RANK %d]: Getting idx_reduced2full" % (RANK))
@@ -1124,6 +1165,103 @@ class DGNTrainer:
         self.data_reduced.node_degree = node_degree
         self.data_reduced.effective_nodes_local = effective_nodes_local
         self.data_reduced.effective_nodes = effective_nodes
+
+        # Build pos_orig_full: a length-(n_nodes_local + n_nodes_halo) tensor
+        # of untransformed mesh positions for every local slot (tier-1 owned,
+        # tier-2 boundary, tier-3 halo). Used by _consistent_noise to hash
+        # physically-coincident nodes to identical noise across ranks.
+        # Positions are the key because the C++-side "global_ids" turn out to
+        # be partition-local: only halo-unique nodes get consistent ids across
+        # ranks, interior nodes do not. Positions are stable in nekRS' mesh
+        # representation (float64 from the C++ binary file).
+        pos_orig_local = self.data_reduced.pos_orig.to(torch.float64)
+        n_dim = pos_orig_local.shape[1]
+        pos_orig_full = torch.zeros(
+            n_nodes_local + n_nodes_halo, n_dim, dtype=torch.float64
+        )
+        pos_orig_full[:n_nodes_local] = pos_orig_local
+
+        if self.cfg.consistency and SIZE > 1:
+            # One-shot per-neighbor MPI Sendrecv of positions. halo_info[k]
+            # tells us: my local tier-2 node at column-0 is a shared copy of
+            # rank column-3's tier-2 node, and I should place that rank's
+            # position into my tier-3 slot at column-1. Since the partner's
+            # halo_info has the same structure with us as the source rank, the
+            # exchange is symmetric and we can pair sends with receives by
+            # neighbor rank.
+            neighbor_ranks = sorted(set(int(r) for r in self.neighboring_procs))
+            send_reqs = []
+            recv_buffers = {}
+            for nr in neighbor_ranks:
+                sel = halo_info[:, 3] == nr
+                send_idx = halo_info[sel, 0].long().numpy()
+                recv_idx = halo_info[sel, 1].long().numpy()
+                # Send our positions at our local tier-2 nodes; receive the
+                # neighbor's positions for our tier-3 slots.
+                send_buf = pos_orig_local.numpy()[send_idx].astype(
+                    np.float64, copy=True
+                )
+                recv_buf = np.empty(
+                    (len(recv_idx), n_dim), dtype=np.float64
+                )
+                recv_buffers[nr] = (recv_buf, recv_idx)
+                # Non-blocking sendrecv pair. Tag by (RANK,nr) ordered pair to
+                # disambiguate if multiple exchanges happen later.
+                tag = (min(RANK, nr) << 16) | max(RANK, nr)
+                req_s = COMM.Isend([send_buf, MPI.DOUBLE], dest=nr, tag=tag)
+                req_r = COMM.Irecv([recv_buf, MPI.DOUBLE], source=nr, tag=tag)
+                send_reqs.append((req_s, send_buf))
+                send_reqs.append((req_r, None))
+            for req, _ in send_reqs:
+                req.Wait()
+            for nr, (recv_buf, recv_idx) in recv_buffers.items():
+                pos_orig_full[recv_idx] = torch.from_numpy(recv_buf)
+        self.data_reduced.pos_orig_full = pos_orig_full
+
+        # Halo-exchange cond_node_features the same way as positions: it is a
+        # static per-node tensor (walldist/inflowdist/ycoord etc.), so a single
+        # exchange at setup time is enough. Without this, tier-3 halo slots
+        # hold zeros and the node encoder sees a fictional conditioning on the
+        # partition boundary — which then leaks into owned nodes via message
+        # passing and breaks rank-consistency of the loss.
+        if (
+            self.cfg.consistency
+            and SIZE > 1
+            and self.cfg.cond_node_features
+            and hasattr(self.data_reduced, "cond_node_features")
+            and self.data_reduced.cond_node_features.numel() > 0
+        ):
+            cnf_local = self.data_reduced.cond_node_features
+            n_features_cnf = cnf_local.shape[1]
+            cnf_full = torch.zeros(
+                n_nodes_local + n_nodes_halo,
+                n_features_cnf,
+                dtype=cnf_local.dtype,
+            )
+            cnf_full[:n_nodes_local] = cnf_local
+            cnf_local_np = cnf_local.cpu().numpy().astype(np.float64, copy=True)
+            send_reqs = []
+            recv_buffers = {}
+            for nr in neighbor_ranks:
+                sel = halo_info[:, 3] == nr
+                send_idx = halo_info[sel, 0].long().numpy()
+                recv_idx = halo_info[sel, 1].long().numpy()
+                send_buf = cnf_local_np[send_idx]
+                recv_buf = np.empty(
+                    (len(recv_idx), n_features_cnf), dtype=np.float64
+                )
+                recv_buffers[nr] = (recv_buf, recv_idx)
+                # Different tag from the position exchange to avoid collisions.
+                tag = ((min(RANK, nr) << 16) | max(RANK, nr)) ^ 0x5A5A
+                req_s = COMM.Isend([send_buf, MPI.DOUBLE], dest=nr, tag=tag)
+                req_r = COMM.Irecv([recv_buf, MPI.DOUBLE], source=nr, tag=tag)
+                send_reqs.append((req_s, send_buf))
+                send_reqs.append((req_r, None))
+            for req, _ in send_reqs:
+                req.Wait()
+            for nr, (recv_buf, recv_idx) in recv_buffers.items():
+                cnf_full[recv_idx] = torch.from_numpy(recv_buf).to(cnf_local.dtype)
+            self.data_reduced.cond_node_features = cnf_full
         return
 
     def prepare_snapshot_data(self, data_x: np.ndarray):
@@ -1337,18 +1475,8 @@ class DGNTrainer:
                 (n_nodes_halo, n_features_pos), dtype=self.torch_dtype
             )
             data_graph.pos = torch.cat((data_graph.pos, pos_halo), dim=0)
-            if self.cfg.cond_node_features:
-                n_features_cond_node_features = (
-                    self.data_reduced.cond_node_features.shape[1]
-                )
-                cond_node_features_halo = torch.zeros(
-                    (n_nodes_halo, n_features_cond_node_features),
-                    dtype=self.torch_dtype,
-                )
-                data_graph.cond_node_features = torch.cat(
-                    (data_graph.cond_node_features, cond_node_features_halo),
-                    dim=0,
-                )
+            # cond_node_features is already (n_local + n_halo) with halo slots
+            # populated by setup_halo's one-shot MPI exchange — no zero-pad here.
 
         # Populate edge_attrs
         cart = torch_geometric.transforms.Cartesian(
@@ -1402,8 +1530,14 @@ class DGNTrainer:
                     ).to(self.torch_dtype)
                 )
             )
+        # Explicit generator so the shuffle order is deterministic and
+        # independent of any other torch.randn / dropout / etc. that may
+        # consume the global RNG between epochs.
         train_loader = DataLoader(
-            train_data_scaled, batch_size=self.cfg.batch_size, shuffle=True
+            train_data_scaled,
+            batch_size=self.cfg.batch_size,
+            shuffle=True,
+            generator=torch.Generator().manual_seed(self.cfg.seed),
         )
         if RANK == 0:
             train_loader_example = train_loader.dataset[0]
@@ -1640,6 +1774,7 @@ class DGNTrainer:
             graph.halo_info = graph.halo_info.to(self.device)
             graph.edge_weight = graph.edge_weight.to(self.device)
             graph.node_degree = graph.node_degree.to(self.device)
+            graph.effective_nodes = graph.effective_nodes.to(self.device)
             if self.cfg.cond_node_features:
                 graph.cond_node_features = graph.cond_node_features.to(
                     self.device
@@ -1655,10 +1790,11 @@ class DGNTrainer:
             and self.iteration == 0
             and self.cfg.cond_node_features
         ):
+            n_local = int(graph.n_nodes_local)
             postprocess.plot_2d_field(
                 COMM,
-                graph.pos.numpy(),
-                graph.cond_node_features.cpu().numpy(),
+                graph.pos[:n_local].numpy(),
+                graph.cond_node_features[:n_local].cpu().numpy(),
                 f"cond_node_features.png",
             )
             COMM.Barrier()
@@ -1695,19 +1831,19 @@ class DGNTrainer:
         if self.cfg.verbose and RANK == 0:
             log.info(f"Sampled diffusion steps: {r.cpu().numpy().tolist()}")
 
-        # Diffuse the solution/target field. Pre-sample the noise on each rank and
-        # halo-replace it so the two copies of each partition-boundary node carry
-        # identical noise values; otherwise the noised input to the model differs
-        # at boundaries across ranks, breaking rank consistency.
+        # Diffuse the solution/target field. Noise is drawn by hashing each
+        # node's global id, so physically-coincident nodes on different ranks
+        # receive identical noise without any collective and the per-iteration
+        # loss matches what a single-rank run would compute.
         BC_mask = None  # no BCs for now
         field_start = data.x[:, : self.cfg.input_node_features]
-        noise = torch.randn_like(field_start)
-        if (
-            SIZE > 1
-            and self.cfg.consistency
-            and self.cfg.halo_swap_mode != "none"
-        ):
-            noise = self.halo_replace(noise, batch_size=int(batch_size))
+        noise = self._consistent_noise(
+            batch_size=int(batch_size),
+            n_features=self.cfg.input_node_features,
+            salt=0,
+        )
+        if BC_mask is not None:
+            noise = noise * (~BC_mask)
         field_r, noise, snr = self.diffusion_process.forward(
             field_start,
             r,
@@ -1716,17 +1852,21 @@ class DGNTrainer:
             noise=noise,
         )
         if self.cfg.postprocess and self.iteration % 100 == 0:
+            n_local = int(graph.n_nodes_local)
+            pos_owned = graph.pos[:n_local].numpy()
+            # data.batch == 0 selects the first batch element's full
+            # (n_local + n_halo) rows; further [:n_local] drops the halo.
             postprocess.plot_2d_field(
                 COMM,
-                graph.pos.numpy(),
-                field_r[data.batch == 0].cpu().numpy(),
+                pos_owned,
+                field_r[data.batch == 0][:n_local].cpu().numpy(),
                 f"field_r_r{r[0]}_iter{self.iteration}.png",
             )
             postprocess.plot_2d_field(
                 COMM,
-                graph.pos.numpy(),
+                pos_owned,
                 data
-                .x[data.batch == 0, : self.cfg.input_node_features]
+                .x[data.batch == 0, : self.cfg.input_node_features][:n_local]
                 .cpu()
                 .numpy(),
                 f"data_x_r{r[0]}_iter{self.iteration}.png",
@@ -1735,6 +1875,9 @@ class DGNTrainer:
 
         # Prediction
         tic = time.time()
+        debug_perlayer: Optional[Dict[str, Any]] = (
+            {} if self.iteration == 0 else None
+        )
         model_pred, model_var = self.model(
             field_r=field_r,
             r=r,
@@ -1752,17 +1895,7 @@ class DGNTrainer:
             if self.cfg.cond_node_features
             else None,
             batch=data.batch,
-        )
-        log.info(f"out_gnn shape: {model_pred.shape}")
-        log.info(f"graph.pos shape: {graph.pos.shape}")
-        log.info(f"graph.n_nodes_local: {graph.n_nodes_local}")
-        np.save(
-            f"pos_reduced_rank_{RANK}_size_{SIZE}.npy",
-            graph.pos[: graph.n_nodes_local].cpu().numpy(),
-        )
-        np.save(
-            f"out_gnn_rank_{RANK}_size_{SIZE}.npy",
-            model_pred[: graph.n_nodes_local].detach().cpu().numpy(),
+            debug_dump=debug_perlayer,
         )
         if self.cfg.timers:
             self.update_timer("forwardPass", self.timer_step, time.time() - tic)
@@ -1782,19 +1915,22 @@ class DGNTrainer:
             # epsilon-prediction (default): model predicts the noise
             mse_target = noise
         if self.cfg.postprocess and self.iteration % 100 == 0:
+            n_local = int(graph.n_nodes_local)
+            pos_owned = graph.pos[:n_local].numpy()
             postprocess.plot_2d_field(
                 COMM,
-                graph.pos.numpy(),
-                model_pred[data.batch == 0].detach().cpu().numpy(),
+                pos_owned,
+                model_pred[data.batch == 0][:n_local].detach().cpu().numpy(),
                 f"model_pred_r{r[0]}_iter{self.iteration}.png",
             )
             postprocess.plot_2d_field(
                 COMM,
-                graph.pos.numpy(),
-                mse_target[data.batch == 0].cpu().numpy(),
+                pos_owned,
+                mse_target[data.batch == 0][:n_local].cpu().numpy(),
                 f"target_r{r[0]}_iter{self.iteration}.png",
             )
             COMM.Barrier()
+
         if SIZE == 1 or not self.cfg.consistency:
             mse_term = batch_wise_mean(
                 (model_pred - mse_target) ** 2, data.batch
@@ -1905,9 +2041,6 @@ class DGNTrainer:
             # Uniform weighting (default)
             loss = loss.mean()
 
-        print(f"[RANK {RANK}] Loss: {loss.item()}", flush=True)
-        COMM.Barrier()
-
         if self.cfg.timers:
             self.update_timer("loss", self.timer_step, time.time() - tic)
 
@@ -1937,6 +2070,10 @@ class DGNTrainer:
     def sample(self, steps: list[int] = None) -> Tensor:
         self.model.eval()
 
+        # Update the counter for the random number seed
+        self.sample_counter += 1
+        sc = int(self.sample_counter)
+
         # Assert step list is all integers and is sorted
         if steps is not None:
             if RANK == 0:
@@ -1945,7 +2082,8 @@ class DGNTrainer:
         else:
             steps = list(range(self.cfg.num_diffusion_steps))
 
-        # Initialize sample field
+        # Offload graph to device first so _consistent_noise can read
+        # pos_for_noise from the device.
         n_nodes = self.data["graph"].pos_orig.size(0)
         n_nodes_halo = (
             self.data["graph"].n_nodes_halo
@@ -1953,18 +2091,10 @@ class DGNTrainer:
             else 0
         )
         n_nodes_total = n_nodes + n_nodes_halo
-        field_r = torch.randn(
-            n_nodes_total, self.cfg.input_node_features, dtype=self.torch_dtype
-        )
+        batch = torch.zeros(n_nodes_total, dtype=torch.long)
 
-        # initialize the diffusion process
-        diff_process = self.diffusion_process
-
-        # Offload data to device
         tic = time.time()
-        batch = torch.zeros(field_r.size(0), dtype=torch.long)
         if WITH_CUDA or WITH_XPU:
-            field_r = field_r.to(self.device)
             self.data["graph"].edge_index = self.data["graph"].edge_index.to(
                 self.device
             )
@@ -1981,6 +2111,9 @@ class DGNTrainer:
             self.data["graph"].node_degree = self.data["graph"].node_degree.to(
                 self.device
             )
+            self.data["graph"].effective_nodes = self.data["graph"].effective_nodes.to(
+                self.device
+            )
             if self.cfg.cond_node_features:
                 self.data["graph"].cond_node_features = self.data[
                     "graph"
@@ -1989,6 +2122,43 @@ class DGNTrainer:
             self.update_timer(
                 "dataTransfer", self.timer_step, time.time() - tic
             )
+
+        # Initialize sample field via rank-consistent noise so that on every
+        # rank the tier-1/tier-2/tier-3 slots receive identical values at
+        # physically-coincident nodes — the reverse diffusion is then a pure
+        # function of model weights and the initial seed.
+        diff_process = self.diffusion_process
+        field_r = self._consistent_noise(
+            batch_size=1,
+            n_features=self.cfg.input_node_features,
+            salt=-1,  # distinct from any per-step salt below
+            extra_counter=sc,
+        )
+
+        # Dedicated halo-swap buffers sized for field_r (input_node_features
+        # wide, vs the mlp_hidden_channels-wide self.buffer_* used inside
+        # gnn.py). Only needed if we will actually do a swap below.
+        field_r_buf_send = None
+        field_r_buf_recv = None
+        if SIZE > 1 and self.cfg.consistency and self.cfg.halo_swap_mode != "none":
+            field_r_buf_send = [
+                torch.empty(0, device=DEVICE, dtype=self.torch_dtype)
+            ] * SIZE
+            field_r_buf_recv = [
+                torch.empty(0, device=DEVICE, dtype=self.torch_dtype)
+            ] * SIZE
+            for i in self.neighboring_procs:
+                n_swap = int(self.n_nodes_to_exchange[i])
+                field_r_buf_send[i] = torch.empty(
+                    [n_swap, self.cfg.input_node_features],
+                    dtype=self.torch_dtype,
+                    device=DEVICE,
+                )
+                field_r_buf_recv[i] = torch.empty(
+                    [n_swap, self.cfg.input_node_features],
+                    dtype=self.torch_dtype,
+                    device=DEVICE,
+                )
 
         # re-allocate send buffer
         tic = time.time()
@@ -2006,14 +2176,9 @@ class DGNTrainer:
         if self.cfg.timers:
             self.update_timer("bufferInit", self.timer_step, time.time() - tic)
 
-        # Sync halo nodes of the initial noise
-        # postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_step{100}.png")
-        field_r = self.sync_halo_nodes(field_r)
-        # postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_con_step{100}.png")
-
         # Prediction (de-noise step by step)
         for step in diff_process.steps[::-1]:
-            if RANK == 0:
+            if RANK == 0 and self.cfg.verbose:
                 log.info(f"Performing de-noise step {step}")
             r = torch.tensor([step], device=self.device)
             tic = time.time()
@@ -2039,9 +2204,6 @@ class DGNTrainer:
                 self.update_timer(
                     "forwardPass", self.timer_step, time.time() - tic
                 )
-            # if self.cfg.postprocess and step%10 == 0:
-            #    postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), model_pred.cpu().numpy(), f"model_pred_step{step}.png")
-            #    COMM.Barrier()
 
             # Get the posterior mean and variance from the model output
             # get_posterior_mean_and_variance_from_output handles both epsilon and x0 prediction types
@@ -2053,7 +2215,14 @@ class DGNTrainer:
 
             # Update field_r: add noise at all steps except the final one (step 0)
             if step > 0:
-                gaussian_noise = torch.randn_like(model_posterior_mean)
+                # Salt with step so each reverse-diffusion step gets an
+                # independent rank-consistent draw.
+                gaussian_noise = self._consistent_noise(
+                    batch_size=1,
+                    n_features=model_posterior_mean.shape[1],
+                    salt=step,
+                    extra_counter=sc,
+                )
                 field_r = (
                     model_posterior_mean
                     + torch.sqrt(model_posterior_variance) * gaussian_noise
@@ -2061,15 +2230,20 @@ class DGNTrainer:
             else:
                 field_r = model_posterior_mean
 
-            # Sync halo nodes after the update so owner rank's field values
-            # overwrite the stale halo copies.  Without this, each rank's
-            # independent noise causes field_r to diverge at sub-graph
-            # boundaries, and the errors accumulate through subsequent steps.
-            # if step%10 == 0:
-            #    postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_step{step}.png")
-            field_r = self.sync_halo_nodes(field_r)
-            # if step%10 == 0:
-            #    postprocess.plot_2d_field(COMM, self.data['graph'].pos_orig.numpy(), field_r.cpu().numpy(), f"field_r_con_step{step}.png")
+            # Halo-sync field_r so every rank's tier-3 slot carries its
+            # owner's value before the next reverse step. The node decoder is
+            # *not* halo-synced inside gnn.py (only the per-MP edge_agg is),
+            # so model_pred (and hence field_r) drifts by O(1e-2) at halo
+            # slots. During training that drift never feeds back — each step
+            # is independent — but during sampling we re-consume the halo
+            # state every reverse step and the drift compounds into a visible
+            # seam at partition boundaries. _consistent_noise already gives us
+            # rank-identical noise at coincident nodes, so once we sync the
+            # mean the sum is consistent too.
+            if SIZE > 1 and self.cfg.consistency and self.cfg.halo_swap_mode != "none":
+                field_r = self.halo_swap(
+                    field_r, field_r_buf_send, field_r_buf_recv
+                )
 
         # Update timers
         self.synchronize()
@@ -2079,144 +2253,6 @@ class DGNTrainer:
                 self.timer_step += 1
 
         return field_r
-
-    @torch.no_grad()
-    def sync_boundary_field(self, field: Tensor, batch: Tensor) -> Tensor:
-        """Synchronize tier-2 boundary node values across ranks after per-rank noise.
-
-        During training, ``diffusion_process.forward`` draws independent noise on
-        every rank.  Tier-2 halo nodes are physically coincident across neighbouring
-        ranks, so after the forward diffusion both copies of the same physical node
-        hold different noisy values — making the noisy field inconsistent at partition
-        interfaces and polluting message-passing for nearby tier-1 nodes.
-
-        When ``consistency=True`` the training tensors already include tier-3 exchange
-        slots (appended as zeros by ``prepare_snapshot_data``), so for each batch
-        element we can call ``sync_halo_nodes`` directly on the per-element slice.
-        ``sync_halo_nodes`` overwrites the tier-3 slots with the neighbour's tier-2
-        values in its first step, so whatever noise happens to sit in those slots is
-        harmlessly discarded.
-
-        This method is a no-op when ``SIZE <= 1``, ``consistency=False``, or
-        ``halo_swap_mode="none"``.
-
-        Args:
-            field: Node feature tensor of shape ``[n_nodes_total * batch_size, F]``
-                   where ``n_nodes_total = n_tier1 + n_tier2 + n_tier3``.
-            batch: PyG batch index tensor of shape ``[n_nodes_total * batch_size]``.
-
-        Returns:
-            The same tensor with tier-2 boundary nodes replaced by their average
-            across all sharing ranks (same shape as input).
-        """
-        if (
-            SIZE <= 1
-            or not self.cfg.consistency
-            or self.cfg.halo_swap_mode == "none"
-        ):
-            return field
-
-        batch_size = int(torch.max(batch).item()) + 1
-        for b in range(batch_size):
-            node_mask = batch == b
-            # field[node_mask] has shape [n_nodes_total, F] — tier-3 slots included.
-            # sync_halo_nodes overwrites tier-3 slots, averages tier-2, then returns
-            # the full [n_nodes_total, F] tensor with consistent tier-2 values.
-            field[node_mask] = self.sync_halo_nodes(field[node_mask])
-
-        return field
-
-    @torch.no_grad()
-    def sync_halo_nodes(self, field: Tensor) -> Tensor:
-        """Synchronize halo node values between ranks.
-
-        Shared boundary nodes (original halo nodes in the edge_index)
-        are present on multiple ranks.  During iterative denoising each
-        rank independently updates ``field_r`` at these positions, causing
-        the values to diverge.  This method:
-
-        1. Exchanges each rank's halo-node field values via all-to-all,
-           writing the received values into the *new* halo exchange slots
-           (tier-3 nodes beyond the edge_index).
-        2. Averages the original halo nodes (tier-2 nodes IN the
-           edge_index) with the received neighbour values so that every
-           rank agrees on a single consistent value at each shared node.
-
-        The averaging uses ``node_degree`` (number of ranks sharing each
-        node) which is precomputed in ``setup_halo``.
-        """
-        if SIZE <= 1 or not self.cfg.consistency:
-            return field
-        if self.cfg.halo_swap_mode == "none":
-            return field
-
-        n_features = field.shape[1]
-        if self.cfg.halo_swap_mode == "all_to_all":
-            buff_send = [
-                torch.empty(0, device=self.device, dtype=self.torch_dtype)
-            ] * SIZE
-            buff_recv = [
-                torch.empty(0, device=self.device, dtype=self.torch_dtype)
-            ] * SIZE
-            for i in range(SIZE):
-                buff_send[i] = torch.empty(
-                    [self.n_max, n_features],
-                    dtype=self.torch_dtype,
-                    device=self.device,
-                )
-                buff_recv[i] = torch.empty(
-                    [self.n_max, n_features],
-                    dtype=self.torch_dtype,
-                    device=self.device,
-                )
-        elif self.cfg.halo_swap_mode == "all_to_all_opt":
-            buff_send = [
-                torch.empty(0, device=self.device, dtype=self.torch_dtype)
-            ] * SIZE
-            buff_recv = [
-                torch.empty(0, device=self.device, dtype=self.torch_dtype)
-            ] * SIZE
-            for i in self.neighboring_procs:
-                buff_send[i] = torch.empty(
-                    [int(self.n_nodes_to_exchange[i]), n_features],
-                    dtype=self.torch_dtype,
-                    device=self.device,
-                )
-                buff_recv[i] = torch.empty(
-                    [int(self.n_nodes_to_exchange[i]), n_features],
-                    dtype=self.torch_dtype,
-                    device=self.device,
-                )
-
-        # --- Step 1: exchange halo-node field values ---
-        for i in self.neighboring_procs:
-            n_send = len(self.mask_send[i])
-            buff_send[i][:n_send, :] = field[self.mask_send[i]]
-
-        dist.all_to_all(buff_recv, buff_send)
-
-        # Write received values into the new halo exchange slots
-        for i in self.neighboring_procs:
-            n_recv = len(self.mask_recv[i])
-            field[self.mask_recv[i]] = buff_recv[i][:n_recv, :]
-
-        # --- Step 2: average original halo nodes with received values ---
-        # halo_info[:,0] = original halo node indices (in edge_index, tier 2)
-        # halo_info[:,1] = new halo slot indices     (beyond edge_index, tier 3)
-        # After index_add_:  field[halo_idx] += sum of neighbour values
-        # After dividing by node_degree: field[halo_idx] = average across all ranks
-        halo_info = self.data["graph"].halo_info
-        idx_recv = halo_info[:, 0].long()
-        idx_send = halo_info[:, 1].long()
-        field.index_add_(0, idx_recv, field.index_select(0, idx_send))
-
-        node_degree = self.data["graph"].node_degree
-        unique_halo_idx = torch.unique(idx_recv)
-        field[unique_halo_idx] = field[unique_halo_idx] / node_degree[
-            unique_halo_idx
-        ].unsqueeze(1)
-
-        return field
 
     def writeGraphStatistics(self):
         if RANK == 0:
