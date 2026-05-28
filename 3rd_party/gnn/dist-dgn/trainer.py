@@ -425,7 +425,7 @@ class DGNTrainer:
         return scheduler
 
     def setup_torch(self):
-        # Random seeds — unified across ranks so any RNG draws agree on every rank. 
+        # Random seeds — unified across ranks so any RNG draws agree on every rank.
         seed = self.cfg.seed
         torch.manual_seed(seed)
         np.random.seed(seed)
@@ -560,9 +560,7 @@ class DGNTrainer:
                 z0 = r * np.cos(theta)
                 z1 = r * np.sin(theta)
 
-                pair = np.stack((z0, z1), axis=-1).reshape(
-                    n_local, n_pairs * 2
-                )
+                pair = np.stack((z0, z1), axis=-1).reshape(n_local, n_pairs * 2)
                 parts.append(pair[:, :n_features])
 
         arr = np.concatenate(parts, axis=0)
@@ -1201,9 +1199,7 @@ class DGNTrainer:
                 send_buf = pos_orig_local.numpy()[send_idx].astype(
                     np.float64, copy=True
                 )
-                recv_buf = np.empty(
-                    (len(recv_idx), n_dim), dtype=np.float64
-                )
+                recv_buf = np.empty((len(recv_idx), n_dim), dtype=np.float64)
                 recv_buffers[nr] = (recv_buf, recv_idx)
                 # Non-blocking sendrecv pair. Tag by (RANK,nr) ordered pair to
                 # disambiguate if multiple exchanges happen later.
@@ -1260,7 +1256,9 @@ class DGNTrainer:
             for req, _ in send_reqs:
                 req.Wait()
             for nr, (recv_buf, recv_idx) in recv_buffers.items():
-                cnf_full[recv_idx] = torch.from_numpy(recv_buf).to(cnf_local.dtype)
+                cnf_full[recv_idx] = torch.from_numpy(recv_buf).to(
+                    cnf_local.dtype
+                )
             self.data_reduced.cond_node_features = cnf_full
         return
 
@@ -2111,9 +2109,9 @@ class DGNTrainer:
             self.data["graph"].node_degree = self.data["graph"].node_degree.to(
                 self.device
             )
-            self.data["graph"].effective_nodes = self.data["graph"].effective_nodes.to(
-                self.device
-            )
+            self.data["graph"].effective_nodes = self.data[
+                "graph"
+            ].effective_nodes.to(self.device)
             if self.cfg.cond_node_features:
                 self.data["graph"].cond_node_features = self.data[
                     "graph"
@@ -2140,7 +2138,11 @@ class DGNTrainer:
         # gnn.py). Only needed if we will actually do a swap below.
         field_r_buf_send = None
         field_r_buf_recv = None
-        if SIZE > 1 and self.cfg.consistency and self.cfg.halo_swap_mode != "none":
+        if (
+            SIZE > 1
+            and self.cfg.consistency
+            and self.cfg.halo_swap_mode != "none"
+        ):
             field_r_buf_send = [
                 torch.empty(0, device=DEVICE, dtype=self.torch_dtype)
             ] * SIZE
@@ -2240,7 +2242,11 @@ class DGNTrainer:
             # seam at partition boundaries. _consistent_noise already gives us
             # rank-identical noise at coincident nodes, so once we sync the
             # mean the sum is consistent too.
-            if SIZE > 1 and self.cfg.consistency and self.cfg.halo_swap_mode != "none":
+            if (
+                SIZE > 1
+                and self.cfg.consistency
+                and self.cfg.halo_swap_mode != "none"
+            ):
                 field_r = self.halo_swap(
                     field_r, field_r_buf_send, field_r_buf_recv
                 )
