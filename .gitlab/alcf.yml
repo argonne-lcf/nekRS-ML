@@ -28,6 +28,11 @@ stages:
 aurora:
   stage: submit
   extends: .aurora-shell-runner
+  # Trigger/API pipelines (e.g. GitHub Actions → trigger token) run immediately.
+  # MR and web pipelines stay manual so Aurora is not used on every push.
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "trigger"
+    - when: manual
   script:
     - export WORKDIR=${AURORA_WORKDIR} SYSTEM=${AURORA_SYSTEM}
     - module load frameworks
@@ -38,6 +43,11 @@ aurora:
 polaris:
   stage: submit
   extends: .polaris-shell-runner
+  # Trigger/API pipelines (e.g. GitHub Actions → trigger token) run immediately.
+  # MR and web pipelines stay manual so Aurora is not used on every push.
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "trigger"
+    - when: manual
   script:
     - export WORKDIR=${POLARIS_WORKDIR} SYSTEM=${POLARIS_SYSTEM}
     - |
