@@ -92,8 +92,4 @@ data_dir: ${work_dir}/datasets/
 ckpt_dir: ${work_dir}/ckpt/ 
 # path to saved model directory
 model_dir: ${work_dir}/saved_models/ 
-# path to save profile data  
-profile_dir: ${work_dir}/outputs/profiles/new_timers/ 
-# path to save inference results 
-inference_dir: ${work_dir}/outputs/inference/
 

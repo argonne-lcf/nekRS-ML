@@ -1061,17 +1061,6 @@ class DGNTrainer:
             log.error("Number of non-matching nodes:", len(idx[0]))
             log.error("Non-matching nodes:", idx[0])
             raise e
-        #diff = (data_reduced.pos[idx_reduced2full] - data_full.pos).abs()
-        #bad = torch.where(diff.max(dim=1).values > 1e-8)[0]
-        #log.info(f"[RANK {RANK}] mismatches: {len(bad)}/{data_full.pos.shape[0]}, "
-        #    f"max diff: {diff.max().item():.3e}, "
-        #    f"sample bad idx: {bad[:5].tolist()}"
-        #)
-        #diff = (data_reduced.pos[idx_reduced2full] - data_full.pos).abs()
-        #log.info(f"[RANK {RANK}] per-axis max diff: x={diff[:,0].max().item():.3e}, "
-        #    f"y={diff[:,1].max().item():.3e}, z={diff[:,2].max().item():.3e}"
-        #)
-        #sys.exit(1)
         try:
             assert torch.allclose(
                 data_reduced.pos[idx_reduced2full], data_full.pos
