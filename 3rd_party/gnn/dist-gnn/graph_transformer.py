@@ -4,24 +4,30 @@ import einops
 
 import torch.distributed.nn as distnn
 from torch.nn.functional import scaled_dot_product_attention as sdpa
+
 try:
     from torch_scatter import scatter_mean
-    TORCH_SCATTER_AVAIL=True
+
+    TORCH_SCATTER_AVAIL = True
 except ModuleNotFoundError:
-    TORCH_SCATTER_AVAIL=False
+    TORCH_SCATTER_AVAIL = False
     pass
+
 
 # Scatter mean native torch implementation
 def scatter_mean_native(src, index, dim: int = 0, dim_size: int = None):
     assert dim == 0, "scatter_mean_native only supports dim=0"
     if dim_size is None:
         dim_size = index.max().item() + 1
-    out = torch.zeros(dim_size, src.shape[1], dtype=src.dtype, device=src.device)
+    out = torch.zeros(
+        dim_size, src.shape[1], dtype=src.dtype, device=src.device
+    )
     counts = torch.zeros(dim_size, 1, dtype=src.dtype, device=src.device)
     idx = index.unsqueeze(1)
     out.scatter_add_(0, idx.expand_as(src), src)
     counts.scatter_add_(0, idx, torch.ones_like(idx, dtype=src.dtype))
     return out / counts.clamp(min=1)
+
 
 # GeGLU activation
 class GeGLU(nn.Module):
@@ -73,7 +79,9 @@ def apply_rope(
     rotated_chunks = []
     for i in range(n_dim):
         # Select the feature chunk and coordinates for the current dimension.
-        current_x_chunk = x[..., i * per_dim_features : (i + 1) * per_dim_features]
+        current_x_chunk = x[
+            ..., i * per_dim_features : (i + 1) * per_dim_features
+        ]
         current_coords = coords[..., i]
 
         # Calculate the frequencies (or inverse timescales).
@@ -99,7 +107,9 @@ def apply_rope(
         rotated_second_half = second_half * cos + first_half * sin
 
         # Concatenate the rotated halves back together.
-        rotated_chunk = torch.cat([rotated_first_half, rotated_second_half], dim=-1)
+        rotated_chunk = torch.cat(
+            [rotated_first_half, rotated_second_half], dim=-1
+        )
         rotated_chunks.append(rotated_chunk)
 
     # Concatenate all the processed chunks back along the feature dimension.
@@ -227,7 +237,9 @@ class ElementWiseAttention(nn.Module):
         # so we can now treat the number of elements as an effective batch size
         # and perform element-wise attention with the number of nodes per element as the sequence length
         x_full = x_full.reshape(num_elements, nodes_per_element, x.shape[-1])
-        pos_full = pos_full.reshape(num_elements, nodes_per_element, pos.shape[-1])
+        pos_full = pos_full.reshape(
+            num_elements, nodes_per_element, pos.shape[-1]
+        )
         # NOTE: hardcoding the min and max positions for now
         min_pos = torch.tensor(
             [-10.0, -1.0, 0.0], device=pos_full.device, requires_grad=True
@@ -263,12 +275,18 @@ class ElementWiseAttention(nn.Module):
         # we need to reconcile this by doing an average across points with shared IDs:
         ne, np, c = attn_output.shape
         # NOTE: we can possibly just compute this once and reuse it
-        _, grouping_index = torch.unique(index[idx_reduced2full], return_inverse=True)
+        _, grouping_index = torch.unique(
+            index[idx_reduced2full], return_inverse=True
+        )
         attn_output = attn_output.reshape(ne * np, c)
         if TORCH_SCATTER_AVAIL:
-            attn_output = scatter_mean(attn_output, grouping_index, dim=0)[grouping_index]
+            attn_output = scatter_mean(attn_output, grouping_index, dim=0)[
+                grouping_index
+            ]
         else:
-            attn_output = scatter_mean_native(attn_output, grouping_index, dim=0)[grouping_index]
+            attn_output = scatter_mean_native(
+                attn_output, grouping_index, dim=0
+            )[grouping_index]
         # make attention output in reduced:
         attn_output = attn_output[idx_full2reduced]
 
@@ -278,7 +296,10 @@ class ElementWiseAttention(nn.Module):
             # add attn_output to x except the last num_halo_nodes
             x[:-num_halo_nodes] = res[:-num_halo_nodes] + attn_output
             # this should have populated the halo nodes
-            if self.halo_swap_mode == "all_to_all" or self.halo_swap_mode == "all_to_all_opt":
+            if (
+                self.halo_swap_mode == "all_to_all"
+                or self.halo_swap_mode == "all_to_all_opt"
+            ):
                 x = self.halo_swap(
                     x,
                     mask_send,
@@ -360,7 +381,9 @@ class GraphTransformer(nn.Module):
         self.output_node_channels = output_node_channels
         self.n_transformer_layers = n_transformer_layers
         self.num_heads = num_heads
-        self.encoder = MlpBlock(input_node_channels, hidden_channels, hidden_channels)
+        self.encoder = MlpBlock(
+            input_node_channels, hidden_channels, hidden_channels
+        )
         self.processor = nn.ModuleList()
         for i in range(n_transformer_layers):
             self.processor.append(
@@ -371,7 +394,9 @@ class GraphTransformer(nn.Module):
                     halo_swap_mode=halo_swap_mode,
                 )
             )
-        self.decoder = MlpBlock(hidden_channels, hidden_channels, output_node_channels)
+        self.decoder = MlpBlock(
+            hidden_channels, hidden_channels, output_node_channels
+        )
         self.halo_swap_mode = halo_swap_mode
         self.name = name
 

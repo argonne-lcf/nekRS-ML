@@ -100,7 +100,9 @@ def get_upsample_indices(
     is_first = torch.ones_like(gid_red_sorted, dtype=torch.bool)
     is_first[1:] = gid_red_sorted[1:] != gid_red_sorted[:-1]
     gid_unique = gid_red_sorted[is_first]  # ascending unique gids
-    red_first_orig_idx = idx_sort_red[is_first]  # corresponding original indices
+    red_first_orig_idx = idx_sort_red[
+        is_first
+    ]  # corresponding original indices
 
     # Map every full-graph node to the first occurrence in reduced graph
     # (gid_unique is sorted ascending, required by searchsorted)
