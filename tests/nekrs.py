@@ -516,6 +516,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
                 f"target_loss={args['target_loss']}",
                 f"time_dependency={args['time_dependency']}",
             ]
+            self.executable_opts += list(args.get("extra_opts", []))
         elif args["model"] == "sr-gnn":
             self.executable_opts = [
                 f"epochs={args['epochs']}",
@@ -688,6 +689,9 @@ class NekRSMLOnlineTest(NekRSMLTest):
                 f"consistency=True target_loss={self.target_loss} "
                 f"device_skip={self.sim_rpn} time_dependency={self.time_dependency} "
             )
+            extra_opts = self.ml_args.get("extra_opts", [])
+            if extra_opts:
+                arg_str += " ".join(extra_opts) + " "
             if self.client == "smartredis":
                 arg_str += f'client.db_nodes={self.db_nn}" '
             elif self.client == "adios":
