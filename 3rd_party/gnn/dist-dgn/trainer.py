@@ -30,6 +30,7 @@ import torch_geometric.utils as pyg_utils
 import utils
 from scheduler import ScheduledOptim
 import gnn
+import graph_transformer as gtr
 import graph_connectivity as gcon
 from client import OnlineClient
 import create_halo_info_par
@@ -374,26 +375,50 @@ class DGNTrainer:
         except:
             poly = 0
 
-        # Model architecture
-        arch = {
-            "input_node_features": self.cfg.input_node_features,
-            "cond_node_features": 0
+        cond_node_features = (
+            0
             if not self.cfg.cond_node_features
-            else graph.cond_node_features.shape[1],
-            "input_edge_features": graph.edge_attr.shape[1],
-            "mlp_hidden_channels": self.cfg.mlp_hidden_channels,
-            "n_mlp_hidden_layers": self.cfg.n_mlp_hidden_layers,
-            "n_messagePassing_layers": self.cfg.n_messagePassing_layers,
-            "halo_swap_mode": self.cfg.halo_swap_mode,
-            "layer_norm": self.cfg.layer_norm,
-            "dropout_rate": self.cfg.dropout_rate,
-            "emb_width": self.cfg.emb_width,
-            "learnable_variance": self.cfg.learnable_variance,
-            "activation_checkpointing": self.cfg.activation_checkpointing,
-            "name": "POLY_%d_SIZE_%d_SEED_%d" % (poly, SIZE, self.cfg.seed),
-        }
+            else graph.cond_node_features.shape[1]
+        )
 
-        model = gnn.DistributedDGN(arch)
+        if self.cfg.model_name == "gnn":
+            arch = {
+                "input_node_features": self.cfg.input_node_features,
+                "cond_node_features": cond_node_features,
+                "input_edge_features": graph.edge_attr.shape[1],
+                "mlp_hidden_channels": self.cfg.mlp_hidden_channels,
+                "n_mlp_hidden_layers": self.cfg.n_mlp_hidden_layers,
+                "n_messagePassing_layers": self.cfg.n_messagePassing_layers,
+                "halo_swap_mode": self.cfg.halo_swap_mode,
+                "layer_norm": self.cfg.layer_norm,
+                "dropout_rate": self.cfg.dropout_rate,
+                "emb_width": self.cfg.emb_width,
+                "learnable_variance": self.cfg.learnable_variance,
+                "activation_checkpointing": self.cfg.activation_checkpointing,
+                "name": "DGN_POLY_%d_SIZE_%d_SEED_%d"
+                % (poly, SIZE, self.cfg.seed),
+            }
+            model = gnn.DistributedDGN(arch)
+        elif self.cfg.model_name == "graph_transformer":
+            arch = {
+                "input_node_features": self.cfg.input_node_features,
+                "cond_node_features": cond_node_features,
+                "hidden_channels": self.cfg.mlp_hidden_channels,
+                "n_transformer_layers": self.cfg.n_transformer_layers,
+                "num_heads": self.cfg.num_heads,
+                "poly_order": poly,
+                "halo_swap_mode": self.cfg.halo_swap_mode,
+                "emb_width": self.cfg.emb_width,
+                "learnable_variance": self.cfg.learnable_variance,
+                "mlp_ratio": 1.0,
+                "name": "DGT_POLY_%d_SIZE_%d_SEED_%d"
+                % (poly, SIZE, self.cfg.seed),
+            }
+            model = gtr.DistributedDGT(arch)
+        else:
+            raise ValueError(
+                "Unknown model name: %s" % self.cfg.model_name
+            )
         return model
 
     def count_weights(self, model) -> int:
@@ -958,6 +983,15 @@ class DGNTrainer:
             # pos[:,2] = np.cos(2.*np.pi*pos[:,2]/L_z) # cosine
             pos[:, 2] = np.abs((pos[:, 2] % L_z) - L_z / 2)  # piecewise linear
 
+        # ~~~~ Compute global pos min/max per coordinate. 
+        # Used by graph_transformer to normalize coordinates for RoPE
+        pos_min_loc = np.amin(pos, axis=0).astype(NP_FLOAT_DTYPE)
+        pos_max_loc = np.amax(pos, axis=0).astype(NP_FLOAT_DTYPE)
+        pos_min_glob = np.zeros_like(pos_min_loc)
+        pos_max_glob = np.zeros_like(pos_max_loc)
+        COMM.Allreduce(pos_min_loc, pos_min_glob, op=MPI.MIN)
+        COMM.Allreduce(pos_max_loc, pos_max_glob, op=MPI.MAX)
+
         # ~~~~ Make the full graph:
         if self.cfg.verbose:
             log.info(
@@ -991,6 +1025,10 @@ class DGNTrainer:
             )
         data_reduced, idx_full2reduced = gcon.get_reduced_graph(data_full)
 
+        # Stash global pos bounds on data_reduced so they flow into self.data["graph"]
+        data_reduced.pos_min = torch.tensor(pos_min_glob, dtype=self.torch_dtype)
+        data_reduced.pos_max = torch.tensor(pos_max_glob, dtype=self.torch_dtype)
+
         # Snapshot the raw global ids before get_upsample_indices runs --
         # update_global_ids() inside it mutates data_reduced.global_ids by
         # overwriting zero sentinels with *rank-local* consecutive negatives,
@@ -1018,6 +1056,32 @@ class DGNTrainer:
             )
             log.error(
                 "RANK %i: AssertionError: Non-matching nodes found in idx_full2reduced",
+                RANK,
+            )
+            log.error("Number of non-matching nodes:", len(idx[0]))
+            log.error("Non-matching nodes:", idx[0])
+            raise e
+        #diff = (data_reduced.pos[idx_reduced2full] - data_full.pos).abs()
+        #bad = torch.where(diff.max(dim=1).values > 1e-8)[0]
+        #log.info(f"[RANK {RANK}] mismatches: {len(bad)}/{data_full.pos.shape[0]}, "
+        #    f"max diff: {diff.max().item():.3e}, "
+        #    f"sample bad idx: {bad[:5].tolist()}"
+        #)
+        #diff = (data_reduced.pos[idx_reduced2full] - data_full.pos).abs()
+        #log.info(f"[RANK {RANK}] per-axis max diff: x={diff[:,0].max().item():.3e}, "
+        #    f"y={diff[:,1].max().item():.3e}, z={diff[:,2].max().item():.3e}"
+        #)
+        #sys.exit(1)
+        try:
+            assert torch.allclose(
+                data_reduced.pos[idx_reduced2full], data_full.pos
+            )
+        except AssertionError as e:
+            idx = torch.where(
+                data_reduced.pos[idx_reduced2full] != data_full.pos
+            )
+            log.error(
+                "RANK %i: AssertionError: Non-matching nodes found in idx_reduced2full",
                 RANK,
             )
             log.error("Number of non-matching nodes:", len(idx[0]))
@@ -1777,6 +1841,13 @@ class DGNTrainer:
                 graph.cond_node_features = graph.cond_node_features.to(
                     self.device
                 )
+            if self.cfg.model_name == "graph_transformer":
+                graph.pos = graph.pos.to(self.device)
+                graph.global_ids = graph.global_ids.to(self.device)
+                graph.pos_min = graph.pos_min.to(self.device)
+                graph.pos_max = graph.pos_max.to(self.device)
+                self.idx_reduced2full = self.idx_reduced2full.to(self.device)
+                self.idx_full2reduced = self.idx_full2reduced.to(self.device)
             loss = loss.to(self.device)
         if self.cfg.timers:
             self.update_timer(
@@ -1876,25 +1947,53 @@ class DGNTrainer:
         debug_perlayer: Optional[Dict[str, Any]] = (
             {} if self.iteration == 0 else None
         )
-        model_pred, model_var = self.model(
-            field_r=field_r,
-            r=r,
-            edge_index=graph.edge_index,
-            edge_attr=graph.edge_attr,
-            edge_weight=graph.edge_weight,
-            halo_info=graph.halo_info,
-            mask_send=self.mask_send,
-            mask_recv=self.mask_recv,
-            buffer_send=self.buffer_send,
-            buffer_recv=self.buffer_recv,
-            neighboring_procs=self.neighboring_procs,
-            SIZE=SIZE,
-            cond_node_features=graph.cond_node_features
-            if self.cfg.cond_node_features
-            else None,
-            batch=data.batch,
-            debug_dump=debug_perlayer,
-        )
+        if self.cfg.model_name == "gnn":
+            model_pred, model_var = self.model(
+                field_r=field_r,
+                r=r,
+                edge_index=graph.edge_index,
+                edge_attr=graph.edge_attr,
+                edge_weight=graph.edge_weight,
+                halo_info=graph.halo_info,
+                mask_send=self.mask_send,
+                mask_recv=self.mask_recv,
+                buffer_send=self.buffer_send,
+                buffer_recv=self.buffer_recv,
+                neighboring_procs=self.neighboring_procs,
+                SIZE=SIZE,
+                cond_node_features=graph.cond_node_features
+                if self.cfg.cond_node_features
+                else None,
+                batch=data.batch,
+                debug_dump=debug_perlayer,
+            )
+        elif self.cfg.model_name == "graph_transformer":
+            model_pred, model_var = self.model(
+                field_r=field_r,
+                r=r,
+                pos=graph.pos,
+                pos_min=graph.pos_min,
+                pos_max=graph.pos_max,
+                index=graph.global_ids.reshape(-1),
+                mask_send=self.mask_send,
+                mask_recv=self.mask_recv,
+                buffer_send=self.buffer_send,
+                buffer_recv=self.buffer_recv,
+                halo_info=graph.halo_info,
+                idx_reduced2full=self.idx_reduced2full,
+                idx_full2reduced=self.idx_full2reduced,
+                neighboring_procs=self.neighboring_procs,
+                SIZE=SIZE,
+                cond_node_features=graph.cond_node_features
+                if self.cfg.cond_node_features
+                else None,
+                batch=data.batch,
+                debug_dump=debug_perlayer,
+            )
+        else:
+            raise ValueError(
+                "Unknown model name: %s" % self.cfg.model_name
+            )
         if self.cfg.timers:
             self.update_timer("forwardPass", self.timer_step, time.time() - tic)
 
@@ -2116,6 +2215,19 @@ class DGNTrainer:
                 self.data["graph"].cond_node_features = self.data[
                     "graph"
                 ].cond_node_features.to(self.device)
+            if self.cfg.model_name == "graph_transformer":
+                self.data["graph"].pos = self.data["graph"].pos.to(self.device)
+                self.data["graph"].global_ids = self.data[
+                    "graph"
+                ].global_ids.to(self.device)
+                self.data["graph"].pos_min = self.data["graph"].pos_min.to(
+                    self.device
+                )
+                self.data["graph"].pos_max = self.data["graph"].pos_max.to(
+                    self.device
+                )
+                self.idx_reduced2full = self.idx_reduced2full.to(self.device)
+                self.idx_full2reduced = self.idx_full2reduced.to(self.device)
         if self.cfg.timers:
             self.update_timer(
                 "dataTransfer", self.timer_step, time.time() - tic
@@ -2184,24 +2296,51 @@ class DGNTrainer:
                 log.info(f"Performing de-noise step {step}")
             r = torch.tensor([step], device=self.device)
             tic = time.time()
-            model_pred, model_var = self.model(
-                field_r=field_r,
-                r=r,
-                edge_index=self.data["graph"].edge_index,
-                edge_attr=self.data["graph"].edge_attr,
-                edge_weight=self.data["graph"].edge_weight,
-                halo_info=self.data["graph"].halo_info,
-                mask_send=self.mask_send,
-                mask_recv=self.mask_recv,
-                buffer_send=self.buffer_send,
-                buffer_recv=self.buffer_recv,
-                neighboring_procs=self.neighboring_procs,
-                SIZE=SIZE,
-                cond_node_features=self.data["graph"].cond_node_features
-                if self.cfg.cond_node_features
-                else None,
-                batch=self.data["graph"].batch,
-            )
+            if self.cfg.model_name == "gnn":
+                model_pred, model_var = self.model(
+                    field_r=field_r,
+                    r=r,
+                    edge_index=self.data["graph"].edge_index,
+                    edge_attr=self.data["graph"].edge_attr,
+                    edge_weight=self.data["graph"].edge_weight,
+                    halo_info=self.data["graph"].halo_info,
+                    mask_send=self.mask_send,
+                    mask_recv=self.mask_recv,
+                    buffer_send=self.buffer_send,
+                    buffer_recv=self.buffer_recv,
+                    neighboring_procs=self.neighboring_procs,
+                    SIZE=SIZE,
+                    cond_node_features=self.data["graph"].cond_node_features
+                    if self.cfg.cond_node_features
+                    else None,
+                    batch=self.data["graph"].batch,
+                )
+            elif self.cfg.model_name == "graph_transformer":
+                model_pred, model_var = self.model(
+                    field_r=field_r,
+                    r=r,
+                    pos=self.data["graph"].pos,
+                    pos_min=self.data["graph"].pos_min,
+                    pos_max=self.data["graph"].pos_max,
+                    index=self.data["graph"].global_ids.reshape(-1),
+                    mask_send=self.mask_send,
+                    mask_recv=self.mask_recv,
+                    buffer_send=self.buffer_send,
+                    buffer_recv=self.buffer_recv,
+                    halo_info=self.data["graph"].halo_info,
+                    idx_reduced2full=self.idx_reduced2full,
+                    idx_full2reduced=self.idx_full2reduced,
+                    neighboring_procs=self.neighboring_procs,
+                    SIZE=SIZE,
+                    cond_node_features=self.data["graph"].cond_node_features
+                    if self.cfg.cond_node_features
+                    else None,
+                    batch=self.data["graph"].batch,
+                )
+            else:
+                raise ValueError(
+                    "Unknown model name: %s" % self.cfg.model_name
+                )
             if self.cfg.timers:
                 self.update_timer(
                     "forwardPass", self.timer_step, time.time() - tic

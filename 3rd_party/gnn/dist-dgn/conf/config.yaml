@@ -42,10 +42,13 @@ phase3_steps: 0
 lr_phase12: 0.0001
 lr_phase23: 0.0001
 
-# model arch properties 
+# model arch properties
+model_name: "gnn" # {gnn, graph_transformer}
 mlp_hidden_channels: 32
 n_mlp_hidden_layers: 5
 n_messagePassing_layers: 4
+n_transformer_layers: 4
+num_heads: 4
 layer_norm: False
 dropout_rate: 0.0
 
