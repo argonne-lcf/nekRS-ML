@@ -416,9 +416,7 @@ class DGNTrainer:
             }
             model = gtr.DistributedDGT(arch)
         else:
-            raise ValueError(
-                "Unknown model name: %s" % self.cfg.model_name
-            )
+            raise ValueError("Unknown model name: %s" % self.cfg.model_name)
         return model
 
     def count_weights(self, model) -> int:
@@ -983,7 +981,7 @@ class DGNTrainer:
             # pos[:,2] = np.cos(2.*np.pi*pos[:,2]/L_z) # cosine
             pos[:, 2] = np.abs((pos[:, 2] % L_z) - L_z / 2)  # piecewise linear
 
-        # ~~~~ Compute global pos min/max per coordinate. 
+        # ~~~~ Compute global pos min/max per coordinate.
         # Used by graph_transformer to normalize coordinates for RoPE
         pos_min_loc = np.amin(pos, axis=0).astype(NP_FLOAT_DTYPE)
         pos_max_loc = np.amax(pos, axis=0).astype(NP_FLOAT_DTYPE)
@@ -1026,8 +1024,12 @@ class DGNTrainer:
         data_reduced, idx_full2reduced = gcon.get_reduced_graph(data_full)
 
         # Stash global pos bounds on data_reduced so they flow into self.data["graph"]
-        data_reduced.pos_min = torch.tensor(pos_min_glob, dtype=self.torch_dtype)
-        data_reduced.pos_max = torch.tensor(pos_max_glob, dtype=self.torch_dtype)
+        data_reduced.pos_min = torch.tensor(
+            pos_min_glob, dtype=self.torch_dtype
+        )
+        data_reduced.pos_max = torch.tensor(
+            pos_max_glob, dtype=self.torch_dtype
+        )
 
         # Snapshot the raw global ids before get_upsample_indices runs --
         # update_global_ids() inside it mutates data_reduced.global_ids by
@@ -1980,9 +1982,7 @@ class DGNTrainer:
                 debug_dump=debug_perlayer,
             )
         else:
-            raise ValueError(
-                "Unknown model name: %s" % self.cfg.model_name
-            )
+            raise ValueError("Unknown model name: %s" % self.cfg.model_name)
         if self.cfg.timers:
             self.update_timer("forwardPass", self.timer_step, time.time() - tic)
 
@@ -2327,9 +2327,7 @@ class DGNTrainer:
                     batch=self.data["graph"].batch,
                 )
             else:
-                raise ValueError(
-                    "Unknown model name: %s" % self.cfg.model_name
-                )
+                raise ValueError("Unknown model name: %s" % self.cfg.model_name)
             if self.cfg.timers:
                 self.update_timer(
                     "forwardPass", self.timer_step, time.time() - tic

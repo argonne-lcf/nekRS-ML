@@ -903,8 +903,12 @@ class Trainer:
         data_reduced, idx_full2reduced = gcon.get_reduced_graph(data_full)
 
         # Stash global pos bounds on data_reduced so they flow into self.data["graph"]
-        data_reduced.pos_min = torch.tensor(pos_min_glob, dtype=self.torch_dtype)
-        data_reduced.pos_max = torch.tensor(pos_max_glob, dtype=self.torch_dtype)
+        data_reduced.pos_min = torch.tensor(
+            pos_min_glob, dtype=self.torch_dtype
+        )
+        data_reduced.pos_max = torch.tensor(
+            pos_max_glob, dtype=self.torch_dtype
+        )
 
         # ~~~~ Get the indices to go from reduced back to full graph
         # idx_reduced2full = None

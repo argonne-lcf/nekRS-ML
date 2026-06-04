@@ -204,7 +204,9 @@ class DGTAttentionBlock(nn.Module):
         pos_full = pos[idx_reduced2full]
 
         # Reshape so num_elements acts as the batch dim, nodes_per_element as seq len
-        x_full = x_full.reshape(num_elements, nodes_per_element, x_batch.shape[-1])
+        x_full = x_full.reshape(
+            num_elements, nodes_per_element, x_batch.shape[-1]
+        )
         pos_full = pos_full.reshape(
             num_elements, nodes_per_element, pos.shape[-1]
         )
@@ -307,9 +309,7 @@ class DGTAttentionBlock(nn.Module):
         batch: Optional[torch.LongTensor] = None,
     ) -> torch.Tensor:
         if batch is None:
-            batch = torch.zeros(
-                x.size(0), device=x.device, dtype=torch.long
-            )
+            batch = torch.zeros(x.size(0), device=x.device, dtype=torch.long)
         batch_size = int(torch.max(batch).item()) + 1
 
         # Inject diffusion-step embedding (out-of-place)
