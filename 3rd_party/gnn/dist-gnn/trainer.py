@@ -863,6 +863,15 @@ class Trainer:
             # pos[:,2] = np.cos(2.*np.pi*pos[:,2]/L_z) # cosine
             pos[:, 2] = np.abs((pos[:, 2] % L_z) - L_z / 2)  # piecewise linear
 
+        # ~~~~ Compute global pos min/max per coordinate. Used by graph_transformer
+        # to normalize coordinates for RoPE without hardcoding the bounding box.
+        pos_min_loc = np.amin(pos, axis=0).astype(NP_FLOAT_DTYPE)
+        pos_max_loc = np.amax(pos, axis=0).astype(NP_FLOAT_DTYPE)
+        pos_min_glob = np.zeros_like(pos_min_loc)
+        pos_max_glob = np.zeros_like(pos_max_loc)
+        COMM.Allreduce(pos_min_loc, pos_min_glob, op=MPI.MIN)
+        COMM.Allreduce(pos_max_loc, pos_max_glob, op=MPI.MAX)
+
         # ~~~~ Make the full graph:
         if self.cfg.verbose:
             log.info(
@@ -892,6 +901,10 @@ class Trainer:
                 % (RANK)
             )
         data_reduced, idx_full2reduced = gcon.get_reduced_graph(data_full)
+
+        # Stash global pos bounds on data_reduced so they flow into self.data["graph"]
+        data_reduced.pos_min = torch.tensor(pos_min_glob, dtype=self.torch_dtype)
+        data_reduced.pos_max = torch.tensor(pos_max_glob, dtype=self.torch_dtype)
 
         # ~~~~ Get the indices to go from reduced back to full graph
         # idx_reduced2full = None
@@ -1898,6 +1911,8 @@ class Trainer:
             if self.cfg.model_name == "graph_transformer":
                 graph.pos = graph.pos.to(self.device)
                 graph.global_ids = graph.global_ids.to(self.device)
+                graph.pos_min = graph.pos_min.to(self.device)
+                graph.pos_max = graph.pos_max.to(self.device)
         if self.cfg.timers:
             self.update_timer(
                 "dataTransfer", self.timer_step, time.time() - tic
@@ -1942,6 +1957,8 @@ class Trainer:
             out_gnn = self.model(
                 x=data.x,
                 pos=graph.pos,
+                pos_min=graph.pos_min,
+                pos_max=graph.pos_max,
                 index=graph.global_ids.reshape(-1).to(self.device),
                 mask_send=self.mask_send,
                 mask_recv=self.mask_recv,
@@ -2032,6 +2049,8 @@ class Trainer:
             if self.cfg.model_name == "graph_transformer":
                 graph.pos = graph.pos.to(self.device)
                 graph.global_ids = graph.global_ids.to(self.device)
+                graph.pos_min = graph.pos_min.to(self.device)
+                graph.pos_max = graph.pos_max.to(self.device)
         if self.cfg.timers:
             self.update_timer(
                 "dataTransfer", self.timer_step, time.time() - tic
@@ -2074,6 +2093,8 @@ class Trainer:
             out_gnn = self.model(
                 x=x_scaled,
                 pos=graph.pos,
+                pos_min=graph.pos_min,
+                pos_max=graph.pos_max,
                 index=graph.global_ids.reshape(-1).to(self.device),
                 mask_send=self.mask_send,
                 mask_recv=self.mask_recv,
@@ -2131,6 +2152,8 @@ class Trainer:
                     if self.cfg.model_name == "graph_transformer":
                         graph.pos = graph.pos.to(self.device)
                         graph.global_ids = graph.global_ids.to(self.device)
+                        graph.pos_min = graph.pos_min.to(self.device)
+                        graph.pos_max = graph.pos_max.to(self.device)
 
                 # re-allocate send buffer
                 if self.cfg.halo_swap_mode != "none":
@@ -2172,6 +2195,8 @@ class Trainer:
                     out_gnn = self.model(
                         x=data.x,
                         pos=graph.pos,
+                        pos_min=graph.pos_min,
+                        pos_max=graph.pos_max,
                         index=self.data_full.global_ids.reshape(-1).to(
                             self.device
                         ),

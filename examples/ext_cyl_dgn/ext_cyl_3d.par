@@ -17,8 +17,7 @@ regularization = hpfrt + nModes=2 + scalingCoeff=5
 [VELOCITY]
 viscosity = -100
 density = 1.0
-#boundaryTypeMap = v, O, W
-boundaryTypeMap = codedFixedValue, zeroGradient, zeroValue
+boundaryTypeMap = codedFixedValue, zeroGradient, zeroValue, zeroYValue/zeroGradient, zeroYValue/zeroGradient, zeroZValue/zeroGradient, zeroZValue/zeroGradient
 residualTol = 1.0e-6
 
 [PRESSURE]

@@ -200,6 +200,8 @@ class ElementWiseAttention(nn.Module):
         self,
         x,
         pos,
+        pos_min,
+        pos_max,
         index,
         mask_send,
         mask_recv,
@@ -219,6 +221,8 @@ class ElementWiseAttention(nn.Module):
         Args:
             x: Input tensor of shape (B, E, N, C) where B is batch size, E is number of elements,
                N is nodes per element, and C is the feature dimension
+            pos_min, pos_max: per-coordinate global bounds for RoPE position normalization,
+                shape (n_dim,). Computed once at setup_local_graph via MPI Allreduce.
 
         Returns:
             Tensor of the same shape as input with attention applied within each element
@@ -240,14 +244,8 @@ class ElementWiseAttention(nn.Module):
         pos_full = pos_full.reshape(
             num_elements, nodes_per_element, pos.shape[-1]
         )
-        # NOTE: hardcoding the min and max positions for now
-        min_pos = torch.tensor(
-            [-10.0, -1.0, 0.0], device=pos_full.device, requires_grad=True
-        )
-        max_pos = torch.tensor(
-            [25.0, 5.0, 2.0], device=pos_full.device, requires_grad=True
-        )
-        pos_full = (pos_full - min_pos) / (max_pos - min_pos)
+        # Normalize positions to [0,1] using globally-reduced per-coordinate bounds
+        pos_full = (pos_full - pos_min) / (pos_max - pos_min)
 
         # we are performing a pre-norm transformer
         x_full = self.norm1(x_full)
@@ -404,6 +402,8 @@ class GraphTransformer(nn.Module):
         self,
         x,
         pos,
+        pos_min,
+        pos_max,
         index,
         mask_send,
         mask_recv,
@@ -422,6 +422,8 @@ class GraphTransformer(nn.Module):
             x = self.processor[i](
                 x,
                 pos,
+                pos_min,
+                pos_max,
                 index,
                 mask_send,
                 mask_recv,

@@ -2,10 +2,10 @@
 set -e
 
 #--------------------------------------
-: ${QUEUE:="lustre_scaling"}
+: ${QUEUE:="debug"}
 : ${NEKRS_GPU_MPI:=0}
 : ${NEKRS_BACKEND:="dpcpp"}
-: ${RANKS_PER_NODE:=1}
+: ${RANKS_PER_NODE:=4}
 : ${CPU_BIND_LIST:="1:8:16:24:32:40:53:60:68:76:84:92"}
 : ${OCCA_DPCPP_COMPILER_FLAGS:="-O3 -fsycl -fsycl-targets=intel_gpu_pvc -ftarget-register-alloc-mode=pvc:auto -fma"}
 : ${ONEAPI_SDK:=""}
@@ -66,9 +66,9 @@ echo -e "\n# Generate the halo_info, edge_weights and node_degree files" >>$RFIL
 echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/dist-dgn/create_halo_info_par.py --POLY 3 --PATH ./gnn_outputs_poly_3" >> $RFILE
 
 echo -e "\n# Train model" >>$RFILE
-echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/dist-dgn/main.py activation_checkpointing=True prediction_type=v loss_weighting=min_snr diffusion_process_schedule=cosine diffusion_step_sampler=uniform batch_size=8 mlp_hidden_channels=128 n_mlp_hidden_layers=2 n_messagePassing_layers=6 input_node_features=2 cond_node_features=True halo_swap_mode=all_to_all consistency=True phase1_steps=300 phase2_steps=700 lr_phase12=0.001 lr_phase23=0.0002 ckptfreq=100 gnn_outputs_path=${PWD}/gnn_outputs_poly_3 verbose=True postprocess=False transform_z=True 2>&1 | tee train_\${JOBID}.log" >> $RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/dist-dgn/main.py activation_checkpointing=True prediction_type=v loss_weighting=min_snr diffusion_process_schedule=cosine diffusion_step_sampler=uniform batch_size=8 mlp_hidden_channels=128 n_mlp_hidden_layers=2 n_messagePassing_layers=6 input_node_features=2 cond_node_features=True halo_swap_mode=all_to_all consistency=True phase1_steps=300 phase2_steps=700 lr_phase12=0.001 lr_phase23=0.0002 ckptfreq=100 gnn_outputs_path=${PWD}/gnn_outputs_poly_3 verbose=True postprocess=False 2>&1 | tee train_\${JOBID}.log" >> $RFILE
 
 echo -e "\n# Perform inference and generate files for visualization" >>$RFILE
-echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/dist-dgn/inference.py model_task=inference prediction_type=v diffusion_process_schedule=cosine num_gen_samples=5 mlp_hidden_channels=128 n_mlp_hidden_layers=2 n_messagePassing_layers=6 input_node_features=2 cond_node_features=True halo_swap_mode=all_to_all consistency=True gnn_outputs_path=${PWD}/gnn_outputs_poly_3 model_dir=${PWD}/saved_models inference_dir=${PWD}/predictions verbose=True postprocess=True transform_z=True 2>&1 | tee inference_\${JOBID}.log" >> $RFILE
+echo "mpiexec -n ${TOTAL_RANKS} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/dist-dgn/inference.py model_task=inference prediction_type=v diffusion_process_schedule=cosine num_gen_samples=5 mlp_hidden_channels=128 n_mlp_hidden_layers=2 n_messagePassing_layers=6 input_node_features=2 cond_node_features=True halo_swap_mode=all_to_all consistency=True gnn_outputs_path=${PWD}/gnn_outputs_poly_3 model_dir=${PWD}/saved_models inference_dir=${PWD}/predictions verbose=True postprocess=True 2>&1 | tee inference_\${JOBID}.log" >> $RFILE
 chmod u+x $RFILE
 
