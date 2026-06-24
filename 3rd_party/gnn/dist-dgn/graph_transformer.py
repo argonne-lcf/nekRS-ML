@@ -22,8 +22,8 @@ from torch.nn.functional import scaled_dot_product_attention as sdpa
 from gnn import SinusoidalPositionEmbedding
 
 try:
-    from torch_scatter import scatter_mean
-
+    from torch_scatter import scatter_add, scatter_max, scatter_mean
+    from torch_scatter.composite import scatter_softmax
     TORCH_SCATTER_AVAIL = True
 except ModuleNotFoundError:
     TORCH_SCATTER_AVAIL = False
@@ -42,6 +42,64 @@ def scatter_mean_native(src, index, dim: int = 0, dim_size: int = None):
     out.scatter_add_(0, idx.expand_as(src), src)
     counts.scatter_add_(0, idx, torch.ones_like(idx, dtype=src.dtype))
     return out / counts.clamp(min=1)
+
+
+def scatter_add_native(src, index, dim: int = 0, dim_size: int = None):
+    """Native torch fallback: sum src rows by group index along dim 0."""
+    assert dim == 0, "scatter_add_native only supports dim=0"
+    if dim_size is None:
+        dim_size = index.max().item() + 1
+    out = torch.zeros(
+        dim_size, src.shape[1], dtype=src.dtype, device=src.device
+    )
+    out.scatter_add_(0, index.unsqueeze(1).expand_as(src), src)
+    return out
+
+
+def scatter_softmax_native(src, index, dim: int = 0):
+    """Native torch fallback: numerically-stable softmax of `src` (shape
+    (N, C)) over rows that share an `index`. Returns per-row weights of the
+    same shape as `src`."""
+    assert dim == 0, "scatter_softmax_native only supports dim=0"
+    dim_size = int(index.max().item()) + 1
+    # Per-group max for numerical stability
+    group_max = torch.full(
+        (dim_size, src.shape[1]),
+        float("-inf"),
+        dtype=src.dtype,
+        device=src.device,
+    )
+    group_max.scatter_reduce_(
+        0,
+        index.unsqueeze(1).expand_as(src),
+        src,
+        reduce="amax",
+        include_self=True,
+    )
+    src_shifted = src - group_max[index]
+    exp_src = src_shifted.exp()
+    denom = scatter_add_native(exp_src, index, dim=0, dim_size=dim_size)
+    return exp_src / denom[index].clamp(min=1e-20)
+
+
+def softmax_weighted_aggregate(
+    values: torch.Tensor,
+    index: torch.Tensor,
+    score: torch.Tensor,
+    dim_size: int = None,
+) -> torch.Tensor:
+    """Aggregate `values` (N, C) over the groups defined by `index` (N,) using
+    softmax weights computed from `score` (N, 1). Returns (G, C) where
+    G = dim_size (or index.max()+1).
+
+    Falls back to a pure-torch implementation when torch_scatter is missing."""
+    if dim_size is None:
+        dim_size = int(index.max().item()) + 1
+    if TORCH_SCATTER_AVAIL:
+        weight = scatter_softmax(score, index, dim=0)  # (N, 1)
+        return scatter_add(values * weight, index, dim=0, dim_size=dim_size)
+    weight = scatter_softmax_native(score, index, dim=0)  # (N, 1)
+    return scatter_add_native(values * weight, index, dim=0, dim_size=dim_size)
 
 
 class GeGLU(nn.Module):
@@ -131,9 +189,11 @@ class DGTAttentionBlock(nn.Module):
       1) inject the diffusion-step embedding into x (per batch element)
       2) for each batch element:
            - pre-norm + element-restricted multi-head self-attention with RoPE
-           - average attention output across nodes that share a global ID
-             (the "redistribution" step, load-bearing for consistency)
-           - halo swap (when SIZE>1 and halo_swap_mode != "none")
+           - learned softmax-weighted aggregation across nodes that share a
+             global ID (the within-rank "redistribution" step, load-bearing
+             for consistency)
+           - halo swap with learned softmax-weighted aggregation across rank
+             boundaries (when SIZE>1 and halo_swap_mode != "none")
            - residual + FFN
     """
 
@@ -165,6 +225,17 @@ class DGTAttentionBlock(nn.Module):
         self.k_proj = nn.Linear(hidden_channels, hidden_channels, bias=use_bias)
         self.v_proj = nn.Linear(hidden_channels, hidden_channels, bias=use_bias)
         self.o_proj = nn.Linear(hidden_channels, hidden_channels, bias=use_bias)
+
+        # Redistribution gates. Each scores a node's "trustworthiness" so the
+        # softmax-weighted aggregation can prefer one coincident copy over
+        # another instead of always averaging (which low-pass-filters the
+        # signal across element / rank boundaries).
+        # - redist_gate_intra: scores attn_output prior to within-rank
+        #   coincident-node aggregation.
+        # - redist_gate_inter: scores post-attention node features prior to
+        #   halo-boundary aggregation across ranks.
+        self.redist_gate_intra = nn.Linear(hidden_channels, 1, bias=False)
+        self.redist_gate_inter = nn.Linear(hidden_channels, 1, bias=False)
 
         # FFN
         self.norm2 = nn.LayerNorm(hidden_channels)
@@ -231,18 +302,17 @@ class DGTAttentionBlock(nn.Module):
         attn_output = einops.rearrange(attn_output, "ne h np c -> ne np (h c)")
         attn_output = self.o_proj(attn_output)
 
-        # Redistribution: average attention output across nodes that share a
-        # global ID, so coincident physical nodes carry identical values.
+        # Redistribution: aggregate attention output across nodes that share a
+        # global ID, so coincident physical nodes carry identical values. Each
+        # coincident copy gets a learned softmax weight (instead of an
+        # unweighted mean) so the model can preserve signed high-frequency
+        # content across element boundaries instead of cancelling it.
         ne, np_per, c = attn_output.shape
         attn_output = attn_output.reshape(ne * np_per, c)
-        if TORCH_SCATTER_AVAIL:
-            attn_output = scatter_mean(attn_output, grouping_index, dim=0)[
-                grouping_index
-            ]
-        else:
-            attn_output = scatter_mean_native(
-                attn_output, grouping_index, dim=0
-            )[grouping_index]
+        score_intra = self.redist_gate_intra(attn_output)  # (N_full, 1)
+        attn_output = softmax_weighted_aggregate(
+            attn_output, grouping_index, score_intra
+        )[grouping_index]
         # Project full -> reduced
         attn_output = attn_output[idx_full2reduced]
 
@@ -271,15 +341,35 @@ class DGTAttentionBlock(nn.Module):
             else:
                 assert self.halo_swap_mode == "none", "Invalid halo swap mode"
 
-            # Aggregate contributions from neighboring ranks
+            # Aggregate contributions from neighboring ranks via learned
+            # softmax-weighted mean instead of an unweighted count-mean. Mirrors
+            # the within-rank redistribution: the gate scores each contributor
+            # so the model can preserve signed high-frequency content across
+            # rank boundaries instead of cancelling it.
+            #
+            # For receive-slot i the contributors are {i itself} ∪
+            # {idx_send[k] : idx_recv[k] == i}. We materialize this as one
+            # synthetic group per row of x_new by concatenating the self rows
+            # with the sent rows (group = [arange(N), idx_recv]) and running a
+            # single softmax-weighted scatter. Interior nodes (no incoming
+            # contributions) have a singleton group, softmax weight 1, so
+            # their value is unchanged -- identical to the old count-mean for
+            # interior slots.
             idx_recv = halo_info[:, 0]
             idx_send = halo_info[:, 1]
-            x_new.index_add_(0, idx_recv, x_new.index_select(0, idx_send))
-            # Mean across all contributors (self + incoming)
-            counts = torch.ones(x_new.size(0), device=x_new.device)
-            ones = torch.ones(idx_recv.size(0), device=x_new.device)
-            counts.index_add_(0, idx_recv, ones)
-            x_new = x_new / counts.unsqueeze(-1)
+            N = x_new.size(0)
+            score_self = self.redist_gate_inter(x_new)            # (N, 1)
+            values_in = x_new.index_select(0, idx_send)            # (H, C)
+            score_in = score_self.index_select(0, idx_send)        # (H, 1)
+            values_concat = torch.cat([x_new, values_in], dim=0)
+            score_concat = torch.cat([score_self, score_in], dim=0)
+            group_concat = torch.cat([
+                torch.arange(N, device=x_new.device, dtype=idx_recv.dtype),
+                idx_recv,
+            ], dim=0)
+            x_new = softmax_weighted_aggregate(
+                values_concat, group_concat, score_concat, dim_size=N
+            )
         else:
             x_new = res + attn_output
 

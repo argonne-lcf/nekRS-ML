@@ -138,7 +138,7 @@ def infer(cfg: DictConfig, client: Optional[OnlineClient] = None) -> None:
     for i in range(cfg.num_gen_samples):
         # Generate sample prediction
         if RANK == 0:
-            log.info("\nPredicting Dist-DGN sample ...")
+            log.info("Predicting Dist-DGN sample ...")
         pred = trainer.sample()
         pred = pred[:n_nodes_local].cpu().numpy()
 
