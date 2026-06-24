@@ -19,6 +19,7 @@ import torch.distributed.nn as distnn
 import torch.nn as nn
 from torch.nn.functional import scaled_dot_product_attention as sdpa
 
+from attn_utils import apply_rope
 from gnn import SinusoidalPositionEmbedding
 
 try:
@@ -113,47 +114,6 @@ class SwiGLU(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x, gate = torch.chunk(x, 2, dim=-1)
         return x * torch.nn.functional.silu(gate)
-
-
-def apply_rope(
-    x: torch.Tensor,
-    coords: torch.Tensor,
-    max_wavelength: int = 100,
-) -> torch.Tensor:
-    n_dim = coords.shape[-1]
-    feature_dim = x.shape[-1]
-
-    per_dim_features = 2 * (feature_dim // (2 * n_dim))
-    rotated_chunks = []
-    for i in range(n_dim):
-        current_x_chunk = x[
-            ..., i * per_dim_features : (i + 1) * per_dim_features
-        ]
-        current_coords = coords[..., i]
-
-        head_dim = per_dim_features
-        half_head_dim = head_dim // 2
-        fraction = 2 * torch.arange(half_head_dim, device=x.device) / head_dim
-        timescale = max_wavelength**fraction
-
-        theta = current_coords.unsqueeze(-1) / timescale
-        sin = torch.sin(theta)
-        cos = torch.cos(theta)
-
-        first_half, second_half = torch.chunk(current_x_chunk, 2, dim=-1)
-        sin = einops.repeat(sin, "b n c -> b h n c", h=first_half.shape[1])
-        cos = einops.repeat(cos, "b n c -> b h n c", h=first_half.shape[1])
-
-        rotated_first_half = first_half * cos - second_half * sin
-        rotated_second_half = second_half * cos + first_half * sin
-
-        rotated_chunk = torch.cat(
-            [rotated_first_half, rotated_second_half], dim=-1
-        )
-        rotated_chunks.append(rotated_chunk)
-
-    result = torch.cat(rotated_chunks, dim=-1)
-    return result.to(x.dtype)
 
 
 class MlpBlock(nn.Module):
@@ -576,8 +536,7 @@ class DistributedDGT(nn.Module):
 
         # ~~~~ Processor: stack of DGTAttentionBlock, optionally wrapped in
         # HierarchicalLayer when arch["hierarchical_attention"] is true.
-        # Imported here to avoid a top-level circular import (hierarchical.py
-        # imports apply_rope/MlpBlock from this module).
+        # Lazy import so the non-hierarchical path doesn't pay the cost.
         if self.hierarchical_attention:
             from hierarchical import HierarchicalLayer
         self.processor = nn.ModuleList()

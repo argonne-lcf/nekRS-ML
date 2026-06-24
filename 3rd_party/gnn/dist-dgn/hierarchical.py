@@ -33,7 +33,10 @@ import torch.distributed.nn as distnn
 import torch.nn as nn
 from torch.nn.functional import scaled_dot_product_attention as sdpa
 
-from graph_transformer import MlpBlock, apply_rope  # noqa: F401  (MlpBlock reserved for future FFN-tail extensions)
+# Import apply_rope from the dependency-free helper module so the unit tests
+# for PerceiverPool / SummaryReadout don't transitively pull in gnn.py (which
+# requires torch_geometric).
+from attn_utils import apply_rope
 
 
 def _split_heads(x: torch.Tensor, num_heads: int) -> torch.Tensor:
