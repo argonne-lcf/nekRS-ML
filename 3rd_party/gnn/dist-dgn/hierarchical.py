@@ -32,6 +32,7 @@ import torch.distributed as dist
 import torch.distributed.nn as distnn
 import torch.nn as nn
 from torch.nn.functional import scaled_dot_product_attention as sdpa
+from torch.utils.checkpoint import checkpoint as activation_checkpoint
 
 # Import apply_rope from the dependency-free helper module so the unit tests
 # for PerceiverPool / SummaryReadout don't transitively pull in gnn.py (which
@@ -141,7 +142,11 @@ class PerceiverPool(nn.Module):
         return out
 
 
-DEFAULT_READOUT_CHUNK_SIZE = 16
+# Conservative default: caps the per-call SummaryReadout attention buffer at
+# ~chunk * h * np * n_kv * 4 bytes. For the ext_cyl_dgn case (h=4, np=64,
+# n_kv ~6k) that's ~6 MB * chunk per call. 4 is a memory-tight starting point;
+# raise via cfg.readout_chunk_size once you've verified things fit.
+DEFAULT_READOUT_CHUNK_SIZE = 4
 
 
 class SummaryReadout(nn.Module):
@@ -322,6 +327,7 @@ class HierarchicalLayer(nn.Module):
         poly_order: int,
         use_bias: bool = False,
         readout_chunk_size: int = DEFAULT_READOUT_CHUNK_SIZE,
+        activation_checkpointing: bool = False,
     ):
         super().__init__()
         self.inner = inner_block
@@ -329,6 +335,13 @@ class HierarchicalLayer(nn.Module):
         self.poly_order = poly_order
         self.hidden_channels = hidden_channels
         self.num_heads = num_heads
+        # When True, the per-batch (pre_ffn -> global -> post_ffn) sequence is
+        # wrapped with torch.utils.checkpoint so activations from completed
+        # batches do not accumulate in the autograd graph. This is essential
+        # at batch_size > 1: without it, the per-batch loop pins the readout's
+        # attention buffers for ALL batches simultaneously, which OOMs at the
+        # cumulative scale (8 batches x 4 layers x ~24 chunks per readout).
+        self.activation_checkpointing = activation_checkpointing
 
         self.pool = PerceiverPool(
             hidden_channels=hidden_channels,
@@ -531,11 +544,16 @@ class HierarchicalLayer(nn.Module):
             x_with_global = x_post_attn + delta
             return self.inner._post_ffn(x_with_global)
 
+        def call_per_batch(x_b: torch.Tensor) -> torch.Tensor:
+            if self.activation_checkpointing and self.training:
+                return activation_checkpoint(per_batch, x_b, use_reentrant=False)
+            return per_batch(x_b)
+
         if batch_size == 1:
-            return per_batch(x)
+            return call_per_batch(x)
 
         out = torch.empty_like(x)
         for b in range(batch_size):
             mask = batch == b
-            out[mask] = per_batch(x[mask])
+            out[mask] = call_per_batch(x[mask])
         return out

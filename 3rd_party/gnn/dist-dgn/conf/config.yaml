@@ -53,10 +53,12 @@ n_transformer_layers: 4
 num_heads: 4
 hierarchical_attention: False
 k_summary: 4               # number of learned summary tokens per element
-readout_chunk_size: 16     # SummaryReadout SDPA: # of query elements per chunk.
+readout_chunk_size: 4      # SummaryReadout SDPA: # of query elements per chunk.
                            # Bounds attention-matrix memory at chunk*h*np*n_kv.
-                           # Reduce on memory-tight devices; raise for speed if
-                           # peak memory allows.
+                           # Default 4 is conservative for Intel GPU's IPEX SDPA
+                           # fallback (no xetla). Raise once memory is comfortable.
+                           # Pairs with cfg.activation_checkpointing=True for the
+                           # cumulative-memory fix across the per-batch loop.
 
 # Halo swap mode 
 halo_swap_mode : none

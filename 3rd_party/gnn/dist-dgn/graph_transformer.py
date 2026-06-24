@@ -558,6 +558,7 @@ class DistributedDGT(nn.Module):
                         k_summary=self.k_summary,
                         poly_order=self.poly_order,
                         readout_chunk_size=self.readout_chunk_size,
+                        activation_checkpointing=self.activation_checkpointing,
                     )
                 )
             else:
@@ -589,7 +590,15 @@ class DistributedDGT(nn.Module):
         # is bounded to the same scale as the local DGT block; small enough
         # to keep Intel IPEX's SDPA fallback from page-faulting on the full
         # readout in one shot.
-        self.readout_chunk_size = arch.get("readout_chunk_size", 16)
+        self.readout_chunk_size = arch.get("readout_chunk_size", 4)
+        # When True, each HierarchicalLayer wraps its per-batch sequence with
+        # torch.utils.checkpoint so activations from completed batches do not
+        # accumulate. Strongly recommended at batch_size > 1 because the
+        # per-batch loop otherwise pins ~8x the readout's attention buffers
+        # in the autograd graph until backward runs.
+        self.activation_checkpointing = arch.get(
+            "activation_checkpointing", False
+        )
         self.output_node_features = (
             self.input_node_features * 2
             if self.learnable_variance

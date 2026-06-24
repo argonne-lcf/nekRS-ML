@@ -414,6 +414,7 @@ class DGNTrainer:
                 "hierarchical_attention": self.cfg.hierarchical_attention,
                 "k_summary": self.cfg.k_summary,
                 "readout_chunk_size": self.cfg.readout_chunk_size,
+                "activation_checkpointing": self.cfg.activation_checkpointing,
                 "name": "DGT_POLY_%d_SIZE_%d_SEED_%d"
                 % (poly, SIZE, self.cfg.seed),
             }
