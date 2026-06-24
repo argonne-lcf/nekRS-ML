@@ -141,20 +141,32 @@ class PerceiverPool(nn.Module):
         return out
 
 
+DEFAULT_READOUT_CHUNK_SIZE = 16
+
+
 class SummaryReadout(nn.Module):
     """Cross-attention from local nodes (queries) to the full set of gathered
     summary tokens (keys/values). The output is a per-node delta that the
     caller adds to the local node features.
 
+    Memory note: the attention matrix has shape
+    ``(num_elements_local, num_heads, nodes_per_element, n_kv)`` where
+    ``n_kv = num_elements_total * k_summary``. For the ext_cyl_dgn case
+    (~384 elements/rank, world_size=4, k=4, np=64) that's ~2.4 GB if computed
+    in a single SDPA call. On Intel GPU's IPEX SDPA fallback (no xetla
+    available) this either fails to allocate or produces a GPU page fault.
+    To keep peak memory in line with the local DGT block (~100 MB
+    attention matrix), we keep queries in per-element shape and process
+    them in chunks of ``query_chunk_size`` elements via SDPA broadcasting
+    on the leading dim.
+
     Args:
         hidden_channels: input/output feature width.
         num_heads: attention heads.
         use_bias: matches DGTAttentionBlock convention.
-
-    Shape contract:
-        forward(summary, summary_centroids, nodes, node_pos_norm, mask) ->
-            tensor of shape (num_elements_local, nodes_per_element,
-            hidden_channels) -- a per-node delta.
+        query_chunk_size: number of query elements processed per SDPA call.
+            Lower values trade speed for peak memory; default 16 caps each
+            attention matrix at roughly ``chunk * h * np * n_kv * 4 bytes``.
     """
 
     def __init__(
@@ -162,11 +174,14 @@ class SummaryReadout(nn.Module):
         hidden_channels: int,
         num_heads: int,
         use_bias: bool = False,
+        query_chunk_size: int = DEFAULT_READOUT_CHUNK_SIZE,
     ):
         super().__init__()
         assert hidden_channels % num_heads == 0
+        assert query_chunk_size >= 1
         self.hidden_channels = hidden_channels
         self.num_heads = num_heads
+        self.query_chunk_size = query_chunk_size
 
         self.norm_q = nn.LayerNorm(hidden_channels)
         self.norm_kv = nn.LayerNorm(hidden_channels)
@@ -201,8 +216,7 @@ class SummaryReadout(nn.Module):
                 Normalized local node positions.
             key_padding_mask: optional (num_elements_total,) boolean tensor.
                 True = real element, False = padded slot. When provided, padded
-                slots receive ``-inf`` in the attention logits so they make no
-                contribution.
+                slots are masked out in the attention via a boolean SDPA mask.
 
         Returns:
             (num_elements_local, nodes_per_element, C) per-node delta.
@@ -211,52 +225,56 @@ class SummaryReadout(nn.Module):
         ne_total, k, _ = summary.shape
         dim = summary_centroids.shape[-1]
         n_kv = ne_total * k
-        n_q = ne_local * np_per
-
-        # Flatten queries and keys into a single attention pass.
-        q_flat = nodes.reshape(n_q, c)
-        q_pos = node_pos_norm.reshape(n_q, dim)
-
-        kv_flat = summary.reshape(n_kv, c)
-        # Each summary token sits at its element's centroid.
-        k_pos = summary_centroids.unsqueeze(1).expand(ne_total, k, dim).reshape(
-            n_kv, dim
-        )
-
-        q_in = self.norm_q(q_flat)
-        kv_in = self.norm_kv(kv_flat)
-
-        # Project, then reshape to (1, h, N, c_per_head) so apply_rope and sdpa
-        # treat this as a single batch with N tokens. The first dim is a
-        # placeholder "element" dimension required by apply_rope's RoPE
-        # broadcasting (see graph_transformer.apply_rope:144).
         h = self.num_heads
         c_per_head = c // h
-        q = self.q_proj(q_in).reshape(n_q, h, c_per_head).permute(1, 0, 2).unsqueeze(0)
+
+        # Keep queries in per-element shape (ne_local, np_per, C). Reshape
+        # only the keys/values, which become a single shared (1, h, n_kv, c)
+        # sequence broadcast across the element dim of the queries.
+        q_in = self.norm_q(nodes)                       # (ne_local, np, C)
+        kv_in = self.norm_kv(summary.reshape(n_kv, c))   # (n_kv, C)
+
+        # Per-element query projection then split heads.
+        q = self.q_proj(q_in)                            # (ne_local, np, C)
+        q = q.reshape(ne_local, np_per, h, c_per_head).permute(0, 2, 1, 3)
+        # q: (ne_local, h, np_per, c_per_head)
+        q = apply_rope(q, node_pos_norm)
+
+        # Shared keys/values; placeholder element dim of 1 for SDPA + apply_rope.
         kk = self.k_proj(kv_in).reshape(n_kv, h, c_per_head).permute(1, 0, 2).unsqueeze(0)
         v = self.v_proj(kv_in).reshape(n_kv, h, c_per_head).permute(1, 0, 2).unsqueeze(0)
-
-        q = apply_rope(q, q_pos.unsqueeze(0))
+        # Each summary token sits at its element's centroid.
+        k_pos = (
+            summary_centroids.unsqueeze(1).expand(ne_total, k, dim).reshape(n_kv, dim)
+        )
         kk = apply_rope(kk, k_pos.unsqueeze(0))
 
+        # Boolean key-padding mask: True = attend, False = mask out. Built
+        # once and broadcast across (chunk, h, np_per) on every SDPA call.
         attn_mask = None
         if key_padding_mask is not None:
-            # Boolean mask form for SDPA: True = attend, False = mask out.
-            # Preferred over additive -inf float mask because (a) Intel GPU
-            # SDPA fallbacks handle the boolean path more reliably than the
-            # -inf accumulation path, and (b) it avoids edge-case NaN when an
-            # entire row would otherwise sum to -inf (not possible here -- a
-            # query always sees at least its own rank's real keys -- but the
-            # boolean form removes the fragility class entirely).
             mask_per_token = (
                 key_padding_mask.unsqueeze(1).expand(ne_total, k).reshape(n_kv)
             )
             attn_mask = mask_per_token.to(torch.bool).view(1, 1, 1, n_kv)
 
-        out = sdpa(q, kk, v, attn_mask=attn_mask)  # (1, h, n_q, c_per_head)
-        out = out.squeeze(0).permute(1, 0, 2).reshape(n_q, c)
+        # Process queries in chunks to bound peak attention-matrix memory.
+        # Each chunk's attention is (chunk, h, np_per, n_kv) -- IPEX's SDPA
+        # fallback on Intel GPU page-faults on the unchunked variant
+        # (chunk == ne_local), which would be ~2.4 GB for ext_cyl_dgn.
+        chunk_size = self.query_chunk_size
+        if chunk_size >= ne_local:
+            out = sdpa(q, kk, v, attn_mask=attn_mask)
+        else:
+            out_chunks = []
+            for s in range(0, ne_local, chunk_size):
+                e = min(s + chunk_size, ne_local)
+                out_chunks.append(sdpa(q[s:e], kk, v, attn_mask=attn_mask))
+            out = torch.cat(out_chunks, dim=0)
+        # out: (ne_local, h, np_per, c_per_head) -> (ne_local, np_per, C)
+        out = out.permute(0, 2, 1, 3).reshape(ne_local, np_per, c)
         out = self.o_proj(out)
-        return out.reshape(ne_local, np_per, c)
+        return out
 
 
 def _autograd_all_gather(local: torch.Tensor, world_size: int) -> torch.Tensor:
@@ -303,6 +321,7 @@ class HierarchicalLayer(nn.Module):
         k_summary: int,
         poly_order: int,
         use_bias: bool = False,
+        readout_chunk_size: int = DEFAULT_READOUT_CHUNK_SIZE,
     ):
         super().__init__()
         self.inner = inner_block
@@ -321,6 +340,7 @@ class HierarchicalLayer(nn.Module):
             hidden_channels=hidden_channels,
             num_heads=num_heads,
             use_bias=use_bias,
+            query_chunk_size=readout_chunk_size,
         )
 
     def _global_attn_for_batch(

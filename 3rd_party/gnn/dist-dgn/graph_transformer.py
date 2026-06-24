@@ -557,6 +557,7 @@ class DistributedDGT(nn.Module):
                         num_heads=self.num_heads,
                         k_summary=self.k_summary,
                         poly_order=self.poly_order,
+                        readout_chunk_size=self.readout_chunk_size,
                     )
                 )
             else:
@@ -583,6 +584,12 @@ class DistributedDGT(nn.Module):
         self.mlp_ratio = arch.get("mlp_ratio", 1.0)
         self.hierarchical_attention = arch.get("hierarchical_attention", False)
         self.k_summary = arch.get("k_summary", 4)
+        # Cap on the SummaryReadout attention matrix per SDPA call (in element
+        # count). Picked so the per-chunk attention buffer (chunk * h * np * n_kv)
+        # is bounded to the same scale as the local DGT block; small enough
+        # to keep Intel IPEX's SDPA fallback from page-faulting on the full
+        # readout in one shot.
+        self.readout_chunk_size = arch.get("readout_chunk_size", 16)
         self.output_node_features = (
             self.input_node_features * 2
             if self.learnable_variance

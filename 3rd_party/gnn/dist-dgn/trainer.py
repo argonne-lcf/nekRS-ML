@@ -413,6 +413,7 @@ class DGNTrainer:
                 "mlp_ratio": 1.0,
                 "hierarchical_attention": self.cfg.hierarchical_attention,
                 "k_summary": self.cfg.k_summary,
+                "readout_chunk_size": self.cfg.readout_chunk_size,
                 "name": "DGT_POLY_%d_SIZE_%d_SEED_%d"
                 % (poly, SIZE, self.cfg.seed),
             }

@@ -53,6 +53,10 @@ n_transformer_layers: 4
 num_heads: 4
 hierarchical_attention: False
 k_summary: 4               # number of learned summary tokens per element
+readout_chunk_size: 16     # SummaryReadout SDPA: # of query elements per chunk.
+                           # Bounds attention-matrix memory at chunk*h*np*n_kv.
+                           # Reduce on memory-tight devices; raise for speed if
+                           # peak memory allows.
 
 # Halo swap mode 
 halo_swap_mode : none
