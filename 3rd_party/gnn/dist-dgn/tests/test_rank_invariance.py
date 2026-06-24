@@ -109,6 +109,29 @@ NE_TOTAL = 8           # divisible by 1, 2, 4 — works for torchrun -n {1,2,4}
 NP_PER = 16
 
 
+def _resolve_device(backend: str, rank: int) -> torch.device:
+    """Match the device to the chosen backend. ``gloo`` runs on CPU, ``nccl``
+    on CUDA, ``xccl`` on XPU. The collective implementations require tensors
+    on the device their backend manages, otherwise PyTorch raises
+    ``RuntimeError: No backend type associated with device type cpu``.
+    """
+    if backend == "nccl":
+        n_dev = torch.cuda.device_count()
+        if n_dev == 0:
+            raise RuntimeError("DGT_TEST_BACKEND=nccl but no CUDA device visible")
+        device = torch.device("cuda", rank % n_dev)
+        torch.cuda.set_device(device)
+        return device
+    if backend == "xccl":
+        if not getattr(torch, "xpu", None) or not torch.xpu.is_available():
+            raise RuntimeError("DGT_TEST_BACKEND=xccl but XPU is unavailable")
+        n_dev = torch.xpu.device_count()
+        device = torch.device("xpu", rank % n_dev)
+        torch.xpu.set_device(device)
+        return device
+    return torch.device("cpu")
+
+
 def _run_distributed():
     import torch.distributed as dist
 
@@ -116,6 +139,7 @@ def _run_distributed():
     world_size = int(os.environ["WORLD_SIZE"])
 
     backend = os.environ.get("DGT_TEST_BACKEND", "gloo")
+    device = _resolve_device(backend, rank)
     dist.init_process_group(backend, rank=rank, world_size=world_size)
     try:
         assert NE_TOTAL % world_size == 0, (
@@ -123,18 +147,20 @@ def _run_distributed():
         )
         ne_local = NE_TOTAL // world_size
 
-        # Build identical full inputs on every rank from the same seed.
+        # Build identical full inputs on every rank from the same seed. Tensors
+        # must live on the device that matches ``backend`` (gloo->CPU,
+        # nccl->CUDA, xccl->XPU) or the collective will fail.
         torch.manual_seed(SEED)
-        full_nodes = torch.randn(NE_TOTAL, NP_PER, HIDDEN)
-        full_centroids = torch.rand(NE_TOTAL, DIM)
-        full_node_pos = torch.rand(NE_TOTAL, NP_PER, DIM)
+        full_nodes = torch.randn(NE_TOTAL, NP_PER, HIDDEN, device=device)
+        full_centroids = torch.rand(NE_TOTAL, DIM, device=device)
+        full_node_pos = torch.rand(NE_TOTAL, NP_PER, DIM, device=device)
 
         # Same module weights on every rank (same construction order + seed).
         # Re-seed before module construction so the input randn calls above
         # don't shift the module init RNG state across world sizes.
         torch.manual_seed(SEED + 1)
-        pool = PerceiverPool(HIDDEN, NUM_HEADS, K_SUMMARY)
-        readout = SummaryReadout(HIDDEN, NUM_HEADS)
+        pool = PerceiverPool(HIDDEN, NUM_HEADS, K_SUMMARY).to(device)
+        readout = SummaryReadout(HIDDEN, NUM_HEADS).to(device)
 
         # This rank's element slice.
         s = rank * ne_local
@@ -165,6 +191,8 @@ def _run_distributed():
 
         if rank == 0:
             out_full = torch.cat(out_list, dim=0)  # (NE_TOTAL, NP_PER, HIDDEN)
+            # Move to CPU before saving so comparison runs cross-backend.
+            out_full = out_full.detach().to("cpu")
             save_path = f"/tmp/dgt_hier_invariance_N{world_size}.pt"
             torch.save(out_full, save_path)
             print(

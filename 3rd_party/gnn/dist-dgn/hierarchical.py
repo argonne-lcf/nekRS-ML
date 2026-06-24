@@ -241,17 +241,17 @@ class SummaryReadout(nn.Module):
 
         attn_mask = None
         if key_padding_mask is not None:
-            # Expand the per-element mask to per-token, build an additive
-            # (q_len, kv_len)-shaped mask, broadcast across batch and heads.
+            # Boolean mask form for SDPA: True = attend, False = mask out.
+            # Preferred over additive -inf float mask because (a) Intel GPU
+            # SDPA fallbacks handle the boolean path more reliably than the
+            # -inf accumulation path, and (b) it avoids edge-case NaN when an
+            # entire row would otherwise sum to -inf (not possible here -- a
+            # query always sees at least its own rank's real keys -- but the
+            # boolean form removes the fragility class entirely).
             mask_per_token = (
                 key_padding_mask.unsqueeze(1).expand(ne_total, k).reshape(n_kv)
             )
-            attn_mask = torch.zeros(
-                (1, 1, 1, n_kv), dtype=q.dtype, device=q.device
-            )
-            attn_mask = attn_mask.masked_fill(
-                ~mask_per_token.view(1, 1, 1, n_kv), float("-inf")
-            )
+            attn_mask = mask_per_token.to(torch.bool).view(1, 1, 1, n_kv)
 
         out = sdpa(q, kk, v, attn_mask=attn_mask)  # (1, h, n_q, c_per_head)
         out = out.squeeze(0).permute(1, 0, 2).reshape(n_q, c)
@@ -401,14 +401,20 @@ class HierarchicalLayer(nn.Module):
             summary_local_padded = summary_local
             centroids_local_padded = centroids_norm
 
-        # Autograd-aware gather of padded summary + centroids.
-        summary_all = _autograd_all_gather(summary_local_padded, SIZE)
+        # Autograd-aware gather of padded summary + centroids. Force
+        # contiguous before the collective: oneCCL / xccl is strict about this
+        # and silently faults on non-contiguous send buffers in some builds.
+        summary_all = _autograd_all_gather(
+            summary_local_padded.contiguous(), SIZE
+        )
         # (SIZE, max_ne, k, C) -> (SIZE * max_ne, k, C)
         summary_all = summary_all.reshape(
             SIZE * max_ne, self.k_summary, self.hidden_channels
         )
 
-        centroids_all = _autograd_all_gather(centroids_local_padded, SIZE)
+        centroids_all = _autograd_all_gather(
+            centroids_local_padded.contiguous(), SIZE
+        )
         centroids_all = centroids_all.reshape(
             SIZE * max_ne, centroids_norm.shape[-1]
         )
