@@ -142,11 +142,14 @@ class PerceiverPool(nn.Module):
         return out
 
 
-# Conservative default: caps the per-call SummaryReadout attention buffer at
+# Caps the per-call SummaryReadout attention buffer at
 # ~chunk * h * np * n_kv * 4 bytes. For the ext_cyl_dgn case (h=4, np=64,
-# n_kv ~6k) that's ~6 MB * chunk per call. 4 is a memory-tight starting point;
-# raise via cfg.readout_chunk_size once you've verified things fit.
-DEFAULT_READOUT_CHUNK_SIZE = 4
+# n_kv ~6k) that's ~6 MB * chunk per SDPA launch. With activation
+# checkpointing on, peak memory is bounded by one batch's intermediates so a
+# bigger chunk safely cuts the number of SDPA launches (and their per-launch
+# overhead, which dominates at chunk=4). Lower if you see OOM, raise if SDPA
+# launch overhead dominates.
+DEFAULT_READOUT_CHUNK_SIZE = 16
 
 
 class SummaryReadout(nn.Module):
@@ -356,22 +359,105 @@ class HierarchicalLayer(nn.Module):
             query_chunk_size=readout_chunk_size,
         )
 
-    def _global_attn_for_batch(
+    def _compute_global_static(
         self,
-        x_post_attn: torch.Tensor,  # (N_reduced, C)
         pos: torch.Tensor,
         pos_min: torch.Tensor,
         pos_max: torch.Tensor,
         idx_reduced2full: torch.Tensor,
         SIZE: int,
-    ) -> torch.Tensor:
-        """Compute the per-node delta from the global summary path for a
-        single batch slice. Returns a tensor of shape (N_reduced, C).
+    ):
+        """Precompute everything in the global path that does NOT depend on
+        the per-batch features (x): per-node normalized positions, per-element
+        centroids, the int-count all_gather, the centroid all_gather, the
+        key-padding mask. These are graph-static -- identical across every
+        batch element and every forward call for a given graph topology -- so
+        running them once per forward saves SIZE * batch_size * n_layers worth
+        of collectives that the old per-batch path would otherwise do.
         """
-        # Determine local element geometry.
+        device = pos.device
         nodes_per_element = (self.poly_order + 1) ** 3
         n_full = idx_reduced2full.shape[0]
         ne_local = n_full // nodes_per_element
+        dim = pos.shape[-1]
+
+        pos_full = pos[idx_reduced2full]
+        pos_per_elem = pos_full.reshape(ne_local, nodes_per_element, dim)
+        denom = (pos_max - pos_min).clamp(min=1e-12)
+        node_pos_norm = (pos_per_elem - pos_min) / denom
+        centroids_norm = (pos_per_elem.mean(dim=1) - pos_min) / denom
+
+        # Int-count gather (non-autograd; int tensor).
+        if SIZE > 1 and dist.is_initialized():
+            ne_local_t = torch.tensor([ne_local], device=device, dtype=torch.long)
+            counts_list = [
+                torch.zeros(1, device=device, dtype=torch.long)
+                for _ in range(SIZE)
+            ]
+            dist.all_gather(counts_list, ne_local_t)
+            counts = torch.cat(counts_list, dim=0)  # (SIZE,)
+        else:
+            counts = torch.tensor([ne_local], device=device, dtype=torch.long)
+        max_ne = int(counts.max().item())
+
+        # Pad centroids; gather. Centroids are constants (no requires_grad),
+        # so we can use the plain (non-autograd) collective.
+        if max_ne > ne_local:
+            pad_c = torch.zeros(
+                max_ne - ne_local, dim,
+                dtype=centroids_norm.dtype, device=device,
+            )
+            centroids_padded = torch.cat([centroids_norm, pad_c], dim=0)
+        else:
+            centroids_padded = centroids_norm
+
+        if SIZE > 1 and dist.is_initialized():
+            centroids_padded = centroids_padded.contiguous()
+            gather_list = [
+                torch.zeros_like(centroids_padded) for _ in range(SIZE)
+            ]
+            dist.all_gather(gather_list, centroids_padded)
+            centroids_all = torch.stack(gather_list, dim=0).reshape(
+                SIZE * max_ne, dim
+            )
+        else:
+            centroids_all = centroids_padded
+
+        arange = torch.arange(max_ne, device=device).unsqueeze(0)
+        valid = arange < counts.unsqueeze(1)
+        key_padding_mask = valid.reshape(SIZE * max_ne)
+
+        return {
+            "nodes_per_element": nodes_per_element,
+            "ne_local": ne_local,
+            "max_ne": max_ne,
+            "node_pos_norm": node_pos_norm,
+            "centroids_norm": centroids_norm,
+            "centroids_all": centroids_all,
+            "key_padding_mask": key_padding_mask,
+        }
+
+    def _global_summary_for_batch(
+        self,
+        x_post_attn: torch.Tensor,
+        idx_reduced2full: torch.Tensor,
+        SIZE: int,
+        static: dict,
+    ) -> torch.Tensor:
+        """Per-batch part of the global attention path: pool nodes, gather
+        summaries across ranks, run the readout cross-attention, scatter the
+        per-node delta back to the reduced layout. All graph-static quantities
+        (centroids, gathered centroids, mask, max_ne) live in ``static`` and
+        are precomputed once per forward by :meth:`_compute_global_static`.
+        """
+        ne_local = static["ne_local"]
+        nodes_per_element = static["nodes_per_element"]
+        max_ne = static["max_ne"]
+        node_pos_norm = static["node_pos_norm"]
+        centroids_norm = static["centroids_norm"]
+        centroids_all = static["centroids_all"]
+        key_padding_mask = static["key_padding_mask"]
+        device = x_post_attn.device
 
         # Reduced -> full view, then reshape to (ne_local, np, C).
         x_full = x_post_attn[idx_reduced2full]
@@ -379,86 +465,31 @@ class HierarchicalLayer(nn.Module):
             ne_local, nodes_per_element, x_post_attn.shape[-1]
         )
 
-        # Per-node positions, normalized via global bounds.
-        pos_full = pos[idx_reduced2full]
-        pos_per_elem = pos_full.reshape(
-            ne_local, nodes_per_element, pos.shape[-1]
-        )
-        denom = (pos_max - pos_min).clamp(min=1e-12)
-        node_pos_norm = (pos_per_elem - pos_min) / denom
-        centroids = pos_per_elem.mean(dim=1)  # (ne_local, dim)
-        centroids_norm = (centroids - pos_min) / denom
-
-        # Per-element pool -> (ne_local, k, C).
+        # Per-element pool -> (ne_local, k, C). Only collective per batch
+        # that actually depends on x.
         summary_local = self.pool(nodes_per_elem, centroids_norm, node_pos_norm)
 
-        # Gather per-rank element counts so every rank can pad to the max.
-        device = summary_local.device
-        if SIZE > 1 and dist.is_initialized():
-            ne_local_t = torch.tensor([ne_local], device=device, dtype=torch.long)
-            counts = [
-                torch.zeros(1, device=device, dtype=torch.long)
-                for _ in range(SIZE)
-            ]
-            dist.all_gather(counts, ne_local_t)
-            counts = torch.cat(counts, dim=0)  # (SIZE,)
-        else:
-            counts = torch.tensor(
-                [ne_local], device=device, dtype=torch.long
-            )
-
-        max_ne = int(counts.max().item())
-
-        # Pad local summary and centroids up to max_ne along the element dim.
         if max_ne > ne_local:
             pad_summary = torch.zeros(
-                max_ne - ne_local,
-                self.k_summary,
-                self.hidden_channels,
-                dtype=summary_local.dtype,
-                device=device,
+                max_ne - ne_local, self.k_summary, self.hidden_channels,
+                dtype=summary_local.dtype, device=device,
             )
             summary_local_padded = torch.cat(
                 [summary_local, pad_summary], dim=0
             )
-            pad_centroids = torch.zeros(
-                max_ne - ne_local,
-                centroids_norm.shape[-1],
-                dtype=centroids_norm.dtype,
-                device=device,
-            )
-            centroids_local_padded = torch.cat(
-                [centroids_norm, pad_centroids], dim=0
-            )
         else:
             summary_local_padded = summary_local
-            centroids_local_padded = centroids_norm
 
-        # Autograd-aware gather of padded summary + centroids. Force
-        # contiguous before the collective: oneCCL / xccl is strict about this
-        # and silently faults on non-contiguous send buffers in some builds.
+        # Autograd-aware gather. Force contiguous: oneCCL / xccl is strict
+        # about send-buffer layout and silently faults on non-contiguous
+        # inputs in some builds.
         summary_all = _autograd_all_gather(
             summary_local_padded.contiguous(), SIZE
         )
-        # (SIZE, max_ne, k, C) -> (SIZE * max_ne, k, C)
         summary_all = summary_all.reshape(
             SIZE * max_ne, self.k_summary, self.hidden_channels
         )
 
-        centroids_all = _autograd_all_gather(
-            centroids_local_padded.contiguous(), SIZE
-        )
-        centroids_all = centroids_all.reshape(
-            SIZE * max_ne, centroids_norm.shape[-1]
-        )
-
-        # Build a per-element validity mask in the global order
-        # [rank0_e0..rank0_e_max-1, rank1_e0..rank1_e_max-1, ...].
-        arange = torch.arange(max_ne, device=device).unsqueeze(0)  # (1, max_ne)
-        valid = arange < counts.unsqueeze(1)  # (SIZE, max_ne)
-        key_padding_mask = valid.reshape(SIZE * max_ne)
-
-        # Cross-attend local nodes to all gathered summary tokens.
         delta_per_elem = self.readout(
             summary_all,
             centroids_all,
@@ -467,21 +498,13 @@ class HierarchicalLayer(nn.Module):
             key_padding_mask=key_padding_mask,
         )
 
-        # (ne_local, np, C) -> (n_full, C) -> (N_reduced, C).
+        # (ne_local, np, C) -> (n_full, C) -> reduced layout (N_reduced + halo, C).
+        n_full = ne_local * nodes_per_element
         delta_full = delta_per_elem.reshape(n_full, self.hidden_channels)
-        # Scatter the full -> reduced. Use mean over coincident copies for
-        # consistency (analogous to the intra-rank redistribution in the inner
-        # block). Coincident copies should already be equal because the
-        # readout's output for two nodes at the same physical position uses the
-        # same query position and the same gathered summary set.
         delta_reduced = torch.zeros_like(x_post_attn)
-        # Reverse-index: place every full row at idx_reduced2full[i] in
-        # reduced. Multiple fulls map to the same reduced index; average them.
         counts_per_red = torch.zeros(
-            x_post_attn.shape[0],
-            1,
-            dtype=delta_full.dtype,
-            device=device,
+            x_post_attn.shape[0], 1,
+            dtype=delta_full.dtype, device=device,
         )
         delta_reduced.index_add_(0, idx_reduced2full, delta_full)
         ones = torch.ones(n_full, 1, dtype=delta_full.dtype, device=device)
@@ -516,6 +539,14 @@ class HierarchicalLayer(nn.Module):
         if self.inner.emb_features > 0:
             x = x + self.inner.node_emb_linear(emb)[batch]
 
+        # Precompute graph-static global-path quantities (centroids, mask,
+        # max_ne, centroid all_gather). These do not depend on x, so doing
+        # them ONCE per forward instead of once per batch element saves
+        # batch_size collectives per layer per forward.
+        static = self._compute_global_static(
+            pos, pos_min, pos_max, idx_reduced2full, SIZE
+        )
+
         def per_batch(x_b: torch.Tensor) -> torch.Tensor:
             x_post_attn = self.inner._attention_pre_ffn(
                 x_b,
@@ -533,13 +564,11 @@ class HierarchicalLayer(nn.Module):
                 neighboring_procs,
                 SIZE,
             )
-            delta = self._global_attn_for_batch(
+            delta = self._global_summary_for_batch(
                 x_post_attn,
-                pos,
-                pos_min,
-                pos_max,
                 idx_reduced2full,
                 SIZE,
+                static,
             )
             x_with_global = x_post_attn + delta
             return self.inner._post_ffn(x_with_global)

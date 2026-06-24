@@ -590,7 +590,7 @@ class DistributedDGT(nn.Module):
         # is bounded to the same scale as the local DGT block; small enough
         # to keep Intel IPEX's SDPA fallback from page-faulting on the full
         # readout in one shot.
-        self.readout_chunk_size = arch.get("readout_chunk_size", 4)
+        self.readout_chunk_size = arch.get("readout_chunk_size", 16)
         # When True, each HierarchicalLayer wraps its per-batch sequence with
         # torch.utils.checkpoint so activations from completed batches do not
         # accumulate. Strongly recommended at batch_size > 1 because the
