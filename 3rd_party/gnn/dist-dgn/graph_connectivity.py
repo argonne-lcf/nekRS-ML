@@ -45,6 +45,7 @@ def get_reduced_graph(data_full: Data) -> Tuple[Data, Tensor]:
         edge_index=edge_index_reduced,
         global_ids=gid_reduced,
     )
+
     n_not_halo = len(idx_local_unique)
     n_halo = len(idx_halo_unique)
     data_reduced.local_unique_mask = torch.zeros(
@@ -56,6 +57,9 @@ def get_reduced_graph(data_full: Data) -> Tuple[Data, Tensor]:
     )
     data_reduced.halo_unique_mask[n_not_halo:] = 1
     data_reduced.local_ids = torch.tensor(range(data_full.pos.shape[0]))
+
+    if len(data_full.cond_node_features) > 0:
+        data_reduced.cond_node_features = data_full.cond_node_features[idx_keep]
 
     return data_reduced, idx_keep
 

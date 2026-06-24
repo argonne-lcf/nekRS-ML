@@ -5,20 +5,13 @@ Trainer for distributed, consistent graph neural network
 import sys
 import os
 import socket
-from typing import Optional, Union, Callable
+from typing import Optional, Union, Tuple, Dict, Any
 import logging
 import numpy as np
 import time
 from omegaconf import DictConfig, OmegaConf
 
 import torch
-
-try:
-    import intel_extension_for_pytorch as ipex
-except Exception as e:
-    pass
-
-# from torch.utils.data import DataLoader
 from torch.cuda.amp.grad_scaler import GradScaler
 import torch.nn as nn
 import torch.optim as optim
@@ -32,7 +25,6 @@ import torch_geometric
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 import torch_geometric.utils as pyg_utils
-# import torch_geometric.nn as tgnn
 
 # Local imports
 import utils
@@ -42,6 +34,10 @@ import graph_transformer as gtr
 import graph_connectivity as gcon
 from client import OnlineClient
 import create_halo_info_par
+import step_sampler
+from diffusion_process import DiffusionProcess
+from losses import batch_wise_mean, vlb_loss
+import postprocess
 
 log = logging.getLogger(__name__)
 Tensor = torch.Tensor
@@ -60,8 +56,8 @@ try:
     COMM = MPI.COMM_WORLD
     RANK = COMM.Get_rank()
     SIZE = COMM.Get_size()
-    LOCAL_RANK = int(os.getenv("PALS_LOCAL_RANKID", default=RANK))
-    LOCAL_SIZE = int(os.getenv("PALS_LOCAL_SIZE", default=SIZE))
+    LOCAL_RANK = int(os.getenv("PALS_LOCAL_RANKID"))
+    LOCAL_SIZE = int(os.getenv("PALS_LOCAL_SIZE"))
     WITH_DDP = True
 except ModuleNotFoundError as e:
     SIZE = 1
@@ -96,7 +92,7 @@ else:
     DEVICE_ID = "cpu"
 
 
-class Trainer:
+class DGNTrainer:
     def __init__(
         self,
         cfg: DictConfig,
@@ -116,11 +112,15 @@ class Trainer:
             assert self.cfg.halo_swap_mode == "none", (
                 "For inconsistent model, set halo_swap_mode=none"
             )
-        if self.cfg.online and self.cfg.client.backend == "adios":
-            assert self.cfg.time_dependency == "time_dependent", (
-                "ADIOS2 backend only implemented for time dependent modeling"
-                + "from solution trajectory"
-            )
+        assert self.cfg.prediction_type in ["epsilon", "x0", "v"], (
+            f"Invalid prediction_type '{self.cfg.prediction_type}'. Must be 'epsilon', 'x0', or 'v'."
+        )
+        assert self.cfg.loss_weighting in ["uniform", "min_snr"], (
+            f"Invalid loss_weighting '{self.cfg.loss_weighting}'. Must be 'uniform' or 'min_snr'."
+        )
+        if self.cfg.online:
+            log.warning("Online backends not implemented for this model yet")
+            COMM.Abort(1)
 
         # ~~~ Initialize DDP
         if WITH_DDP:
@@ -164,19 +164,25 @@ class Trainer:
         self.setup_halo()
 
         # ~~~~ Setup data
-        self.data_list = []
         self.data = {}
-        self.setup_data()
+        self.data_list = []
+        self.setup_graph_data()
         if RANK == 0:
-            log.info("Done with setup_data")
+            log.info("Done with setup_graph_data")
+        if self.cfg.model_task == "train":
+            self.setup_train_data()
+            if RANK == 0:
+                log.info("Done with setup_train_data")
+        elif self.cfg.model_task == "inference":
+            self.load_stats()
 
         # ~~~~ Setup halo exchange masks
         self.mask_send, self.mask_recv = self.build_masks()
         if RANK == 0:
             log.info("Done with build_masks")
 
-        self.buffer_send, self.buffer_recv, self.n_buffer_rows = (
-            self.build_buffers(self.cfg.hidden_channels)
+        self.buffer_send, self.buffer_recv = self.build_buffers(
+            self.cfg.mlp_hidden_channels
         )
         if RANK == 0:
             log.info("Done with build_buffers")
@@ -218,6 +224,7 @@ class Trainer:
 
         # ~~~~ Load model parameters if we are restarting from checkpoint
         self.iteration = 0
+        self.sample_counter = 0
         if self.cfg.restart:
             if RANK == 0:
                 log.info(f"Loading model checkpoint from {self.ckpt_path}")
@@ -244,12 +251,7 @@ class Trainer:
             if RANK == 0:
                 log.info(f"Loading model checkpoint from {self.model_path}")
             ckpt = torch.load(self.model_path, weights_only=False)
-            self.model.load_state_dict(ckpt["state_dict"])
-
-        # ~~~~ Set loss function
-        self.loss_fn = nn.MSELoss()
-        if WITH_CUDA or WITH_XPU:
-            self.loss_fn.to(self.device)
+            self.model.load_state_dict(ckpt["model_state_dict"])
 
         # ~~~~ Set optimizer
         self.optimizer = self.build_optimizer(self.model)
@@ -264,10 +266,6 @@ class Trainer:
                 )
                 log.info(astr)
 
-        # ~~~ IPEX optimizations
-        # if WITH_XPU:
-        #    self.model, self.optimizer = ipex.optimize(self.model, optimizer=self.optimizer)
-
         # ~~~~ Set scheduler:
         self.s_optimizer = ScheduledOptim(
             self.optimizer,
@@ -279,12 +277,34 @@ class Trainer:
         )
         self.s_optimizer.reset_n_steps(self.iteration)
 
+        # ~~~~ Set step sampler
+        if self.cfg.diffusion_step_sampler == "uniform":
+            self.step_sampler = step_sampler.UniformSampler(
+                num_diffusion_steps=self.cfg.num_diffusion_steps,
+                device=self.device,
+                dtype=self.torch_dtype,
+            )
+        elif self.cfg.diffusion_step_sampler == "adaptive_exponential":
+            self.step_sampler = step_sampler.AdaptiveExponentialSampler(
+                num_diffusion_steps=self.cfg.num_diffusion_steps,
+                device=self.device,
+                dtype=self.torch_dtype,
+            )
+        else:
+            sys.exit("Invalid diffusion step sampler")
+
+        # ~~~~ Set diffusion process
+        self.diffusion_process = DiffusionProcess(
+            self.cfg.num_diffusion_steps, self.cfg.diffusion_process_schedule
+        )
+
         # ~~~~ Wrap model in DDP
         if WITH_DDP and SIZE > 1:
             self.model = DDP(
                 self.model,
                 broadcast_buffers=False,
                 gradient_as_bucket_view=True,
+                device_ids=[DEVICE_ID + self.cfg.device_skip],
             )
 
     def checkpoint(self):
@@ -313,8 +333,7 @@ class Trainer:
             sepstr = "-" * len(astr)
             log.info(sepstr)
             log.info(astr)
-
-        dist.barrier()
+        COMM.Barrier()
 
     def save_model(self):
         if RANK == 0:
@@ -327,25 +346,26 @@ class Trainer:
 
             if WITH_DDP and SIZE > 1:
                 sd = self.model.module.state_dict()
-                ind = self.model.module.input_dict()
+                arch = self.model.module.get_arch()
             else:
                 sd = self.model.state_dict()
-                ind = self.model.input_dict()
+                arch = self.model.get_arch()
 
             save_dict = {
-                "state_dict": sd,
-                "input_dict": ind,
+                "iteration": self.iteration,
+                "model_state_dict": sd,
+                "arch_dict": arch,
                 "loss_hist_train": self.loss_hist_train,
                 "loss_hist_val": self.loss_hist_val,
-                "iteration": self.iteration,
             }
             torch.save(save_dict, self.model_path)
+        COMM.Barrier()
 
     def build_model(self) -> nn.Module:
         if RANK == 0:
             log.info("In build_model...")
 
-        sample = self.data["train"]["example"]
+        # sample = self.data['train']['example']
         graph = self.data["graph"]
 
         # Get the polynomial order -- for naming the model
@@ -355,52 +375,48 @@ class Trainer:
         except:
             poly = 0
 
-        # Full model
-        input_node_channels = sample["x"].shape[1]
-        hidden_channels = self.cfg.hidden_channels
-        output_node_channels = sample["y"].shape[1]
-        halo_swap_mode = self.cfg.halo_swap_mode
+        cond_node_features = (
+            0
+            if not self.cfg.cond_node_features
+            else graph.cond_node_features.shape[1]
+        )
+
         if self.cfg.model_name == "gnn":
-            input_edge_channels = graph.edge_attr.shape[1]
-            n_mlp_hidden_layers = self.cfg.n_mlp_hidden_layers
-            n_messagePassing_layers = self.cfg.n_messagePassing_layers
-            layer_norm = self.cfg.layer_norm
-            # name = 'POLY_%d_RANK_%d_SIZE_%d_SEED_%d' %(poly,RANK,SIZE,self.cfg.seed)
-            name = "POLY_%d_SIZE_%d_SEED_%d" % (poly, SIZE, self.cfg.seed)
-            if self.cfg.use_residual:
-                name += "_RESID"
-
-            model = gnn.DistributedGNN(
-                input_node_channels,
-                input_edge_channels,
-                hidden_channels,
-                output_node_channels,
-                n_mlp_hidden_layers,
-                n_messagePassing_layers,
-                halo_swap_mode,
-                layer_norm,
-                name,
-            )
-
+            arch = {
+                "input_node_features": self.cfg.input_node_features,
+                "cond_node_features": cond_node_features,
+                "input_edge_features": graph.edge_attr.shape[1],
+                "mlp_hidden_channels": self.cfg.mlp_hidden_channels,
+                "n_mlp_hidden_layers": self.cfg.n_mlp_hidden_layers,
+                "n_messagePassing_layers": self.cfg.n_messagePassing_layers,
+                "halo_swap_mode": self.cfg.halo_swap_mode,
+                "layer_norm": self.cfg.layer_norm,
+                "dropout_rate": self.cfg.dropout_rate,
+                "emb_width": self.cfg.emb_width,
+                "learnable_variance": self.cfg.learnable_variance,
+                "activation_checkpointing": self.cfg.activation_checkpointing,
+                "name": "DGN_POLY_%d_SIZE_%d_SEED_%d"
+                % (poly, SIZE, self.cfg.seed),
+            }
+            model = gnn.DistributedDGN(arch)
         elif self.cfg.model_name == "graph_transformer":
-            pos_graph = graph.pos[self.idx_reduced2full]
-            num_node_per_element = (poly + 1) ** 3
-            num_elements = pos_graph.shape[0] // num_node_per_element
-            name = "GT_POLY_%d_SIZE_%d_SEED_%d" % (poly, SIZE, self.cfg.seed)
-            if self.cfg.use_residual:
-                name += "_RESID"
-
-            model = gtr.GraphTransformer(
-                input_node_channels,
-                hidden_channels,
-                output_node_channels,
-                n_transformer_layers=self.cfg.n_transformer_layers,
-                num_heads=self.cfg.num_heads,
-                num_elements=num_elements,
-                halo_swap_mode=halo_swap_mode,
-                name=name,
-            )
-
+            arch = {
+                "input_node_features": self.cfg.input_node_features,
+                "cond_node_features": cond_node_features,
+                "hidden_channels": self.cfg.mlp_hidden_channels,
+                "n_transformer_layers": self.cfg.n_transformer_layers,
+                "num_heads": self.cfg.num_heads,
+                "poly_order": poly,
+                "halo_swap_mode": self.cfg.halo_swap_mode,
+                "emb_width": self.cfg.emb_width,
+                "learnable_variance": self.cfg.learnable_variance,
+                "mlp_ratio": 1.0,
+                "name": "DGT_POLY_%d_SIZE_%d_SEED_%d"
+                % (poly, SIZE, self.cfg.seed),
+            }
+            model = gtr.DistributedDGT(arch)
+        else:
+            raise ValueError("Unknown model name: %s" % self.cfg.model_name)
         return model
 
     def count_weights(self, model) -> int:
@@ -432,9 +448,10 @@ class Trainer:
         return scheduler
 
     def setup_torch(self):
-        # Random seeds
-        torch.manual_seed(self.cfg.seed)
-        np.random.seed(self.cfg.seed)
+        # Random seeds — unified across ranks so any RNG draws agree on every rank.
+        seed = self.cfg.seed
+        torch.manual_seed(seed)
+        np.random.seed(seed)
 
         # Device and intra-op threads
         if WITH_CUDA:
@@ -455,37 +472,142 @@ class Trainer:
                 "Only fp32, fp64 and bf16 data types are currently supported"
             )
 
+        # Dedicated generator for rank-consistent noise draws. Kept separate
+        # from the global RNG so noise generation never perturbs DataLoader
+        # shuffle order or weight init.
+        self.noise_generator = torch.Generator(device=self.device)
+
+    def _consistent_noise(
+        self,
+        batch_size: int,
+        n_features: int,
+        salt: int = 0,
+        extra_counter: int = 0,
+    ) -> Tensor:
+        """Draw standard-normal noise that is identical across ranks on
+        physically-coincident nodes, without any collective and without
+        materialising a full-graph tensor.
+
+        Each node is keyed by the byte representation of its untransformed
+        mesh position (pos_orig_full, float64 -> 3 x uint64). Two ranks that
+        both hold the same physical node see the same key bytes and therefore
+        the same noise. The C++-side "global_ids" turned out to be
+        partition-local indices (interior nodes share gids across ranks
+        without referring to the same physical node), so we cannot rely on
+        them; the float64 positions read straight from the C++ binary dump
+        are byte-stable across processes and serve as a robust per-node key.
+
+        Per-rank work scales with n_local + n_halo only -- no tensor sized by
+        the global mesh is ever allocated.
+
+        Implementation: SplitMix64 over a per-element 64-bit counter built
+        from (seed, iteration, batch, salt) keyed material plus per-node
+        mixing of the three position u64 lanes; paired through Box-Muller to
+        produce standard normals. uint64 wraparound is exactly what
+        SplitMix64 expects, so numpy's overflow warning is silenced.
+        """
+        graph = self.data["graph"]
+        # Untransformed mesh positions for all local slots (tier-1 + tier-2
+        # + tier-3 halo padding), filled by setup_halo via a one-time
+        # neighbor exchange so tier-3 entries carry their owner's true pos.
+        pos = graph.pos_orig_full.cpu().numpy().astype(np.float64)
+        n_local = pos.shape[0]
+        n_pairs = (n_features + 1) // 2  # Box-Muller yields 2 normals per call
+
+        # View float64 (x,y,z) as three uint64s, lossless and byte-stable.
+        pos_u64 = pos.view(np.uint64)  # shape (n_local, 3)
+        px = pos_u64[:, 0]
+        py = pos_u64[:, 1]
+        pz = pos_u64[:, 2]
+
+        feats = np.arange(n_pairs, dtype=np.uint64)[None, :]
+        mix_xor = np.uint64(0xDEADBEEFCAFEBABE)
+        denom = float(1 << 53)
+        two_pi = 2.0 * float(np.pi)
+
+        def _splitmix64(x: np.ndarray) -> np.ndarray:
+            x = x + np.uint64(0x9E3779B97F4A7C15)
+            x = (x ^ (x >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
+            x = (x ^ (x >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
+            x = x ^ (x >> np.uint64(31))
+            return x
+
+        # uint64 arithmetic wraps modulo 2^64 — that wraparound is the entire
+        # point of SplitMix64, so silence numpy's overflow warnings for the
+        # mixing math.
+        parts = []
+        with np.errstate(over="ignore"):
+            seed_u = np.uint64(int(self.cfg.seed) & 0xFFFFFFFFFFFFFFFF)
+            iter_u = np.uint64(int(self.iteration) & 0xFFFFFFFFFFFFFFFF)
+            salt_u = np.uint64(int(salt) & 0xFFFFFFFFFFFFFFFF)
+            # extra_counter mixes in linearly (default 0 -> no perturbation)
+            # so training behaviour stays bit-identical; sample() advances it
+            # once per call to give independent draws.
+            extra_u = np.uint64(int(extra_counter) & 0xFFFFFFFFFFFFFFFF)
+            key = (
+                seed_u * np.uint64(0x9E3779B97F4A7C15)
+                + iter_u * np.uint64(0xBF58476D1CE4E5B9)
+                + salt_u * np.uint64(0x94D049BB133111EB)
+                + extra_u * np.uint64(0xD1342543DE82EF95)
+            )
+            # Per-node static mix of all three position lanes (independent of
+            # batch / feature). Run it through SplitMix64 once so small
+            # position changes propagate to all output bits.
+            pos_mix = _splitmix64(
+                px * np.uint64(0xD1342543DE82EF95)
+                ^ py * np.uint64(0x9E6C63D0676A9A99)
+                ^ pz * np.uint64(0x6A5D39EAE12657AA)
+            )
+            pos_mix_2d = np.broadcast_to(pos_mix[:, None], (n_local, n_pairs))
+            feat_mix = feats * np.uint64(0xCBF29CE484222325)
+
+            for b in range(batch_size):
+                b_u = np.uint64(int(b) & 0xFFFFFFFFFFFFFFFF)
+                counter = (
+                    pos_mix_2d
+                    + feat_mix
+                    + b_u * np.uint64(0x6A5D39EAE12657AA)
+                    + key
+                )
+                h1 = _splitmix64(counter)
+                h2 = _splitmix64(counter ^ mix_xor)
+
+                # Map to uniforms. Take top 53 bits (mantissa width of f64)
+                # and divide by 2^53. Bump u1 off zero so log is finite.
+                u1 = (h1 >> np.uint64(11)).astype(np.float64) / denom
+                u2 = (h2 >> np.uint64(11)).astype(np.float64) / denom
+                np.clip(u1, 1e-300, None, out=u1)
+
+                r = np.sqrt(-2.0 * np.log(u1))
+                theta = two_pi * u2
+                z0 = r * np.cos(theta)
+                z1 = r * np.sin(theta)
+
+                pair = np.stack((z0, z1), axis=-1).reshape(n_local, n_pairs * 2)
+                parts.append(pair[:, :n_features])
+
+        arr = np.concatenate(parts, axis=0)
+        return torch.from_numpy(arr).to(self.device).to(self.torch_dtype)
+
     def halo_swap(self, input_tensor, buff_send, buff_recv):
         """
-        Performs halo swap using send/receive buffers
+        Performs halo swap of a per-node tensor via the all_to_all collective.
+
+        buff_send / buff_recv must be a length-SIZE list where buff_send[i]
+        has shape (n_nodes_to_exchange[i], n_features) — i.e. one slot per
+        neighbour rank, sized per-neighbour. Use the same buffer layout as
+        the all_to_all_opt branch in DistributedMessagePassingLayer.halo_swap.
         """
         if SIZE > 1:
-            # Fill send buffer
             for i in self.neighboring_procs:
-                buff_send[i] = input_tensor[self.mask_send[i]]
+                n_send = len(self.mask_send[i])
+                buff_send[i][:n_send, :] = input_tensor[self.mask_send[i]]
 
-            # Perform swap
-            req_send_list = []
+            dist.all_to_all(buff_recv, buff_send)
+
             for i in self.neighboring_procs:
-                req_send = dist.isend(tensor=buff_send[i], dst=i)
-                req_send_list.append(req_send)
-
-            req_recv_list = []
-            for i in self.neighboring_procs:
-                req_recv = dist.irecv(tensor=buff_recv[i], src=i)
-                req_recv_list.append(req_recv)
-
-            for req_send in req_send_list:
-                req_send.wait()
-
-            for req_recv in req_recv_list:
-                req_recv.wait()
-
-            dist.barrier()
-
-            # Fill halo nodes
-            for i in self.neighboring_procs:
-                input_tensor[self.mask_recv[i]] = buff_recv[i]
+                n_recv = len(self.mask_recv[i])
+                input_tensor[self.mask_recv[i]] = buff_recv[i][:n_recv, :]
         return input_tensor
 
     def build_masks(self):
@@ -517,21 +639,21 @@ class Trainer:
         return mask_send, mask_recv
 
     def build_buffers(self, n_features):
-        n_max = 0
+        self.n_max = 0
 
         if SIZE == 1:
             buff_send = [torch.tensor([], dtype=self.torch_dtype)] * SIZE
             buff_recv = [torch.tensor([], dtype=self.torch_dtype)] * SIZE
         else:
             # Get the maximum number of nodes that will be exchanged (required for all_to_all halo swap)
-            n_nodes_to_exchange = torch.zeros(SIZE)
+            self.n_nodes_to_exchange = torch.zeros(SIZE)
             for i in self.neighboring_procs:
-                n_nodes_to_exchange[i] = len(self.mask_send[i])
-            n_max = n_nodes_to_exchange.max()
+                self.n_nodes_to_exchange[i] = len(self.mask_send[i])
+            self.n_max = self.n_nodes_to_exchange.max()
             if WITH_CUDA or WITH_XPU:
-                n_max = n_max.to(self.device)
-            dist.all_reduce(n_max, op=dist.ReduceOp.MAX)
-            n_max = int(n_max)
+                self.n_max = self.n_max.to(self.device)
+            dist.all_reduce(self.n_max, op=dist.ReduceOp.MAX)
+            self.n_max = int(self.n_max)
 
             # fill the buffers -- make all buffer sizes the same (required for all_to_all)
             if self.cfg.halo_swap_mode == "none":
@@ -550,12 +672,12 @@ class Trainer:
                 ] * SIZE
                 for i in range(SIZE):
                     buff_send[i] = torch.empty(
-                        [n_max, n_features],
+                        [self.n_max, n_features],
                         dtype=self.torch_dtype,
                         device=DEVICE,
                     )
                     buff_recv[i] = torch.empty(
-                        [n_max, n_features],
+                        [self.n_max, n_features],
                         dtype=self.torch_dtype,
                         device=DEVICE,
                     )
@@ -568,12 +690,12 @@ class Trainer:
                 ] * SIZE
                 for i in self.neighboring_procs:
                     buff_send[i] = torch.empty(
-                        [int(n_nodes_to_exchange[i]), n_features],
+                        [int(self.n_nodes_to_exchange[i]), n_features],
                         dtype=self.torch_dtype,
                         device=DEVICE,
                     )
                     buff_recv[i] = torch.empty(
-                        [int(n_nodes_to_exchange[i]), n_features],
+                        [int(self.n_nodes_to_exchange[i]), n_features],
                         dtype=self.torch_dtype,
                         device=DEVICE,
                     )
@@ -586,12 +708,12 @@ class Trainer:
                 ] * SIZE
                 for i in self.neighboring_procs:
                     buff_send[i] = torch.zeros(
-                        [int(n_nodes_to_exchange[i]), n_features],
+                        [int(self.n_nodes_to_exchange[i]), n_features],
                         dtype=self.torch_dtype,
                         device=DEVICE,
                     )
                     buff_recv[i] = torch.zeros(
-                        [int(n_nodes_to_exchange[i]), n_features],
+                        [int(self.n_nodes_to_exchange[i]), n_features],
                         dtype=self.torch_dtype,
                         device=DEVICE,
                     )
@@ -604,12 +726,12 @@ class Trainer:
                 ] * SIZE
                 for i in self.neighboring_procs:
                     buff_send[i] = torch.empty(
-                        [int(n_nodes_to_exchange[i]), n_features],
+                        [int(self.n_nodes_to_exchange[i]), n_features],
                         dtype=self.torch_dtype,
                         device=DEVICE,
                     )
                     buff_recv[i] = torch.empty(
-                        [int(n_nodes_to_exchange[i]), n_features],
+                        [int(self.n_nodes_to_exchange[i]), n_features],
                         dtype=self.torch_dtype,
                         device=DEVICE,
                     )
@@ -657,18 +779,7 @@ class Trainer:
                     f"[RANK {RANK}]: Receive buffers of size [KB]: {buff_recv_sz}"
                 )
 
-        return buff_send, buff_recv, n_max
-
-    def init_send_buffer(self, n_buffer_rows, n_features, device):
-        buff_send = [torch.tensor([])] * SIZE
-        if SIZE > 1:
-            for i in range(SIZE):
-                buff_send[i] = torch.empty(
-                    [n_buffer_rows, n_features],
-                    dtype=self.torch_dtype,
-                    device=device,
-                )
-        return buff_send
+        return buff_send, buff_recv
 
     def gather_node_tensor(self, input_tensor, dst=0, dtype=torch.float32):
         """
@@ -734,102 +845,109 @@ class Trainer:
         else:
             main_path = ""
 
-        if self.cfg.client.backend == "adios":
-            graph_data = self.client.get_graph_data_from_stream()
-            self.Np = graph_data["Np"]
-            pos = graph_data["pos"]
+        path_to_pos_full = main_path + "pos_node_rank_%d_size_%d" % (RANK, SIZE)
+        path_to_ei = main_path + "edge_index_rank_%d_size_%d" % (RANK, SIZE)
+        path_to_overlap = main_path + "overlap_ids_rank_%d_size_%d" % (
+            RANK,
+            SIZE,
+        )
+        path_to_glob_ids = main_path + "global_ids_rank_%d_size_%d" % (
+            RANK,
+            SIZE,
+        )
+        path_to_unique_local = (
+            main_path + "local_unique_mask_rank_%d_size_%d" % (RANK, SIZE)
+        )
+        path_to_unique_halo = main_path + "halo_unique_mask_rank_%d_size_%d" % (
+            RANK,
+            SIZE,
+        )
 
-            gli = graph_data["global_ids"]
+        # Polynomial order
+        self.Np = np.array([0], dtype=np.float32)
+        if RANK == 0:
+            path_to_Np = main_path + "Np_rank_%d_size_%d" % (RANK, SIZE)
+            self.Np = self.load_data(path_to_Np, dtype=np.float32)
+        COMM.Bcast(self.Np, root=0)
 
-            local_unique_mask = graph_data["local_unique_mask"]
-
-            halo_unique_mask = graph_data["halo_unique_mask"]
-
-            ei = graph_data["edge_index"]
-            ei = ei.astype(np.int64)
-        else:
-            path_to_pos_full = main_path + "pos_node_rank_%d_size_%d" % (
-                RANK,
-                SIZE,
+        # Node positions
+        if self.cfg.verbose:
+            log.info(
+                "[RANK %d]: Loading positions and global node index" % (RANK)
             )
-            path_to_ei = main_path + "edge_index_rank_%d_size_%d" % (RANK, SIZE)
-            path_to_overlap = main_path + "overlap_ids_rank_%d_size_%d" % (
-                RANK,
-                SIZE,
-            )
-            path_to_glob_ids = main_path + "global_ids_rank_%d_size_%d" % (
-                RANK,
-                SIZE,
-            )
-            path_to_unique_local = (
-                main_path + "local_unique_mask_rank_%d_size_%d" % (RANK, SIZE)
-            )
-            path_to_unique_halo = (
-                main_path + "halo_unique_mask_rank_%d_size_%d" % (RANK, SIZE)
-            )
+        # pos = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_pos_full + ".bin", dtype=np.float64).reshape((-1,3))
+        pos = self.load_data(path_to_pos_full, extension=".bin").reshape((
+            -1,
+            3,
+        ))
 
-            # Polynomial order
-            self.Np = np.array([0], dtype=np.float32)
-            if RANK == 0:
-                path_to_Np = main_path + "Np_rank_%d_size_%d" % (RANK, SIZE)
-                self.Np = self.load_data(path_to_Np, dtype=np.float32)
-            COMM.Bcast(self.Np, root=0)
+        # Global node index
+        # gli = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_glob_ids + ".bin", dtype=np.int64).reshape((-1,1))
+        gli = self.load_data(
+            path_to_glob_ids, dtype=np.int64, extension=".bin"
+        ).reshape((-1, 1))
 
-            # Node positions
-            if self.cfg.verbose:
-                log.info(
-                    "[RANK %d]: Loading positions and global node index"
-                    % (RANK)
-                )
-            # pos = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_pos_full + ".bin", dtype=np.float64).reshape((-1,3))
-            pos = self.load_data(path_to_pos_full, extension=".bin").reshape((
-                -1,
-                3,
-            ))
+        # Edge index
+        if self.cfg.verbose:
+            log.info("[RANK %d]: Loading edge index" % (RANK))
+        # ei = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_ei + ".bin", dtype=np.int32).reshape((-1,2)).T
+        ei = self.load_data(path_to_ei, dtype=np.int32, extension=".bin")
+        if not self.cfg.online:
+            ei = ei.reshape((-1, 2)).T
+        ei = ei.astype(np.int64)  # sb: int64 for edge_index
 
-            # Global node index
-            # gli = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_glob_ids + ".bin", dtype=np.int64).reshape((-1,1))
-            gli = self.load_data(
-                path_to_glob_ids, dtype=np.int64, extension=".bin"
-            ).reshape((-1, 1))
+        # Local unique mask
+        if self.cfg.verbose:
+            log.info("[RANK %d]: Loading local unique mask" % (RANK))
+        # local_unique_mask = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_unique_local + ".bin", dtype=np.int32)
+        local_unique_mask = self.load_data(
+            path_to_unique_local, dtype=np.int32, extension=".bin"
+        )
 
-            # Edge index
-            if self.cfg.verbose:
-                log.info("[RANK %d]: Loading edge index" % (RANK))
-            # ei = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_ei + ".bin", dtype=np.int32).reshape((-1,2)).T
-            ei = self.load_data(path_to_ei, dtype=np.int32, extension=".bin")
-            if not self.cfg.online:
-                ei = ei.reshape((-1, 2)).T
-            ei = ei.astype(np.int64)  # sb: int64 for edge_index
-
-            # Local unique mask
-            if self.cfg.verbose:
-                log.info("[RANK %d]: Loading local unique mask" % (RANK))
-            # local_unique_mask = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_unique_local + ".bin", dtype=np.int32)
-            local_unique_mask = self.load_data(
-                path_to_unique_local, dtype=np.int32, extension=".bin"
+        # Halo unique mask
+        halo_unique_mask = np.array([])
+        if SIZE > 1:
+            # halo_unique_mask = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_unique_halo + ".bin", dtype=np.int32)
+            halo_unique_mask = self.load_data(
+                path_to_unique_halo, dtype=np.int32, extension=".bin"
             )
 
-            # Halo unique mask
-            halo_unique_mask = np.array([])
-            if SIZE > 1:
-                # halo_unique_mask = np.fromfile(self.cfg.gnn_outputs_path+'/'+path_to_unique_halo + ".bin", dtype=np.int32)
-                halo_unique_mask = self.load_data(
-                    path_to_unique_halo, dtype=np.int32, extension=".bin"
-                )
+        # Conditional node features
+        cond_node_features = np.array([])
+        if self.cfg.cond_node_features:
+            path_to_cond_node_features = (
+                main_path + "cond_node_features_rank_%d_size_%d" % (RANK, SIZE)
+            )
+            cond_node_features = self.load_data(
+                path_to_cond_node_features, extension=".bin"
+            ).reshape((pos.shape[0], -1))
 
-        return pos, gli, ei, local_unique_mask, halo_unique_mask
+        return (
+            pos,
+            gli,
+            ei,
+            local_unique_mask,
+            halo_unique_mask,
+            cond_node_features,
+        )
 
     def setup_local_graph(self):
         """
         Setup the local graph
         """
         # ~~~~ Read the graph data structures
-        pos, gli, ei, local_unique_mask, halo_unique_mask = (
-            self.load_graph_data()
-        )
+        (
+            pos,
+            gli,
+            ei,
+            local_unique_mask,
+            halo_unique_mask,
+            cond_node_features,
+        ) = self.load_graph_data()
 
-        # We need to make the graph periodic in all directions
+        # Address periodicity
+        pos = pos.astype(NP_FLOAT_DTYPE)
+        pos_orig = np.copy(pos)
         pos = pos.astype(NP_FLOAT_DTYPE)
         pos_orig = np.copy(pos)
         if self.cfg.transform_x:
@@ -863,8 +981,8 @@ class Trainer:
             # pos[:,2] = np.cos(2.*np.pi*pos[:,2]/L_z) # cosine
             pos[:, 2] = np.abs((pos[:, 2] % L_z) - L_z / 2)  # piecewise linear
 
-        # ~~~~ Compute global pos min/max per coordinate. Used by graph_transformer
-        # to normalize coordinates for RoPE without hardcoding the bounding box.
+        # ~~~~ Compute global pos min/max per coordinate.
+        # Used by graph_transformer to normalize coordinates for RoPE
         pos_min_loc = np.amin(pos, axis=0).astype(NP_FLOAT_DTYPE)
         pos_max_loc = np.amax(pos, axis=0).astype(NP_FLOAT_DTYPE)
         pos_min_glob = np.zeros_like(pos_min_loc)
@@ -886,6 +1004,9 @@ class Trainer:
             global_ids=torch.tensor(gli.squeeze()),
             local_unique_mask=torch.tensor(local_unique_mask),
             halo_unique_mask=torch.tensor(halo_unique_mask),
+            cond_node_features=torch.tensor(
+                cond_node_features, dtype=self.torch_dtype
+            ),
         )
         data_full.edge_index = pyg_utils.remove_self_loops(
             data_full.edge_index
@@ -910,15 +1031,23 @@ class Trainer:
             pos_max_glob, dtype=self.torch_dtype
         )
 
+        # Snapshot the raw global ids before get_upsample_indices runs --
+        # update_global_ids() inside it mutates data_reduced.global_ids by
+        # overwriting zero sentinels with *rank-local* consecutive negatives,
+        # which destroys cross-rank consistency. Keep the raw mesh ids here
+        # so _consistent_noise can hash a physically-consistent key. Zero
+        # sentinels still collide (all gid=0 nodes share noise) but that
+        # collision is identical on every rank.
+        data_reduced.global_ids_raw = data_reduced.global_ids.clone()
+
         # ~~~~ Get the indices to go from reduced back to full graph
-        # idx_reduced2full = None
         if self.cfg.verbose:
             log.info("[RANK %d]: Getting idx_reduced2full" % (RANK))
         idx_reduced2full = gcon.get_upsample_indices(
             data_full, data_reduced, idx_full2reduced
         )
 
-        # Checks on full2reduced and reduced2full mappings
+        # Checks on mappings
         try:
             assert torch.allclose(
                 data_full.pos[idx_full2reduced], data_reduced.pos
@@ -1089,27 +1218,124 @@ class Trainer:
         self.data_reduced.node_degree = node_degree
         self.data_reduced.effective_nodes_local = effective_nodes_local
         self.data_reduced.effective_nodes = effective_nodes
+
+        # Build pos_orig_full: a length-(n_nodes_local + n_nodes_halo) tensor
+        # of untransformed mesh positions for every local slot (tier-1 owned,
+        # tier-2 boundary, tier-3 halo). Used by _consistent_noise to hash
+        # physically-coincident nodes to identical noise across ranks.
+        # Positions are the key because the C++-side "global_ids" turn out to
+        # be partition-local: only halo-unique nodes get consistent ids across
+        # ranks, interior nodes do not. Positions are stable in nekRS' mesh
+        # representation (float64 from the C++ binary file).
+        pos_orig_local = self.data_reduced.pos_orig.to(torch.float64)
+        n_dim = pos_orig_local.shape[1]
+        pos_orig_full = torch.zeros(
+            n_nodes_local + n_nodes_halo, n_dim, dtype=torch.float64
+        )
+        pos_orig_full[:n_nodes_local] = pos_orig_local
+
+        if self.cfg.consistency and SIZE > 1:
+            # One-shot per-neighbor MPI Sendrecv of positions. halo_info[k]
+            # tells us: my local tier-2 node at column-0 is a shared copy of
+            # rank column-3's tier-2 node, and I should place that rank's
+            # position into my tier-3 slot at column-1. Since the partner's
+            # halo_info has the same structure with us as the source rank, the
+            # exchange is symmetric and we can pair sends with receives by
+            # neighbor rank.
+            neighbor_ranks = sorted(set(int(r) for r in self.neighboring_procs))
+            send_reqs = []
+            recv_buffers = {}
+            for nr in neighbor_ranks:
+                sel = halo_info[:, 3] == nr
+                send_idx = halo_info[sel, 0].long().numpy()
+                recv_idx = halo_info[sel, 1].long().numpy()
+                # Send our positions at our local tier-2 nodes; receive the
+                # neighbor's positions for our tier-3 slots.
+                send_buf = pos_orig_local.numpy()[send_idx].astype(
+                    np.float64, copy=True
+                )
+                recv_buf = np.empty((len(recv_idx), n_dim), dtype=np.float64)
+                recv_buffers[nr] = (recv_buf, recv_idx)
+                # Non-blocking sendrecv pair. Tag by (RANK,nr) ordered pair to
+                # disambiguate if multiple exchanges happen later.
+                tag = (min(RANK, nr) << 16) | max(RANK, nr)
+                req_s = COMM.Isend([send_buf, MPI.DOUBLE], dest=nr, tag=tag)
+                req_r = COMM.Irecv([recv_buf, MPI.DOUBLE], source=nr, tag=tag)
+                send_reqs.append((req_s, send_buf))
+                send_reqs.append((req_r, None))
+            for req, _ in send_reqs:
+                req.Wait()
+            for nr, (recv_buf, recv_idx) in recv_buffers.items():
+                pos_orig_full[recv_idx] = torch.from_numpy(recv_buf)
+        self.data_reduced.pos_orig_full = pos_orig_full
+
+        # Halo-exchange cond_node_features the same way as positions: it is a
+        # static per-node tensor (walldist/inflowdist/ycoord etc.), so a single
+        # exchange at setup time is enough. Without this, tier-3 halo slots
+        # hold zeros and the node encoder sees a fictional conditioning on the
+        # partition boundary — which then leaks into owned nodes via message
+        # passing and breaks rank-consistency of the loss.
+        if (
+            self.cfg.consistency
+            and SIZE > 1
+            and self.cfg.cond_node_features
+            and hasattr(self.data_reduced, "cond_node_features")
+            and self.data_reduced.cond_node_features.numel() > 0
+        ):
+            cnf_local = self.data_reduced.cond_node_features
+            n_features_cnf = cnf_local.shape[1]
+            cnf_full = torch.zeros(
+                n_nodes_local + n_nodes_halo,
+                n_features_cnf,
+                dtype=cnf_local.dtype,
+            )
+            cnf_full[:n_nodes_local] = cnf_local
+            cnf_local_np = cnf_local.cpu().numpy().astype(np.float64, copy=True)
+            send_reqs = []
+            recv_buffers = {}
+            for nr in neighbor_ranks:
+                sel = halo_info[:, 3] == nr
+                send_idx = halo_info[sel, 0].long().numpy()
+                recv_idx = halo_info[sel, 1].long().numpy()
+                send_buf = cnf_local_np[send_idx]
+                recv_buf = np.empty(
+                    (len(recv_idx), n_features_cnf), dtype=np.float64
+                )
+                recv_buffers[nr] = (recv_buf, recv_idx)
+                # Different tag from the position exchange to avoid collisions.
+                tag = ((min(RANK, nr) << 16) | max(RANK, nr)) ^ 0x5A5A
+                req_s = COMM.Isend([send_buf, MPI.DOUBLE], dest=nr, tag=tag)
+                req_r = COMM.Irecv([recv_buf, MPI.DOUBLE], source=nr, tag=tag)
+                send_reqs.append((req_s, send_buf))
+                send_reqs.append((req_r, None))
+            for req, _ in send_reqs:
+                req.Wait()
+            for nr, (recv_buf, recv_idx) in recv_buffers.items():
+                cnf_full[recv_idx] = torch.from_numpy(recv_buf).to(
+                    cnf_local.dtype
+                )
+            self.data_reduced.cond_node_features = cnf_full
         return
 
-    def prepare_snapshot_data(self, data: np.ndarray):
-        data = data.astype(NP_FLOAT_DTYPE)  # force NP_FLOAT_DTYPE
+    def prepare_snapshot_data(self, data_x: np.ndarray):
+        data_x = data_x.astype(NP_FLOAT_DTYPE)  # force NP_FLOAT_DTYPE
 
         # Retain only N_gll = Np*Ne elements
         N_gll = self.data_full.pos.shape[0]
-        data = data[:N_gll, :]
+        data_x = data_x[:N_gll, :]
 
         # get data in reduced format
-        data_reduced = data[self.idx_full2reduced, :]
-        x = torch.tensor(data_reduced, dtype=torch.float32)
+        data_x_reduced = data_x[self.idx_full2reduced, :]
+        x = torch.tensor(data_x_reduced, dtype=torch.float32)
 
         # Add halo nodes by appending the end of the node arrays
         if self.cfg.consistency:
             n_nodes_halo = self.data_reduced.n_nodes_halo
-            n_features = data_reduced.shape[1]
-            data_halo = torch.zeros(
-                (n_nodes_halo, n_features), dtype=torch.float32
+            n_features_x = data_x_reduced.shape[1]
+            data_x_halo = torch.zeros(
+                (n_nodes_halo, n_features_x), dtype=torch.float32
             )
-            x = torch.cat((x, data_halo), dim=0)
+            x = torch.cat((x, data_x_halo), dim=0)
         return x
 
     def compute_statistics(self, data_list: list, var: str):
@@ -1180,57 +1406,31 @@ class Trainer:
     def load_field_data(self, data_dir: str):
         if RANK == 0:
             log.info("Loading field data...")
-        input_field = self.cfg.input_fld_name
-        output_field = self.cfg.output_fld_name
-
-        # extract time from file name
-        def snapshot_time_from_filename(path: str) -> float:
-            base = os.path.basename(path)
-            _, _, rest = base.partition("_time_")
-            time_part, _, _ = rest.partition("_rank_")
-            return float(time_part)
+        field_name = "u"  # velocity
 
         # read files
         if not self.cfg.online:
             file_list = os.listdir(data_dir)
-            input_files = [
+            files = [
                 item
                 for item in file_list
-                if (f"fld_{input_field}" in item) and (f"rank_{RANK}" in item)
+                if (f"fld_{field_name}" in item) and (f"rank_{RANK}_" in item)
             ]
-            input_files.sort(key=snapshot_time_from_filename)
-            output_files = [
-                item
-                for item in file_list
-                if (f"fld_{output_field}" in item) and (f"rank_{RANK}" in item)
-            ]
-            output_files.sort(key=snapshot_time_from_filename)
+            files.sort(key=lambda x: int(x.split(".")[0].split("_")[-1]))
         else:
-            tic = time.time()
-            output_files = self.client.get_file_list(f"outputs_rank_{RANK}")
-            input_files = self.client.get_file_list(f"inputs_rank_{RANK}")
-            self.online_timers["metaData"].append(time.time() - tic)
-        assert len(input_files) == len(output_files), (
-            "ERROR: found different number of input and output files"
-        )
+            log.warning("Online backends not implemented for this model yet")
+            COMM.Abort(1)
 
         # populate dataset
         if not self.cfg.online:
             path_prepend = data_dir + "/"
-            input_files = [
-                path_prepend + input_file for input_file in input_files
-            ]
-            output_files = [
-                path_prepend + output_file for output_file in output_files
-            ]
-        log.info(
-            f"[RANK {RANK}]: Found {len(output_files)} new field files in DB"
-        )
-        for i in range(len(output_files)):
+            files = [path_prepend + file for file in files]
+        log.info(f"[RANK {RANK}]: Found {len(files)} field files to load")
+        for i in range(len(files)):
             tic = time.time()
-            data_x = self.load_data(input_files[i], dtype=np.float64).reshape((
+            data_x = self.load_data(files[i], dtype=np.float64).reshape((
                 -1,
-                self.cfg.input_fld_dim,
+                self.cfg.input_node_features,
             ))
             toc = time.time()
             if self.cfg.online:
@@ -1239,20 +1439,7 @@ class Trainer:
                     data_x.nbytes / GB_SIZE / (toc - tic)
                 )
             data_x = self.prepare_snapshot_data(data_x)
-
-            tic = time.time()
-            data_y = self.load_data(output_files[i], dtype=np.float64).reshape((
-                -1,
-                self.cfg.output_fld_dim,
-            ))
-            toc = time.time()
-            if self.cfg.online:
-                self.online_timers["trainDataTime"].append(toc - tic)
-                self.online_timers["trainDataThroughput"].append(
-                    data_x.nbytes / GB_SIZE / (toc - tic)
-                )
-            data_y = self.prepare_snapshot_data(data_y)
-            self.data_list.append({"x": data_x, "y": data_y})
+            self.data_list.append({"x": data_x})
 
         # split into train/validation
         data = {"train": [], "validation": []}
@@ -1285,312 +1472,47 @@ class Trainer:
             log.info(f"Number of validation snapshots: {0}")
 
         # Compute statistics for normalization
-        stats = {"x": [], "y": []}
+        stats = {"x": []}
         if "stats" not in self.data.keys():
             if os.path.exists(data_dir + f"/data_stats.npz"):
+                n_features = self.cfg.input_node_features
                 if RANK == 0:
                     npzfile = np.load(data_dir + f"/data_stats.npz")
                     stats_arr_x = np.stack([
-                        npzfile["x_mean"][0],
-                        npzfile["x_std"][0],
-                    ])
-                    stats_arr_y = np.stack([
-                        npzfile["y_mean"][0],
-                        npzfile["y_std"][0],
+                        npzfile["x_mean"][0, :n_features],
+                        npzfile["x_std"][0, :n_features],
                     ])
                 else:
-                    n_features = self.data_list[0]["x"].shape[1]
-                    n_outputs = self.data_list[0]["y"].shape[1]
                     stats_arr_x = np.zeros((2, n_features), dtype=np.float32)
-                    stats_arr_y = np.zeros((2, n_outputs), dtype=np.float32)
                 COMM.Bcast(stats_arr_x, root=0)
                 stats["x"] = [stats_arr_x[0], stats_arr_x[1]]
-                COMM.Bcast(stats_arr_y, root=0)
-                stats["y"] = [stats_arr_y[0], stats_arr_y[1]]
                 if RANK == 0:
                     log.info(
                         f"Read training data statistics from {data_dir}/data_stats.npz"
                     )
             else:
                 x_mean, x_std = self.compute_statistics(data["train"], "x")
-                y_mean, y_std = self.compute_statistics(data["train"], "y")
                 if RANK == 0 and not self.cfg.online:
                     np.savez(
                         data_dir + f"/data_stats.npz",
                         x_mean=x_mean,
                         x_std=x_std,
-                        y_mean=y_mean,
-                        y_std=y_std,
                     )
                 stats["x"] = [x_mean, x_std]
-                stats["y"] = [y_mean, y_std]
                 if RANK == 0:
                     log.info(
                         f"Computed training data statistics for each node feature"
                     )
         return data, stats
 
-    def load_trajectory(self, data_dir: str):
-        """Load a solution trajectory"""
-        COMM.Barrier()  # sync helps here
-        # read files
-        if not self.cfg.online:
-            files = os.listdir(data_dir + f"/data_rank_{RANK}_size_{SIZE}")
-            files.sort(key=lambda x: int(x.split("_")[-1].split(".")[0]))
-
-            # populate dataset for single-step predictions
-            idx = list(range(len(files)))
-            idx_x = idx[:-1]
-            idx_y = idx[1:]
-            if RANK == 0:
-                log.info(f"Loading {len(files)} trajectory data files ...")
-            for i in range(len(idx_x)):
-                step_x_i = idx_x[i]
-                step_y_i = idx_y[i]
-                path_x_i = (
-                    data_dir
-                    + f"/data_rank_{RANK}_size_{SIZE}/"
-                    + files[idx_x[i]]
-                )
-                path_y_i = (
-                    data_dir
-                    + f"/data_rank_{RANK}_size_{SIZE}/"
-                    + files[idx_y[i]]
-                )
-                data_x_i = self.load_data(path_x_i, dtype=np.float64).reshape((
-                    -1,
-                    self.cfg.input_fld_dim,
-                ))
-                data_y_i = self.load_data(path_y_i, dtype=np.float64).reshape((
-                    -1,
-                    self.cfg.input_fld_dim,
-                ))
-                data_x_i = self.prepare_snapshot_data(data_x_i)
-                data_y_i = self.prepare_snapshot_data(data_y_i)
-                self.data_list.append({
-                    "x": data_x_i,
-                    "y": data_y_i,
-                    "step_x": step_x_i,
-                    "step_y": step_y_i,
-                })
-        elif self.cfg.online and self.cfg.client.backend == "smartredis":
-            # Get the file list
-            tic = time.time()
-            output_files = self.client.get_file_list(
-                f"outputs_rank_{RANK}"
-            )  # outputs must come first
-            input_files = self.client.get_file_list(f"inputs_rank_{RANK}")
-            if self.cfg.target_loss != 0:
-                # Load more files until we have at least 5
-                while len(output_files) < 5:
-                    time.sleep(1)
-                    output_files = self.client.get_file_list(
-                        f"outputs_rank_{RANK}"
-                    )
-                    input_files = self.client.get_file_list(
-                        f"inputs_rank_{RANK}"
-                    )
-            self.online_timers["metaData"].append(time.time() - tic)
-
-            # Load files
-            if self.cfg.verbose:
-                log.info(
-                    f"[RANK {RANK}]: Found {len(output_files)} trajectory files in DB"
-                )
-            for i in range(len(output_files)):
-                tic = time.time()
-                data_x_i = (
-                    self.client
-                    .get_array(input_files[i])
-                    .astype(NP_FLOAT_DTYPE)
-                    .T
-                )
-                toc = time.time()
-                self.online_timers["trainDataTime"].append(toc - tic)
-                self.online_timers["trainDataThroughput"].append(
-                    data_x_i.nbytes / GB_SIZE / (toc - tic)
-                )
-                data_x_i = self.prepare_snapshot_data(data_x_i)
-
-                tic = time.time()
-                data_y_i = (
-                    self.client
-                    .get_array(output_files[i])
-                    .astype(NP_FLOAT_DTYPE)
-                    .T
-                )
-                toc = time.time()
-                self.online_timers["trainDataTime"].append(toc - tic)
-                self.online_timers["trainDataThroughput"].append(
-                    data_y_i.nbytes / GB_SIZE / (toc - tic)
-                )
-                data_y_i = self.prepare_snapshot_data(data_y_i)
-                self.data_list.append({"x": data_x_i, "y": data_y_i})
-        elif self.cfg.online and self.cfg.client.backend == "adios":
-            iter = 5 if self.cfg.target_loss != 0 else 1
-            for i in range(iter):
-                data_x_i, data_y_i, ttime = (
-                    self.client.get_train_data_from_stream()
-                )
-                self.online_timers["trainDataTime"].append(ttime)
-                self.online_timers["trainDataSize"].append(
-                    (data_x_i.nbytes + data_y_i.nbytes) / GB_SIZE
-                )
-                self.online_timers["trainDataThroughput"].append(
-                    self.online_timers["trainDataSize"][-1] / (ttime)
-                )
-                data_x_i = self.prepare_snapshot_data(data_x_i)
-                data_y_i = self.prepare_snapshot_data(data_y_i)
-                self.data_list.append({"x": data_x_i, "y": data_y_i})
-
-        # split into train/validation
-        data = {"train": [], "validation": []}
-        fraction_valid = 0.0
-        if fraction_valid > 0 and len(self.data_list) * fraction_valid > 1:
-            # How many total snapshots to extract
-            n_full = len(idx_x)
-            n_valid = int(np.floor(fraction_valid * n_full))
-
-            # Get validation set indices
-            idx_valid = np.sort(
-                np.random.choice(n_full, n_valid, replace=False)
-            )
-
-            # Get training set indices
-            idx_train = np.array(
-                list(set(list(range(n_full))) - set(list(idx_valid)))
-            )
-
-            # Train/validation split
-            data["train"] = [self.data_list[i] for i in idx_train]
-            data["validation"] = [self.data_list[i] for i in idx_valid]
-        else:
-            data["train"] = self.data_list
-            data["validation"] = [{}]
-
-        if RANK == 0:
-            log.info(f"Number of training snapshots: {len(data['train'])}")
-        if RANK == 0:
-            log.info(f"Number of validation snapshots: {0}")
-
-        # Compute statistics for normalization
-        stats = {"x": [], "y": []}
-        if "stats" not in self.data.keys():
-            if os.path.exists(data_dir + f"/data_stats.npz"):
-                if RANK == 0:
-                    npzfile = np.load(data_dir + f"/data_stats.npz")
-                    stats_arr = np.stack([
-                        npzfile["x_mean"][0],
-                        npzfile["x_std"][0],
-                        npzfile["y_mean"][0],
-                        npzfile["y_std"][0],
-                    ])
-                else:
-                    n_features = self.data_list[0]["x"].shape[1]
-                    stats_arr = np.zeros((4, n_features), dtype=np.float32)
-                COMM.Bcast(stats_arr, root=0)
-                stats["x"] = [stats_arr[0], stats_arr[1]]
-                stats["y"] = [stats_arr[2], stats_arr[3]]
-                if RANK == 0:
-                    log.info(
-                        f"Read training data statistics from {data_dir}/data_stats.npz"
-                    )
-            else:
-                if RANK == 0:
-                    log.info(f"Computing training data statistics")
-                x_mean, x_std = self.compute_statistics(data["train"], "x")
-                y_mean, y_std = self.compute_statistics(data["train"], "y")
-                if RANK == 0 and not self.cfg.online:
-                    np.savez(
-                        data_dir + "/data_stats.npz",
-                        x_mean=x_mean.cpu().to(torch.float32).numpy(),
-                        x_std=x_std.cpu().to(torch.float32).numpy(),
-                        y_mean=y_mean.cpu().to(torch.float32).numpy(),
-                        y_std=y_std.cpu().to(torch.float32).numpy(),
-                    )
-                stats["x"] = [x_mean, x_std]
-                stats["y"] = [y_mean, y_std]
-                if RANK == 0:
-                    log.info(
-                        f"Computed training data statistics for each node feature"
-                    )
-        return data, stats
-
-    def load_initial_condition(self, data_dir: str):
-        """Load the initial condition to a solution trajectory"""
-        COMM.Barrier()  # sync helps here
-        # read files
-        if not self.cfg.online:
-            files = os.listdir(data_dir + f"/data_rank_{RANK}_size_{SIZE}")
-            # files = [item for item in files_temp if 'p_step' not in item]
-            files.sort(key=lambda x: int(x.split("_")[-1].split(".")[0]))
-            file = files[0]
-            path_x = data_dir + f"/data_rank_{RANK}_size_{SIZE}/" + file
-            data_x = self.load_data(path_x, dtype=np.float64).reshape((-1, 3))
-        else:
-            if self.cfg.client.backend == "smartredis":
-                file = f"checkpt_u_rank_{RANK}_size_{SIZE}"
-            elif self.cfg.client.backend == "adios":
-                file = "checkpoint.bp"
-            data_x = self.client.get_array(file).reshape((-1, 3))
-        data_x = self.prepare_snapshot_data(data_x)
-        self.data_list.append({"x": data_x, "y": data_x})
-        data = {"train": [self.data_list[0]], "validation": [{}]}
-
-        # Compute statistics for normalization
-        stats = {"x": [], "y": []}
-        if "stats" not in self.data.keys():
-            if os.path.exists(data_dir + "/data_stats.npz"):
-                if RANK == 0:
-                    npzfile = np.load(data_dir + "/data_stats.npz")
-                    stats["x"] = [npzfile["x_mean"], npzfile["x_std"]]
-                    stats["y"] = [npzfile["y_mean"], npzfile["y_std"]]
-                stats = COMM.bcast(stats, root=0)
-                if RANK == 0:
-                    log.info(
-                        f"Read training data statistics from {data_dir}/data_stats.npz"
-                    )
-            else:
-                x_mean, x_std = self.compute_statistics(data["train"], "x")
-                stats["x"] = [x_mean, x_std]
-                stats["y"] = [x_mean, x_std]
-                if RANK == 0:
-                    log.info(
-                        f"Computed training data statistics for each node feature"
-                    )
-        return data, stats
-
-    def setup_data(self):
+    def setup_graph_data(self):
         """
         Generate the PyTorch Geometric Dataset
         """
         if RANK == 0:
-            log.info("In setup_data...")
+            log.info("In setup_graph_data...")
 
         device_for_loading = "cpu"
-
-        if (
-            self.cfg.model_task == "train"
-            and self.cfg.time_dependency == "time_independent"
-        ):
-            data_dir = self.cfg.gnn_outputs_path
-            data, stats = self.load_field_data(data_dir)
-        elif (
-            self.cfg.model_task == "train"
-            and self.cfg.time_dependency == "time_dependent"
-        ):
-            data_dir = self.cfg.traj_data_path
-            data, stats = self.load_trajectory(data_dir)
-        elif self.cfg.model_task == "inference" and self.cfg.rollout_steps > 0:
-            data_dir = self.cfg.traj_data_path
-            data, stats = self.load_initial_condition(data_dir)
-
-        # Populate data object
-        # data_x_reduced = data['train'][0]['x']
-        # data_y_reduced = data['train'][0]['y']
-        # n_features_in = data_x_reduced.shape[1]
-        # n_features_out = data_y_reduced.shape[1]
-        # n_nodes = self.data_reduced.pos.shape[0]
 
         # Get dictionary
         reduced_graph_dict = self.data_reduced.to_dict()
@@ -1606,12 +1528,8 @@ class Trainer:
                 (n_nodes_halo, n_features_pos), dtype=self.torch_dtype
             )
             data_graph.pos = torch.cat((data_graph.pos, pos_halo), dim=0)
-        else:
-            data_graph.pos = data_graph.pos
-        # data_temp.node_degree = torch.cat((data_temp.node_degree, node_degree_halo), dim=0)
-        # data_temp.edge_index = torch.cat((data_temp.edge_index, edge_index_halo), dim=1)
-        # data_temp.edge_weight = torch.cat((data_temp.edge_weight, edge_weight_halo), dim=0)
-        # data_temp.edge_weight_temp = data_temp.edge_weight
+            # cond_node_features is already (n_local + n_halo) with halo slots
+            # populated by setup_halo's one-shot MPI exchange — no zero-pad here.
 
         # Populate edge_attrs
         cart = torch_geometric.transforms.Cartesian(
@@ -1634,177 +1552,100 @@ class Trainer:
             self.torch_dtype
         )
 
-        # Print information about the data and graph
         if RANK == 0:
-            log.info(f"Graph Data:{data_graph}")
-            log.info(f"shape of inputs: {data['train'][0]['x'].shape}")
-            log.info(f"shape of outputs: {data['train'][0]['y'].shape}")
+            log.info(f"{data_graph}")
 
-        # ~~~~ Populate the data sampler.
-        # We assume we have fixed connectivity,
-        # We need a sampler only over the [x,y] pairs (i.e., the elements in data_list)
+        self.data["graph"] = data_graph
+
+    def setup_train_data(self):
+        """
+        Load the training data and prepare the data loader
+        """
+        if RANK == 0:
+            log.info("In setup_train_data...")
+
+        data_dir = self.cfg.gnn_outputs_path
+        data, stats = self.load_field_data(data_dir)
+
+        # ~~~~ Populate the data loader
+        # No need for distributed sampler -- create standard dataset loader
+        # We can use the standard pytorch dataloader on (x,y)
         train_data_scaled = []
         for item in data["train"]:
-            tmp_data = Data(
-                x=((item["x"] - stats["x"][0]) / (stats["x"][1] + SMALL)).to(
-                    self.torch_dtype
-                ),
-                y=((item["y"] - stats["y"][0]) / (stats["y"][1] + SMALL)).to(
-                    self.torch_dtype
-                ),
+            train_data_scaled.append(
+                Data(
+                    x=(
+                        (
+                            item["x"][:, : self.cfg.input_node_features]
+                            - stats["x"][0]
+                        )
+                        / (stats["x"][1] + SMALL)
+                    ).to(self.torch_dtype)
+                )
             )
-            train_data_scaled.append(tmp_data)
+        # Explicit generator so the shuffle order is deterministic and
+        # independent of any other torch.randn / dropout / etc. that may
+        # consume the global RNG between epochs.
         train_loader = DataLoader(
-            dataset=train_data_scaled,
+            train_data_scaled,
             batch_size=self.cfg.batch_size,
             shuffle=True,
+            generator=torch.Generator().manual_seed(self.cfg.seed),
         )
+        if RANK == 0:
+            train_loader_example = train_loader.dataset[0]
+            log.info(f"shape of x: {train_loader_example.x.shape}")
 
         val_data_scaled = data["validation"].copy()
         if val_data_scaled[0]:
             for item in val_data_scaled:
-                tmp_data = Data(
-                    x=(
-                        (item["x"] - stats["x"][0]) / (stats["x"][1] + SMALL)
-                    ).to(self.torch_dtype),
-                    y=(
-                        (item["y"] - stats["y"][0]) / (stats["y"][1] + SMALL)
-                    ).to(self.torch_dtype),
+                val_data_scaled.append(
+                    Data(
+                        x=(
+                            (item["x"] - stats["x"][0])
+                            / (stats["x"][1] + SMALL)
+                        ).to(self.torch_dtype)
+                    )
                 )
-                val_data_scaled.append(tmp_data)
         valid_loader = DataLoader(
-            dataset=val_data_scaled,
-            batch_size=self.cfg.val_batch_size,
-            shuffle=False,
+            val_data_scaled, batch_size=self.cfg.val_batch_size, shuffle=False
         )
 
-        self.data = {
-            "train": {
-                "loader": train_loader,
-                "example": data["train"][0],
-            },
-            "validation": {
-                "loader": valid_loader,
-                "example": data["validation"][0],
-            },
-            "stats": {
-                "x_mean": stats["x"][0],
-                "x_std": stats["x"][1],
-                "y_mean": stats["y"][0],
-                "y_std": stats["y"][1],
-            },
-            "graph": data_graph,
+        self.data["train"] = {
+            "loader": train_loader,
+            "example": data["train"][0],
+        }
+        self.data["validation"] = {
+            "loader": valid_loader,
+            "example": data["validation"][0],
+        }
+        self.data["stats"] = {
+            "x_mean": stats["x"][0],
+            "x_std": stats["x"][1],
         }
 
-    def update_data(self) -> None:
-        """Update the data loaders after reading more data"""
-        COMM.Barrier()  # sync helps here
-        if RANK == 0:
-            log.info("In update_data...")
-
-        if self.cfg.client.backend == "smartredis":
-            # Check if new files are available to read
-            tic = time.time()
-            num_files = self.client.get_file_list_length(f"outputs_rank_{RANK}")
-            self.online_timers["metaData"].append(time.time() - tic)
-            num_new_files = num_files - len(self.data_list)
-            if num_new_files <= 0:
-                if RANK == 0:
-                    log.info(
-                        f"[RANK {RANK}]: No new files to read, did not update dataloader"
-                    )
-                return
-            else:
-                if RANK == 0:
-                    log.info(
-                        f"[RANK {RANK}]: Found {num_new_files} new files to read, will update dataloader"
-                    )
-                tic = time.time()
-                output_files = self.client.get_file_list(f"outputs_rank_{RANK}")
-                input_files = self.client.get_file_list(f"inputs_rank_{RANK}")
-                self.online_timers["metaData"].append(time.time() - tic)
-                for i in range(len(self.data_list), len(output_files)):
-                    tic = time.time()
-                    data_x_i = (
-                        self.client
-                        .get_array(input_files[i])
-                        .astype(NP_FLOAT_DTYPE)
-                        .T
-                    )
-                    toc = time.time()
-                    self.online_timers["trainDataTime"].append(toc - tic)
-                    self.online_timers["trainDataThroughput"].append(
-                        data_x_i.nbytes / GB_SIZE / (toc - tic)
-                    )
-                    data_x_i = self.prepare_snapshot_data(data_x_i)
-
-                    tic = time.time()
-                    data_y_i = (
-                        self.client
-                        .get_array(output_files[i])
-                        .astype(NP_FLOAT_DTYPE)
-                        .T
-                    )
-                    toc = time.time()
-                    self.online_timers["trainDataTime"].append(toc - tic)
-                    self.online_timers["trainDataThroughput"].append(
-                        data_y_i.nbytes / GB_SIZE / (toc - tic)
-                    )
-                    data_y_i = self.prepare_snapshot_data(data_y_i)
-                    self.data_list.append({"x": data_x_i, "y": data_y_i})
-        elif self.cfg.client.backend == "adios":
-            data_x_i, data_y_i, ttime = self.client.get_train_data_from_stream()
-            self.online_timers["trainDataTime"].append(ttime)
-            self.online_timers["trainDataSize"].append(
-                (data_x_i.nbytes + data_y_i.nbytes) / GB_SIZE
-            )
-            self.online_timers["trainDataThroughput"].append(
-                self.online_timers["trainDataSize"][-1] / (ttime)
-            )
-            data_x_i = self.prepare_snapshot_data(data_x_i)
-            data_y_i = self.prepare_snapshot_data(data_y_i)
-            self.data_list.append({"x": data_x_i, "y": data_y_i})
+    def load_stats(self):
+        """
+        Load the normalizationstatistics for the training data
+        """
+        data_dir = self.cfg.gnn_outputs_path
+        stats = {"x": []}
+        if os.path.exists(data_dir + f"/data_stats.npz"):
+            n_features = self.cfg.input_node_features
             if RANK == 0:
-                log.info(
-                    f"[RANK {RANK}]: Found 1 new sample to read, will update dataloader"
-                )
-
-        data = {"train": [], "validation": []}
-        data["train"] = list(self.data_list)
-        data["validation"] = [{}]
-
-        # Scale files
-        # (ideally should save previouly scaled data so only have to scale new files)
-        stats = self.data["stats"]
-        train_data_scaled = []
-        for item in data["train"]:
-            tmp_data = Data(
-                x=((item["x"] - stats["x_mean"]) / (stats["x_std"] + SMALL)).to(
-                    self.torch_dtype
-                ),
-                y=((item["y"] - stats["y_mean"]) / (stats["y_std"] + SMALL)).to(
-                    self.torch_dtype
-                ),
-            )
-            train_data_scaled.append(tmp_data)
-        train_loader = DataLoader(
-            dataset=train_data_scaled,
-            batch_size=self.cfg.batch_size,
-            shuffle=True,
-        )
-        self.data["train"]["loader"] = train_loader
-
-        # val_data_scaled = data['validation'].copy()
-        # if val_data_scaled[0]:
-        #    for item in  val_data_scaled:
-        #        tdict = {}
-        #        tdict['x'] = (item['x'] - stats['x_mean'])/(stats['x_std'] + SMALL)
-        #        tdict['y'] = (item['y'] - stats['y_mean'])/(stats['y_std'] + SMALL)
-        #        val_data_scaled.append(tdict)
-        # valid_loader = DataLoader(dataset=val_data_scaled,
-        #                                    batch_size=self.cfg.val_batch_size,
-        #                                    shuffle=False)
-        # self.data['validation']['loader'] = valid_loader
+                npzfile = np.load(data_dir + f"/data_stats.npz")
+                stats_arr_x = np.stack([
+                    npzfile["x_mean"][0, :n_features],
+                    npzfile["x_std"][0, :n_features],
+                ])
+            else:
+                stats_arr_x = np.zeros((2, n_features), dtype=np.float32)
+            COMM.Bcast(stats_arr_x, root=0)
+            stats["x"] = [stats_arr_x[0], stats_arr_x[1]]
+        self.data["stats"] = {
+            "x_mean": stats["x"][0],
+            "x_std": stats["x"][1],
+        }
 
     def setup_timers(self, n_record: int) -> dict:
         timers = {}
@@ -1899,28 +1740,124 @@ class Trainer:
         if WITH_XPU:
             torch.xpu.synchronize()
 
-    def train_step(self, data) -> Tensor:
-        graph = self.data["graph"]
+    def get_posterior_mean_and_variance_from_output(
+        self,
+        model_output: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+        field_r: torch.Tensor,
+        r: torch.Tensor,
+        batch: torch.Tensor = None,
+        diffusion_process: DiffusionProcess = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Compute the posterior mean and variance from the model output.
+
+        Adapthed from https://github.com/tum-pbs/dgn4cfd/blob/main/dgn4cfd/nn/diffusion/diffusion_model.py
+        Supports both epsilon and x0 prediction types.
+        """
+        if batch is None:
+            batch = torch.zeros(
+                field_r.size(0), dtype=torch.long, device=self.device
+            )
+
+        dp = (
+            self.diffusion_process
+            if diffusion_process is None
+            else diffusion_process
+        )
+
+        # Extract model prediction and learnable variance
+        if self.cfg.learnable_variance:
+            if isinstance(model_output, tuple):
+                model_pred, v = model_output
+            else:
+                raise ValueError(
+                    "Expected tuple output when learnable_variance=True"
+                )
+            v = (v + 1) / 2
+            # For min_log we use the clipped posterior variance to avoid nan values in the backward pass
+            min_log = dp.get_index_from_list(
+                dp.posterior_log_variance_clipped, batch, r
+            )
+            max_log = torch.log(dp.get_index_from_list(dp.betas, batch, r))
+            log_variance = v * max_log + (1 - v) * min_log
+            variance = torch.exp(log_variance)
+        else:
+            if isinstance(model_output, tuple):
+                model_pred = model_output[0]
+            else:
+                model_pred = model_output
+            variance = dp.get_index_from_list(dp.posterior_variance, batch, r)
+
+        # Compute posterior mean based on prediction type
+        # All prediction types ultimately need x_0 to compute the posterior mean:
+        #   posterior_mean = coef1 * x_0 + coef2 * x_t
+        if self.cfg.prediction_type == "x0":
+            # model_pred is the predicted clean field x_0 directly
+            x_0_pred = model_pred
+        elif self.cfg.prediction_type == "v":
+            # model_pred is the predicted v; recover x_0 from v
+            x_0_pred = dp.predict_x0_from_v(field_r, model_pred, r, batch)
+        else:
+            # epsilon prediction (default): model_pred is predicted noise eps; recover x_0
+            x_0_pred = dp.predict_x0_from_noise(field_r, model_pred, r, batch)
+
+        # Clip x_0 prediction to prevent error accumulation during reverse sampling.
+        # For z-normalized data, values beyond ±5 sigma are extremely unlikely.
+        x_0_pred = x_0_pred.clamp(-5.0, 5.0)
+
+        posterior_mean_coef1 = dp.get_index_from_list(
+            dp.posterior_mean_coef1, batch, r
+        )
+        posterior_mean_coef2 = dp.get_index_from_list(
+            dp.posterior_mean_coef2, batch, r
+        )
+        mean = posterior_mean_coef1 * x_0_pred + posterior_mean_coef2 * field_r
+        return mean, variance
+
+    def train_step(self, data: Data) -> Tensor:
         loss = torch.tensor([0.0])
+        graph = self.data["graph"]
         tic = time.time()
         if WITH_CUDA or WITH_XPU:
             data = data.to(self.device)
             graph.edge_index = graph.edge_index.to(self.device)
             graph.edge_attr = graph.edge_attr.to(self.device)
+            graph.batch = (
+                graph.batch.to(self.device) if graph.batch is not None else None
+            )
             graph.halo_info = graph.halo_info.to(self.device)
             graph.edge_weight = graph.edge_weight.to(self.device)
             graph.node_degree = graph.node_degree.to(self.device)
-            loss = loss.to(self.device)
             graph.effective_nodes = graph.effective_nodes.to(self.device)
+            if self.cfg.cond_node_features:
+                graph.cond_node_features = graph.cond_node_features.to(
+                    self.device
+                )
             if self.cfg.model_name == "graph_transformer":
                 graph.pos = graph.pos.to(self.device)
                 graph.global_ids = graph.global_ids.to(self.device)
                 graph.pos_min = graph.pos_min.to(self.device)
                 graph.pos_max = graph.pos_max.to(self.device)
+                self.idx_reduced2full = self.idx_reduced2full.to(self.device)
+                self.idx_full2reduced = self.idx_full2reduced.to(self.device)
+            loss = loss.to(self.device)
         if self.cfg.timers:
             self.update_timer(
                 "dataTransfer", self.timer_step, time.time() - tic
             )
+
+        if (
+            self.cfg.postprocess
+            and self.iteration == 0
+            and self.cfg.cond_node_features
+        ):
+            n_local = int(graph.n_nodes_local)
+            postprocess.plot_2d_field(
+                COMM,
+                graph.pos[:n_local].numpy(),
+                graph.cond_node_features[:n_local].cpu().numpy(),
+                f"cond_node_features.png",
+            )
+            COMM.Barrier()
 
         self.s_optimizer.zero_grad()
 
@@ -1940,11 +1877,71 @@ class Trainer:
         if self.cfg.timers:
             self.update_timer("bufferInit", self.timer_step, time.time() - tic)
 
-        # Forward pass
+        # Sample a batch of random diffusion steps (all ranks need same sample)
+        batch_size = torch.max(data.batch) + 1
+        r, importance_weights = self.step_sampler.sample(batch_size=batch_size)
+        # Broadcast r and importance_weights from rank 0 for cross-rank consistency.
+        # Same-seeded RNGs are not enough: the first per-rank-sized random op (the
+        # noise tensor below) advances each rank's RNG state by a different number
+        # of draws, so subsequent calls to step_sampler.sample would pick a
+        # different r on each rank from iteration 1 onward.
+        if SIZE > 1 and self.cfg.consistency:
+            dist.broadcast(r, src=0)
+            dist.broadcast(importance_weights, src=0)
+        if self.cfg.verbose and RANK == 0:
+            log.info(f"Sampled diffusion steps: {r.cpu().numpy().tolist()}")
+
+        # Diffuse the solution/target field. Noise is drawn by hashing each
+        # node's global id, so physically-coincident nodes on different ranks
+        # receive identical noise without any collective and the per-iteration
+        # loss matches what a single-rank run would compute.
+        BC_mask = None  # no BCs for now
+        field_start = data.x[:, : self.cfg.input_node_features]
+        noise = self._consistent_noise(
+            batch_size=int(batch_size),
+            n_features=self.cfg.input_node_features,
+            salt=0,
+        )
+        if BC_mask is not None:
+            noise = noise * (~BC_mask)
+        field_r, noise, snr = self.diffusion_process.forward(
+            field_start,
+            r,
+            batch=data.batch,
+            dirichlet_mask=BC_mask,
+            noise=noise,
+        )
+        if self.cfg.postprocess and self.iteration % 100 == 0:
+            n_local = int(graph.n_nodes_local)
+            pos_owned = graph.pos[:n_local].numpy()
+            # data.batch == 0 selects the first batch element's full
+            # (n_local + n_halo) rows; further [:n_local] drops the halo.
+            postprocess.plot_2d_field(
+                COMM,
+                pos_owned,
+                field_r[data.batch == 0][:n_local].cpu().numpy(),
+                f"field_r_r{r[0]}_iter{self.iteration}.png",
+            )
+            postprocess.plot_2d_field(
+                COMM,
+                pos_owned,
+                data
+                .x[data.batch == 0, : self.cfg.input_node_features][:n_local]
+                .cpu()
+                .numpy(),
+                f"data_x_r{r[0]}_iter{self.iteration}.png",
+            )
+            COMM.Barrier()
+
+        # Prediction
         tic = time.time()
+        debug_perlayer: Optional[Dict[str, Any]] = (
+            {} if self.iteration == 0 else None
+        )
         if self.cfg.model_name == "gnn":
-            out_gnn = self.model(
-                x=data.x,
+            model_pred, model_var = self.model(
+                field_r=field_r,
+                r=r,
                 edge_index=graph.edge_index,
                 edge_attr=graph.edge_attr,
                 edge_weight=graph.edge_weight,
@@ -1955,15 +1952,20 @@ class Trainer:
                 buffer_recv=self.buffer_recv,
                 neighboring_procs=self.neighboring_procs,
                 SIZE=SIZE,
-                batch=graph.batch,
+                cond_node_features=graph.cond_node_features
+                if self.cfg.cond_node_features
+                else None,
+                batch=data.batch,
+                debug_dump=debug_perlayer,
             )
         elif self.cfg.model_name == "graph_transformer":
-            out_gnn = self.model(
-                x=data.x,
+            model_pred, model_var = self.model(
+                field_r=field_r,
+                r=r,
                 pos=graph.pos,
                 pos_min=graph.pos_min,
                 pos_max=graph.pos_max,
-                index=graph.global_ids.reshape(-1).to(self.device),
+                index=graph.global_ids.reshape(-1),
                 mask_send=self.mask_send,
                 mask_recv=self.mask_recv,
                 buffer_send=self.buffer_send,
@@ -1973,46 +1975,158 @@ class Trainer:
                 idx_full2reduced=self.idx_full2reduced,
                 neighboring_procs=self.neighboring_procs,
                 SIZE=SIZE,
+                cond_node_features=graph.cond_node_features
+                if self.cfg.cond_node_features
+                else None,
+                batch=data.batch,
+                debug_dump=debug_perlayer,
             )
         else:
             raise ValueError("Unknown model name: %s" % self.cfg.model_name)
-
         if self.cfg.timers:
             self.update_timer("forwardPass", self.timer_step, time.time() - tic)
 
-        if self.cfg.use_residual:
-            pred = out_gnn + data.x
-        else:
-            pred = out_gnn
-
         # Accumulate loss
         tic = time.time()
-        target = data.y
-        n_nodes_local = graph.n_nodes_local
-        mse_loss = torch.zeros(self.cfg.batch_size, device=self.device)
-        n_output_features = pred.shape[1]
-        for batch_idx in range(self.cfg.batch_size):
-            if SIZE == 1 or not self.cfg.consistency:
-                mse_loss[batch_idx] = self.loss_fn(
-                    pred[data.batch == batch_idx],
-                    target[data.batch == batch_idx],
+        # MSE loss: target depends on prediction type
+        if self.cfg.prediction_type == "x0":
+            # x0-prediction: model predicts the clean field directly
+            mse_target = data.x[:, : self.cfg.input_node_features]
+        elif self.cfg.prediction_type == "v":
+            # v-prediction: model predicts v = sqrt(alpha_bar)*eps - sqrt(1-alpha_bar)*x_0
+            mse_target = self.diffusion_process.get_v_target(
+                data.x[:, : self.cfg.input_node_features], noise, r, data.batch
+            )
+        else:
+            # epsilon-prediction (default): model predicts the noise
+            mse_target = noise
+        if self.cfg.postprocess and self.iteration % 100 == 0:
+            n_local = int(graph.n_nodes_local)
+            pos_owned = graph.pos[:n_local].numpy()
+            postprocess.plot_2d_field(
+                COMM,
+                pos_owned,
+                model_pred[data.batch == 0][:n_local].detach().cpu().numpy(),
+                f"model_pred_r{r[0]}_iter{self.iteration}.png",
+            )
+            postprocess.plot_2d_field(
+                COMM,
+                pos_owned,
+                mse_target[data.batch == 0][:n_local].cpu().numpy(),
+                f"target_r{r[0]}_iter{self.iteration}.png",
+            )
+            COMM.Barrier()
+
+        if SIZE == 1 or not self.cfg.consistency:
+            mse_term = batch_wise_mean(
+                (model_pred - mse_target) ** 2, data.batch
+            )  # Dimension (batch_size)
+            loss = mse_term
+            if self.cfg.learnable_variance:
+                # Hybrid loss function for diffusion models from the paper
+                # Improved Denoising Diffusion Probabilistic Models (https://arxiv.org/abs/2102.09672).
+                # Adapted from https://github.com/tum-pbs/dgn4cfd/blob/main/dgn4cfd/nn/losses.py
+                lambda_vlb = 0.001
+                true_posterior_mean, true_posterior_variance = (
+                    self.diffusion_process.get_posterior_mean_and_variance(
+                        data.x[:, : self.cfg.input_node_features],
+                        field_r,
+                        data.batch,
+                        r,
+                    )
                 )
-            else:  # custom loss
-                pred_local = pred[data.batch == batch_idx]
-                target_local = target[data.batch == batch_idx]
+                model_posterior_mean, model_posterior_variance = (
+                    self.get_posterior_mean_and_variance_from_output(
+                        (model_pred.detach(), model_var),
+                        field_r,
+                        r,
+                        batch=data.batch,
+                    )
+                )
+                vlb_term = vlb_loss(
+                    data.x[:, : self.cfg.input_node_features],
+                    (true_posterior_mean, true_posterior_variance),
+                    (model_posterior_mean, model_posterior_variance),
+                    data.batch,
+                    r,
+                )  # Dimension (batch_size)
+                vlb_term = vlb_term * lambda_vlb
+                loss = loss + vlb_term  # Dimension (batch_size)
+            # Log unweighted per-step losses (always, regardless of learnable_variance)
+            if self.cfg.verbose and RANK == 0:
+                log.info(
+                    f"MSE loss term: {mse_term.detach().cpu().numpy().tolist()}, mean = {mse_term.detach().cpu().mean().numpy().tolist()}"
+                )
+                if self.cfg.learnable_variance:
+                    log.info(
+                        f"VLB loss term: {vlb_term.detach().cpu().numpy().tolist()}, mean = {vlb_term.detach().cpu().mean().numpy().tolist()}"
+                    )
+        else:  # custom consistent loss
+            if self.cfg.learnable_variance:
+                if RANK == 0:
+                    log.error(
+                        "Custom consistent loss not yet implemented for VLB term"
+                    )
+                COMM.Abort(1)
+            n_output_features = model_pred.shape[1]
+            mse_term = torch.zeros(
+                batch_size, dtype=self.torch_dtype, device=self.device
+            )
+            for batch_idx in range(batch_size):
+                model_pred_local = model_pred[data.batch == batch_idx]
+                mse_target_local = mse_target[data.batch == batch_idx]
                 squared_errors_local = torch.pow(
-                    pred_local[:n_nodes_local] - target_local[:n_nodes_local], 2
+                    model_pred_local[: graph.n_nodes_local]
+                    - mse_target_local[: graph.n_nodes_local],
+                    2,
                 )
                 squared_errors_local = squared_errors_local / graph.node_degree[
-                    :n_nodes_local
+                    : graph.n_nodes_local
                 ].unsqueeze(-1)
-
                 sum_squared_errors_local = squared_errors_local.sum()
                 sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
-                mse_loss[batch_idx] = (
+                mse_term[batch_idx] = (
                     1.0 / (graph.effective_nodes * n_output_features)
                 ) * sum_squared_errors
-        loss = mse_loss.mean()
+            if self.cfg.verbose and RANK == 0:
+                log.info(
+                    f"[RANK {RANK}] MSE loss term: {mse_term.detach().cpu().numpy().tolist()}, mean = {mse_term.detach().cpu().mean().numpy().tolist()}"
+                )
+            loss = mse_term  # Dimension (batch_size)
+
+        # Apply loss weighting
+        # 1) Min-SNR weights (only on MSE, not VLB — VLB has correct per-step weighting from the KL)
+        # 2) Importance weights from the step sampler (corrects for non-uniform sampling)
+        if self.cfg.loss_weighting == "min_snr":
+            # Min-SNR-gamma weighting from "Efficient Diffusion Training via Min-SNR Weighting Strategy"
+            # (Hang et al., 2023, https://arxiv.org/abs/2303.09556)
+            # For epsilon-prediction: w(t) = min(SNR(t), gamma)
+            # For x0-prediction:      w(t) = min(SNR(t), gamma) / SNR(t)
+            # For v-prediction:       w(t) = min(SNR(t), gamma) / (SNR(t) + 1)
+            clamped_snr = torch.clamp(
+                snr, max=self.cfg.min_snr_gamma
+            )  # Dimension (batch_size)
+            if self.cfg.prediction_type == "x0":
+                min_snr_weights = clamped_snr / snr
+            elif self.cfg.prediction_type == "v":
+                min_snr_weights = clamped_snr / (snr + 1)
+            else:
+                min_snr_weights = clamped_snr
+            # Apply min-SNR only to MSE term, then add VLB separately
+            weighted_mse = mse_term * min_snr_weights
+            if self.cfg.learnable_variance:
+                loss = (weighted_mse + vlb_term).mean()
+            else:
+                loss = weighted_mse.mean()
+            # Log weighted per-step losses (actual gradient contribution)
+            if self.cfg.verbose and RANK == 0:
+                log.info(
+                    f"[RANK {RANK}] Weighted MSE loss: {weighted_mse.detach().cpu().numpy().tolist()}, mean = {weighted_mse.detach().cpu().mean().numpy().tolist()}"
+                )
+        else:
+            # Uniform weighting (default)
+            loss = loss.mean()
+
         if self.cfg.timers:
             self.update_timer("loss", self.timer_step, time.time() - tic)
 
@@ -2038,27 +2152,116 @@ class Trainer:
                 self.timer_step += 1
         return loss
 
-    def inference_step(self, x) -> Tensor:
-        graph = self.data["graph"]
-        stats = self.data["stats"]
+    @torch.no_grad()
+    def sample(self, steps: list[int] = None) -> Tensor:
+        self.model.eval()
+
+        # Update the counter for the random number seed
+        self.sample_counter += 1
+        sc = int(self.sample_counter)
+
+        # Assert step list is all integers and is sorted
+        if steps is not None:
+            if RANK == 0:
+                log.error("Passing a list of steps is not supported yet")
+            COMM.Abort(1)
+        else:
+            steps = list(range(self.cfg.num_diffusion_steps))
+
+        # Offload graph to device first so _consistent_noise can read
+        # pos_for_noise from the device.
+        n_nodes = self.data["graph"].pos_orig.size(0)
+        n_nodes_halo = (
+            self.data["graph"].n_nodes_halo
+            if self.cfg.consistency and SIZE > 1
+            else 0
+        )
+        n_nodes_total = n_nodes + n_nodes_halo
+        batch = torch.zeros(n_nodes_total, dtype=torch.long)
+
         tic = time.time()
-        batch = None
         if WITH_CUDA or WITH_XPU:
-            x = x.to(self.device)
-            graph.edge_index = graph.edge_index.to(self.device)
-            graph.edge_weight = graph.edge_weight.to(self.device)
-            graph.edge_attr = graph.edge_attr.to(self.device)
-            graph.halo_info = graph.halo_info.to(self.device)
-            graph.node_degree = graph.node_degree.to(self.device)
+            self.data["graph"].edge_index = self.data["graph"].edge_index.to(
+                self.device
+            )
+            self.data["graph"].edge_attr = self.data["graph"].edge_attr.to(
+                self.device
+            )
+            self.data["graph"].batch = batch.to(self.device)
+            self.data["graph"].halo_info = self.data["graph"].halo_info.to(
+                self.device
+            )
+            self.data["graph"].edge_weight = self.data["graph"].edge_weight.to(
+                self.device
+            )
+            self.data["graph"].node_degree = self.data["graph"].node_degree.to(
+                self.device
+            )
+            self.data["graph"].effective_nodes = self.data[
+                "graph"
+            ].effective_nodes.to(self.device)
+            if self.cfg.cond_node_features:
+                self.data["graph"].cond_node_features = self.data[
+                    "graph"
+                ].cond_node_features.to(self.device)
             if self.cfg.model_name == "graph_transformer":
-                graph.pos = graph.pos.to(self.device)
-                graph.global_ids = graph.global_ids.to(self.device)
-                graph.pos_min = graph.pos_min.to(self.device)
-                graph.pos_max = graph.pos_max.to(self.device)
+                self.data["graph"].pos = self.data["graph"].pos.to(self.device)
+                self.data["graph"].global_ids = self.data[
+                    "graph"
+                ].global_ids.to(self.device)
+                self.data["graph"].pos_min = self.data["graph"].pos_min.to(
+                    self.device
+                )
+                self.data["graph"].pos_max = self.data["graph"].pos_max.to(
+                    self.device
+                )
+                self.idx_reduced2full = self.idx_reduced2full.to(self.device)
+                self.idx_full2reduced = self.idx_full2reduced.to(self.device)
         if self.cfg.timers:
             self.update_timer(
                 "dataTransfer", self.timer_step, time.time() - tic
             )
+
+        # Initialize sample field via rank-consistent noise so that on every
+        # rank the tier-1/tier-2/tier-3 slots receive identical values at
+        # physically-coincident nodes — the reverse diffusion is then a pure
+        # function of model weights and the initial seed.
+        diff_process = self.diffusion_process
+        field_r = self._consistent_noise(
+            batch_size=1,
+            n_features=self.cfg.input_node_features,
+            salt=-1,  # distinct from any per-step salt below
+            extra_counter=sc,
+        )
+
+        # Dedicated halo-swap buffers sized for field_r (input_node_features
+        # wide, vs the mlp_hidden_channels-wide self.buffer_* used inside
+        # gnn.py). Only needed if we will actually do a swap below.
+        field_r_buf_send = None
+        field_r_buf_recv = None
+        if (
+            SIZE > 1
+            and self.cfg.consistency
+            and self.cfg.halo_swap_mode != "none"
+        ):
+            field_r_buf_send = [
+                torch.empty(0, device=DEVICE, dtype=self.torch_dtype)
+            ] * SIZE
+            field_r_buf_recv = [
+                torch.empty(0, device=DEVICE, dtype=self.torch_dtype)
+            ] * SIZE
+            for i in self.neighboring_procs:
+                n_swap = int(self.n_nodes_to_exchange[i])
+                field_r_buf_send[i] = torch.empty(
+                    [n_swap, self.cfg.input_node_features],
+                    dtype=self.torch_dtype,
+                    device=DEVICE,
+                )
+                field_r_buf_recv[i] = torch.empty(
+                    [n_swap, self.cfg.input_node_features],
+                    dtype=self.torch_dtype,
+                    device=DEVICE,
+                )
 
         # re-allocate send buffer
         tic = time.time()
@@ -2076,50 +2279,103 @@ class Trainer:
         if self.cfg.timers:
             self.update_timer("bufferInit", self.timer_step, time.time() - tic)
 
-        # Prediction
-        tic = time.time()
-        if self.cfg.model_name == "gnn":
-            out_gnn = self.model(
-                x=x,
-                edge_index=graph.edge_index,
-                edge_attr=graph.edge_attr,
-                edge_weight=graph.edge_weight,
-                halo_info=graph.halo_info,
-                mask_send=self.mask_send,
-                mask_recv=self.mask_recv,
-                buffer_send=self.buffer_send,
-                buffer_recv=self.buffer_recv,
-                neighboring_procs=self.neighboring_procs,
-                SIZE=SIZE,
-                batch=graph.batch,
-            )
-        elif self.cfg.model_name == "graph_transformer":
-            out_gnn = self.model(
-                x=x_scaled,
-                pos=graph.pos,
-                pos_min=graph.pos_min,
-                pos_max=graph.pos_max,
-                index=graph.global_ids.reshape(-1).to(self.device),
-                mask_send=self.mask_send,
-                mask_recv=self.mask_recv,
-                buffer_send=self.buffer_send,
-                buffer_recv=self.buffer_recv,
-                halo_info=graph.halo_info,
-                idx_reduced2full=self.idx_reduced2full,
-                idx_full2reduced=self.idx_full2reduced,
-                neighboring_procs=self.neighboring_procs,
-                SIZE=SIZE,
-            )
-        else:
-            raise ValueError("Unknown model name: %s" % self.cfg.model_name)
+        # Prediction (de-noise step by step)
+        for step in diff_process.steps[::-1]:
+            if RANK == 0 and self.cfg.verbose:
+                log.info(f"Performing de-noise step {step}")
+            r = torch.tensor([step], device=self.device)
+            tic = time.time()
+            if self.cfg.model_name == "gnn":
+                model_pred, model_var = self.model(
+                    field_r=field_r,
+                    r=r,
+                    edge_index=self.data["graph"].edge_index,
+                    edge_attr=self.data["graph"].edge_attr,
+                    edge_weight=self.data["graph"].edge_weight,
+                    halo_info=self.data["graph"].halo_info,
+                    mask_send=self.mask_send,
+                    mask_recv=self.mask_recv,
+                    buffer_send=self.buffer_send,
+                    buffer_recv=self.buffer_recv,
+                    neighboring_procs=self.neighboring_procs,
+                    SIZE=SIZE,
+                    cond_node_features=self.data["graph"].cond_node_features
+                    if self.cfg.cond_node_features
+                    else None,
+                    batch=self.data["graph"].batch,
+                )
+            elif self.cfg.model_name == "graph_transformer":
+                model_pred, model_var = self.model(
+                    field_r=field_r,
+                    r=r,
+                    pos=self.data["graph"].pos,
+                    pos_min=self.data["graph"].pos_min,
+                    pos_max=self.data["graph"].pos_max,
+                    index=self.data["graph"].global_ids.reshape(-1),
+                    mask_send=self.mask_send,
+                    mask_recv=self.mask_recv,
+                    buffer_send=self.buffer_send,
+                    buffer_recv=self.buffer_recv,
+                    halo_info=self.data["graph"].halo_info,
+                    idx_reduced2full=self.idx_reduced2full,
+                    idx_full2reduced=self.idx_full2reduced,
+                    neighboring_procs=self.neighboring_procs,
+                    SIZE=SIZE,
+                    cond_node_features=self.data["graph"].cond_node_features
+                    if self.cfg.cond_node_features
+                    else None,
+                    batch=self.data["graph"].batch,
+                )
+            else:
+                raise ValueError("Unknown model name: %s" % self.cfg.model_name)
+            if self.cfg.timers:
+                self.update_timer(
+                    "forwardPass", self.timer_step, time.time() - tic
+                )
 
-        if self.cfg.timers:
-            self.update_timer("forwardPass", self.timer_step, time.time() - tic)
+            # Get the posterior mean and variance from the model output
+            # get_posterior_mean_and_variance_from_output handles both epsilon and x0 prediction types
+            model_posterior_mean, model_posterior_variance = (
+                self.get_posterior_mean_and_variance_from_output(
+                    (model_pred.detach(), model_var), field_r, r
+                )
+            )
 
-        if self.cfg.use_residual:
-            pred = out_gnn + x
-        else:
-            pred = out_gnn
+            # Update field_r: add noise at all steps except the final one (step 0)
+            if step > 0:
+                # Salt with step so each reverse-diffusion step gets an
+                # independent rank-consistent draw.
+                gaussian_noise = self._consistent_noise(
+                    batch_size=1,
+                    n_features=model_posterior_mean.shape[1],
+                    salt=step,
+                    extra_counter=sc,
+                )
+                field_r = (
+                    model_posterior_mean
+                    + torch.sqrt(model_posterior_variance) * gaussian_noise
+                )
+            else:
+                field_r = model_posterior_mean
+
+            # Halo-sync field_r so every rank's tier-3 slot carries its
+            # owner's value before the next reverse step. The node decoder is
+            # *not* halo-synced inside gnn.py (only the per-MP edge_agg is),
+            # so model_pred (and hence field_r) drifts by O(1e-2) at halo
+            # slots. During training that drift never feeds back — each step
+            # is independent — but during sampling we re-consume the halo
+            # state every reverse step and the drift compounds into a visible
+            # seam at partition boundaries. _consistent_noise already gives us
+            # rank-identical noise at coincident nodes, so once we sync the
+            # mean the sum is consistent too.
+            if (
+                SIZE > 1
+                and self.cfg.consistency
+                and self.cfg.halo_swap_mode != "none"
+            ):
+                field_r = self.halo_swap(
+                    field_r, field_r_buf_send, field_r_buf_recv
+                )
 
         # Update timers
         self.synchronize()
@@ -2128,129 +2384,7 @@ class Trainer:
                 self.update_timer_stats()
                 self.timer_step += 1
 
-        return pred
-
-    def test(self) -> dict:
-        running_loss = torch.tensor(0.0)
-        count = torch.tensor(0.0)
-        if WITH_CUDA or WITH_XPU:
-            running_loss = running_loss.to(self.device)
-            count = count.to(self.device)
-        self.model.eval()
-        test_loader = self.data["test"]["loader"]
-
-        with torch.no_grad():
-            for data in test_loader:
-                loss = torch.tensor([0.0])
-                graph = self.data["graph"]
-                batch = None
-
-                if WITH_CUDA or WITH_XPU:
-                    data = data.to(self.device)
-                    graph.edge_index = graph.edge_index.to(self.device)
-                    graph.edge_attr = graph.edge_attr.to(self.device)
-                    graph.halo_info = graph.halo_info.to(self.device)
-                    graph.edge_weight = graph.edge_weight.to(self.device)
-                    graph.node_degree = graph.node_degree.to(self.device)
-                    loss = loss.to(self.device)
-                    if self.cfg.model_name == "graph_transformer":
-                        graph.pos = graph.pos.to(self.device)
-                        graph.global_ids = graph.global_ids.to(self.device)
-                        graph.pos_min = graph.pos_min.to(self.device)
-                        graph.pos_max = graph.pos_max.to(self.device)
-
-                # re-allocate send buffer
-                if self.cfg.halo_swap_mode != "none":
-                    for i in range(SIZE):
-                        if self.cfg.halo_swap_mode == "all_to_all_opt_intel":
-                            self.buffer_send[i] = torch.zeros_like(
-                                self.buffer_send[i]
-                            )
-                            self.buffer_recv[i] = torch.zeros_like(
-                                self.buffer_recv[i]
-                            )
-                        else:
-                            self.buffer_send[i] = torch.empty_like(
-                                self.buffer_send[i]
-                            )
-                            self.buffer_recv[i] = torch.empty_like(
-                                self.buffer_recv[i]
-                            )
-                else:
-                    self.buffer_send = None
-                    self.buffer_recv = None
-
-                if self.cfg.model_name == "gnn":
-                    out_gnn = self.model(
-                        x=data.x,
-                        edge_index=graph.edge_index,
-                        edge_attr=graph.edge_attr,
-                        edge_weight=graph.edge_weight,
-                        halo_info=graph.halo_info,
-                        mask_send=self.mask_send,
-                        mask_recv=self.mask_recv,
-                        buffer_send=self.buffer_send,
-                        buffer_recv=self.buffer_recv,
-                        neighboring_procs=self.neighboring_procs,
-                        SIZE=SIZE,
-                        batch=graph.batch,
-                    )
-                elif self.cfg.model_name == "graph_transformer":
-                    out_gnn = self.model(
-                        x=data.x,
-                        pos=graph.pos,
-                        pos_min=graph.pos_min,
-                        pos_max=graph.pos_max,
-                        index=self.data_full.global_ids.reshape(-1).to(
-                            self.device
-                        ),
-                        mask_send=self.mask_send,
-                        mask_recv=self.mask_recv,
-                        buffer_send=self.buffer_send,
-                        buffer_recv=self.buffer_recv,
-                        halo_info=graph.halo_info,
-                        idx_reduced2full=self.idx_reduced2full,
-                        idx_full2reduced=self.idx_full2reduced,
-                        neighboring_procs=self.neighboring_procs,
-                        SIZE=SIZE,
-                    )
-                else:
-                    raise ValueError(
-                        "Unknown model name: %s" % self.cfg.model_name
-                    )
-
-                # Accumulate loss
-                target = data.y
-                n_nodes_local = graph.n_nodes_local
-                if SIZE == 1 or not self.cfg.consistency:
-                    loss = self.loss_fn(
-                        out_gnn[:n_nodes_local], target[:n_nodes_local]
-                    )
-                else:  # custom
-                    n_output_features = out_gnn.shape[1]
-                    squared_errors_local = torch.pow(
-                        out_gnn[:n_nodes_local] - target[:n_nodes_local], 2
-                    )
-                    squared_errors_local = (
-                        squared_errors_local
-                        / graph.node_degree[:n_nodes_local].unsqueeze(-1)
-                    )
-
-                    sum_squared_errors_local = squared_errors_local.sum()
-                    sum_squared_errors = distnn.all_reduce(
-                        sum_squared_errors_local
-                    )
-                    loss = (
-                        1.0 / (graph.effective_nodes * n_output_features)
-                    ) * sum_squared_errors
-
-                running_loss += loss.item()
-                count += 1
-
-            running_loss = running_loss / count
-            loss_avg = utils.metric_average(running_loss)
-
-        return {"loss": loss_avg}
+        return field_r
 
     def writeGraphStatistics(self):
         if RANK == 0:
@@ -2267,9 +2401,9 @@ class Trainer:
         if RANK == 0:
             if not os.path.exists(savepath):
                 os.makedirs(savepath)
-                print("Directory created by root processor.")
+                log.info("Directory created by root processor.")
             else:
-                print("Directory already exists.")
+                log.info("Directory already exists.")
         COMM.Barrier()
 
         # Number of local nodes
@@ -2295,14 +2429,13 @@ class Trainer:
         a["n_edges"] = n_edges
         torch.save(a, savepath + "/%s.tar" % (model.get_save_header()))
 
-    def postprocess(self):
-        """Do some postprocessing."""
-        # Get gradient norm
+    def grad_norm(self):
+        """Do some analytics on the gradients"""
         grads = [
             param.grad.detach().flatten()
             for param in self.model.parameters()
             if param.grad is not None
         ]
         gradnorm = torch.cat(grads).norm()
-        dist.barrier()
-        return [gradnorm]
+        COMM.Barrier()
+        return gradnorm

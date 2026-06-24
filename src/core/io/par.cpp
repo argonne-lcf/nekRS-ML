@@ -257,6 +257,7 @@ static std::vector<std::string> mlKeys = {
     {"adiosStream"},
     {"gnnPolynomialOrder"},
     {"srGNNMultiscale"},
+    {"gnnCondFeatures"},
 };
 
 static std::vector<std::string> deprecatedKeys = {
@@ -2670,6 +2671,14 @@ void parseMLSection(const int rank, setupAide &options, inipp::Ini *ini)
   } else {
     options.setArgs("SR GNN MULTISCALE", "FALSE");
   }
+
+  std::string gnnCondFeatures;
+  if (ini->extract("ml", "gnnCondFeatures", gnnCondFeatures)) {
+    options.setArgs("GNN COND FEATURES", gnnCondFeatures);
+  } else {
+    options.setArgs("GNN COND FEATURES", "none");
+  }
+
 }
 
 void cleanupStaleKeys(const int rank, setupAide &options, inipp::Ini *ini)

@@ -1,0 +1,33 @@
+[GENERAL]
+#verbose = true
+polynomialOrder = 3
+#startFrom = "restart.fld"+time=0
+stopAt = numSteps
+numSteps = 500
+
+dt = targetCFL=2 + max=2e-2 + initial=5e-3
+timeStepper = tombo2
+
+checkpointControl = simulationTime 
+checkpointInterval = 0
+
+regularization = hpfrt + nModes=1 + scalingCoeff=5
+#constFlowRate = meanVelocity=1.0 + direction=X
+
+[PRESSURE]
+residualTol = 1e-04
+
+[VELOCITY]
+boundaryTypeMap = zeroValue 
+viscosity = 1/10000
+rho = 1.0
+residualTol = 1e-06
+
+[CASEDATA]
+ReTau = 550
+xLength = 6.283185307 
+zLength = 3.141592653 
+betaY = 2.2
+
+[ML]
+gnnPolynomialOrder = 3

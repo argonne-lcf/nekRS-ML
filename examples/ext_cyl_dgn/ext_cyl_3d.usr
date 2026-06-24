@@ -1,0 +1,94 @@
+c-----------------------------------------------------------------------
+      subroutine uservp(i,j,k,eg) ! set variable properties
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      integer i,j,k,e,eg
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userf(i,j,k,eg) ! set acceleration term
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      integer i,j,k,e,eg
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userq(i,j,k,eg) ! set source term
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      integer i,j,k,e,eg
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userbc(i,j,k,f,eg) ! set up boundary conditions
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+      integer i,j,k,f,e,eg
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine useric (ix,iy,iz,ieg)
+      include 'SIZE'
+      include 'TOTAL'
+      include 'NEKUSE'
+
+      ux = 1.0
+      uy = 0.0
+      uz = 0.0
+      temp = 0.0
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat   ! This routine to modify element vertices
+      include 'SIZE'
+      include 'TOTAL'
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat3
+      include 'SIZE'
+      include 'TOTAL'
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine usrdat2
+      include 'SIZE'
+      include 'TOTAL'
+      integer iel, ifc, id_face
+
+      do iel = 1, nelt
+      do ifc = 1, 2*ndim
+        id_face = bc(5, ifc, iel, 1)
+        boundaryID(ifc, iel) = 0
+
+        if     (id_face .eq. 1) then
+            cbc(ifc, iel, 1) = 'v  '
+            boundaryID(ifc, iel) = 1
+        elseif (id_face .eq. 2) then
+            cbc(ifc, iel, 1) = 'O  '
+            boundaryID(ifc, iel) = 2
+        elseif (id_face .eq. 3) then
+            cbc(ifc, iel, 1) = 'W  '
+            boundaryID(ifc, iel) = 3
+        elseif (id_face .ge. 4 .and. id_face .le. 7) then
+            cbc(ifc, iel, 1) = 'SYM'
+            boundaryID(ifc, iel) = id_face   ! 4,5,6,7
+        endif
+      enddo
+      enddo
+
+      return
+      end
+c-----------------------------------------------------------------------
+      subroutine userchk
+      include 'SIZE'
+      include 'TOTAL'
+      return
+      end
+c-----------------------------------------------------------------------
