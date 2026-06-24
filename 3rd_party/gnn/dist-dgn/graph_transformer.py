@@ -24,6 +24,7 @@ from gnn import SinusoidalPositionEmbedding
 try:
     from torch_scatter import scatter_add, scatter_max, scatter_mean
     from torch_scatter.composite import scatter_softmax
+
     TORCH_SCATTER_AVAIL = True
 except ModuleNotFoundError:
     TORCH_SCATTER_AVAIL = False
@@ -358,15 +359,18 @@ class DGTAttentionBlock(nn.Module):
             idx_recv = halo_info[:, 0]
             idx_send = halo_info[:, 1]
             N = x_new.size(0)
-            score_self = self.redist_gate_inter(x_new)            # (N, 1)
-            values_in = x_new.index_select(0, idx_send)            # (H, C)
-            score_in = score_self.index_select(0, idx_send)        # (H, 1)
+            score_self = self.redist_gate_inter(x_new)  # (N, 1)
+            values_in = x_new.index_select(0, idx_send)  # (H, C)
+            score_in = score_self.index_select(0, idx_send)  # (H, 1)
             values_concat = torch.cat([x_new, values_in], dim=0)
             score_concat = torch.cat([score_self, score_in], dim=0)
-            group_concat = torch.cat([
-                torch.arange(N, device=x_new.device, dtype=idx_recv.dtype),
-                idx_recv,
-            ], dim=0)
+            group_concat = torch.cat(
+                [
+                    torch.arange(N, device=x_new.device, dtype=idx_recv.dtype),
+                    idx_recv,
+                ],
+                dim=0,
+            )
             x_new = softmax_weighted_aggregate(
                 values_concat, group_concat, score_concat, dim_size=N
             )
