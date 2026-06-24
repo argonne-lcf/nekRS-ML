@@ -52,6 +52,14 @@ num_heads: 4
 layer_norm: False
 dropout_rate: 0.0
 
+# Hierarchical attention (graph_transformer only). See Appendix A of
+# "A Consistent Transformer for Mesh-Based Data" (ML4PS @ NeurIPS 2025).
+# When True, each DGTAttentionBlock is wrapped in a HierarchicalLayer that
+# adds a perceiver-style pooling + cross-rank summary self-attention +
+# cross-attention readout. Defaults preserve the local-only behavior.
+hierarchical_attention: False
+k_summary: 4               # number of learned summary tokens per element
+
 # Halo swap mode 
 halo_swap_mode : none
 

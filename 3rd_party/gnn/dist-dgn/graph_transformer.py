@@ -244,7 +244,7 @@ class DGTAttentionBlock(nn.Module):
             hidden_channels, int(hidden_channels * mlp_ratio), hidden_channels
         )
 
-    def _attention_with_consistency(
+    def _attention_pre_ffn(
         self,
         x_batch: torch.Tensor,
         pos: torch.Tensor,
@@ -261,9 +261,16 @@ class DGTAttentionBlock(nn.Module):
         neighboring_procs,
         SIZE,
     ) -> torch.Tensor:
-        """Run attention + redistribution + halo swap on a single batch slice.
+        """Run attention + intra-rank redistribution + halo swap + inter-rank
+        redistribution on a single batch slice, stopping BEFORE the FFN
+        residual. Returns x_new in the reduced layout (size N_reduced + halo
+        slots, where halo slots have been refreshed by the halo swap when
+        SIZE>1). The FFN tail lives in ``_post_ffn``; the full local block is
+        ``_attention_with_consistency`` and composes both halves.
 
-        Returns the updated x_batch (out-of-place; does not mutate input).
+        Split into pre/post-FFN halves so the hierarchical attention layer can
+        insert a global summary update between the local attention and the FFN
+        without reimplementing the (subtle) consistency logic.
         """
         poly_order = self.poly_order
         nodes_per_element = (poly_order + 1) ** 3
@@ -377,11 +384,52 @@ class DGTAttentionBlock(nn.Module):
         else:
             x_new = res + attn_output
 
-        # Residual FFN
+        return x_new
+
+    def _post_ffn(self, x_new: torch.Tensor) -> torch.Tensor:
+        """Residual FFN tail. Counterpart to ``_attention_pre_ffn``."""
         y = self.norm2(x_new)
         y = self.ffn(y)
-        x_new = x_new + y
-        return x_new
+        return x_new + y
+
+    def _attention_with_consistency(
+        self,
+        x_batch: torch.Tensor,
+        pos: torch.Tensor,
+        pos_min: torch.Tensor,
+        pos_max: torch.Tensor,
+        grouping_index: torch.Tensor,
+        mask_send,
+        mask_recv,
+        buffer_send,
+        buffer_recv,
+        halo_info: torch.Tensor,
+        idx_reduced2full: torch.Tensor,
+        idx_full2reduced: torch.Tensor,
+        neighboring_procs,
+        SIZE,
+    ) -> torch.Tensor:
+        """Local-only path: pre-FFN attention block + FFN residual. Preserved
+        as a single-call entry point for the non-hierarchical processor stack.
+        Bit-equivalent to the pre-refactor implementation.
+        """
+        x_new = self._attention_pre_ffn(
+            x_batch,
+            pos,
+            pos_min,
+            pos_max,
+            grouping_index,
+            mask_send,
+            mask_recv,
+            buffer_send,
+            buffer_recv,
+            halo_info,
+            idx_reduced2full,
+            idx_full2reduced,
+            neighboring_procs,
+            SIZE,
+        )
+        return self._post_ffn(x_new)
 
     def forward(
         self,
@@ -526,19 +574,34 @@ class DistributedDGT(nn.Module):
             self.hidden_channels,
         )
 
-        # ~~~~ Processor: stack of DGTAttentionBlock
+        # ~~~~ Processor: stack of DGTAttentionBlock, optionally wrapped in
+        # HierarchicalLayer when arch["hierarchical_attention"] is true.
+        # Imported here to avoid a top-level circular import (hierarchical.py
+        # imports apply_rope/MlpBlock from this module).
+        if self.hierarchical_attention:
+            from hierarchical import HierarchicalLayer
         self.processor = nn.ModuleList()
         for _ in range(self.n_transformer_layers):
-            self.processor.append(
-                DGTAttentionBlock(
-                    hidden_channels=self.hidden_channels,
-                    num_heads=self.num_heads,
-                    emb_features=emb_width,
-                    poly_order=self.poly_order,
-                    mlp_ratio=self.mlp_ratio,
-                    halo_swap_mode=self.halo_swap_mode,
-                )
+            inner = DGTAttentionBlock(
+                hidden_channels=self.hidden_channels,
+                num_heads=self.num_heads,
+                emb_features=emb_width,
+                poly_order=self.poly_order,
+                mlp_ratio=self.mlp_ratio,
+                halo_swap_mode=self.halo_swap_mode,
             )
+            if self.hierarchical_attention:
+                self.processor.append(
+                    HierarchicalLayer(
+                        inner_block=inner,
+                        hidden_channels=self.hidden_channels,
+                        num_heads=self.num_heads,
+                        k_summary=self.k_summary,
+                        poly_order=self.poly_order,
+                    )
+                )
+            else:
+                self.processor.append(inner)
 
         # ~~~~ Decoder MLP. Width matches DistributedDGN's contract.
         self.decoder = MlpBlock(
@@ -559,6 +622,8 @@ class DistributedDGT(nn.Module):
         self.halo_swap_mode = arch["halo_swap_mode"]
         self.learnable_variance = arch.get("learnable_variance", False)
         self.mlp_ratio = arch.get("mlp_ratio", 1.0)
+        self.hierarchical_attention = arch.get("hierarchical_attention", False)
+        self.k_summary = arch.get("k_summary", 4)
         self.output_node_features = (
             self.input_node_features * 2
             if self.learnable_variance
@@ -580,6 +645,8 @@ class DistributedDGT(nn.Module):
             f"_lv{self.arch['learnable_variance']}"
             f"_condf{self.arch['cond_node_features']}"
         )
+        if self.arch.get("hierarchical_attention", False):
+            header += f"_hier{self.arch.get('k_summary', 4)}"
         return header
 
     def forward(

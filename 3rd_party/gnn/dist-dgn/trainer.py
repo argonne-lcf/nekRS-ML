@@ -411,6 +411,8 @@ class DGNTrainer:
                 "emb_width": self.cfg.emb_width,
                 "learnable_variance": self.cfg.learnable_variance,
                 "mlp_ratio": 1.0,
+                "hierarchical_attention": self.cfg.hierarchical_attention,
+                "k_summary": self.cfg.k_summary,
                 "name": "DGT_POLY_%d_SIZE_%d_SEED_%d"
                 % (poly, SIZE, self.cfg.seed),
             }
