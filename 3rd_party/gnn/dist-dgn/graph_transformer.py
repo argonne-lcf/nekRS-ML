@@ -540,7 +540,7 @@ class DistributedDGT(nn.Module):
         if self.hierarchical_attention:
             from hierarchical import HierarchicalLayer
         self.processor = nn.ModuleList()
-        for _ in range(self.n_transformer_layers):
+        for ilayer in range(self.n_transformer_layers):
             inner = DGTAttentionBlock(
                 hidden_channels=self.hidden_channels,
                 num_heads=self.num_heads,
@@ -549,7 +549,10 @@ class DistributedDGT(nn.Module):
                 mlp_ratio=self.mlp_ratio,
                 halo_swap_mode=self.halo_swap_mode,
             )
-            if self.hierarchical_attention:
+            if (
+                self.hierarchical_attention and 
+                (ilayer + 1) % self.hierarchical_interleve_freq == 0
+            ) :
                 self.processor.append(
                     HierarchicalLayer(
                         inner_block=inner,
@@ -584,6 +587,7 @@ class DistributedDGT(nn.Module):
         self.learnable_variance = arch.get("learnable_variance", False)
         self.mlp_ratio = arch.get("mlp_ratio", 1.0)
         self.hierarchical_attention = arch.get("hierarchical_attention", False)
+        self.hierarchical_interleve_freq = arch.get("hierarchical_interleve_freq", 2)
         self.k_summary = arch.get("k_summary", 4)
         # Cap on the SummaryReadout attention matrix per SDPA call (in element
         # count). Picked so the per-chunk attention buffer (chunk * h * np * n_kv)

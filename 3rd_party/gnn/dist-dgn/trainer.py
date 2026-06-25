@@ -414,6 +414,7 @@ class DGNTrainer:
                 "learnable_variance": self.cfg.learnable_variance,
                 "mlp_ratio": 1.0,
                 "hierarchical_attention": self.cfg.hierarchical_attention,
+                "hierarchical_interleve_freq": self.cfg.hierarchical_interleve_freq,
                 "k_summary": self.cfg.k_summary,
                 "readout_chunk_size": self.cfg.readout_chunk_size,
                 "activation_checkpointing": self.cfg.activation_checkpointing,

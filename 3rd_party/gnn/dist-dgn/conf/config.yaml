@@ -52,6 +52,7 @@ dropout_rate: 0.0
 n_transformer_layers: 4
 num_heads: 4
 hierarchical_attention: False
+hierarchical_interleve_freq: 2 # frequency with which to alternate local/global attention
 k_summary: 4               # number of learned summary tokens per element
 readout_chunk_size: 16     # SummaryReadout SDPA: # of query elements per chunk.
                            # Bounds per-call attention buffer at chunk*h*np*n_kv;
