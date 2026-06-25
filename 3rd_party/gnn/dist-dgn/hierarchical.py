@@ -13,7 +13,7 @@ Three modules:
     to be added to the local node features.
   - HierarchicalLayer: wraps one DGTAttentionBlock with the perceiver pool +
     cross-rank all_gather + summary readout, inserting the global update
-    between the local block's attention and FFN.
+    between the local block's attention and MLP.
 
 Summary tokens are allocated fresh per layer. Backend for the cross-rank
 gather is `torch.distributed.nn.functional.all_gather`, which is autograd-aware
@@ -305,10 +305,10 @@ def _autograd_all_gather(local: torch.Tensor, world_size: int) -> torch.Tensor:
 class HierarchicalLayer(nn.Module):
     """One hierarchical attention layer: wraps a DGTAttentionBlock with a
     perceiver pool + cross-rank summary attention + readout. The global update
-    is inserted between the inner block's attention and FFN.
+    is inserted between the inner block's attention and MLP.
 
     Sequence per forward call (per batch element):
-      1. Run inner block's ``_attention_pre_ffn`` (local element attention +
+      1. Run inner block's ``_attention_pre_mlp`` (local element attention +
          intra/inter redistribution). Returns the post-attention nodes (still
          in reduced-graph layout) along with the (num_elements, nodes_per_elem,
          C) view needed for pooling.
@@ -318,7 +318,7 @@ class HierarchicalLayer(nn.Module):
          the max element count across ranks; build a key-padding mask.
       5. ``SummaryReadout`` over the global summary set -> per-node delta.
       6. Add the delta to the post-attention nodes.
-      7. Run inner block's ``_post_ffn`` -> final output.
+      7. Run inner block's ``_post_mlp`` -> final output.
     """
 
     def __init__(
@@ -338,7 +338,7 @@ class HierarchicalLayer(nn.Module):
         self.poly_order = poly_order
         self.hidden_channels = hidden_channels
         self.num_heads = num_heads
-        # When True, the per-batch (pre_ffn -> global -> post_ffn) sequence is
+        # When True, the per-batch (pre_mlp -> global -> post_mlp) sequence is
         # wrapped with torch.utils.checkpoint so activations from completed
         # batches do not accumulate in the autograd graph. This is essential
         # at batch_size > 1: without it, the per-batch loop pins the readout's
@@ -359,6 +359,84 @@ class HierarchicalLayer(nn.Module):
             query_chunk_size=readout_chunk_size,
         )
 
+        # Cache for the graph-static global-path quantities (centroids,
+        # gathered centroids, key-padding mask, max_ne). These depend ONLY on
+        # the mesh -- not on x, not on the batch, not on the iteration -- so
+        # for a single-mesh training run they can be computed once and reused
+        # for every subsequent forward, saving 2 collectives per layer per
+        # forward (the int-count and centroid all_gathers).
+        #
+        # Implemented as a lazy first-forward cache rather than computed in
+        # __init__ because the graph tensors don't exist yet at construction
+        # time: the trainer builds the model first, then loads + halo-
+        # exchanges the graph. On the first forward we compute and stash;
+        # on subsequent forwards we verify the input tensors are bit-identical
+        # to the cached ones (via .data_ptr() comparison) and reuse the cache.
+        #
+        # MULTI-MESH GUARD: the cache assumes the graph never changes across
+        # forwards. If the training pipeline is ever extended to mix multiple
+        # meshes within a run (different graphs in different batches), the
+        # data_ptr check below will fire a RuntimeError -- which is the right
+        # behaviour, because the cached centroids / mask / gathered tensors
+        # would be wrong for the new mesh. To support multi-mesh training,
+        # this cache needs to become keyed by mesh identity (e.g., a dict
+        # keyed by the graph hash) rather than a single-slot snapshot.
+        self._static_cache = None
+        self._static_cache_key = None
+
+    def _get_global_static(
+        self,
+        pos: torch.Tensor,
+        pos_min: torch.Tensor,
+        pos_max: torch.Tensor,
+        idx_reduced2full: torch.Tensor,
+        SIZE: int,
+    ):
+        """Return the cached graph-static dict, recomputing on first call or
+        if the input tensors changed identity (multi-mesh guard).
+
+        The cache key is the underlying storage address of each input tensor.
+        If the trainer ever re-creates these tensors (e.g., to swap to a
+        different mesh mid-run), data_ptr() changes and we raise a loud
+        RuntimeError pointing at the multi-mesh path -- the cached centroids,
+        mask, and gathered centroids tensor would all be stale for the new
+        mesh, and silent reuse would corrupt training. See the constructor
+        comment for the multi-mesh refactor path.
+
+        For the common single-mesh case, this saves 2 collectives per layer
+        per forward (the int-count all_gather and the centroid all_gather)
+        and the centroid math on the local rank.
+        """
+        key = (
+            pos.data_ptr(),
+            pos_min.data_ptr(),
+            pos_max.data_ptr(),
+            idx_reduced2full.data_ptr(),
+            int(SIZE),
+        )
+        if self._static_cache is not None:
+            if self._static_cache_key != key:
+                raise RuntimeError(
+                    "HierarchicalLayer: graph tensors changed identity between "
+                    "forward calls (data_ptr mismatch on at least one of pos / "
+                    "pos_min / pos_max / idx_reduced2full / SIZE). The "
+                    "graph-static cache (centroids, key-padding mask, gathered "
+                    "centroids) was built for the original mesh and would be "
+                    "incorrect for a different mesh. If you are intentionally "
+                    "training on multiple meshes, the cache needs to be keyed "
+                    "by mesh identity -- see the constructor comment on "
+                    "self._static_cache. As a single-rank workaround you can "
+                    "clear the cache between meshes with "
+                    "`layer._static_cache = None; layer._static_cache_key = None`."
+                )
+            return self._static_cache
+
+        self._static_cache = self._compute_global_static(
+            pos, pos_min, pos_max, idx_reduced2full, SIZE
+        )
+        self._static_cache_key = key
+        return self._static_cache
+
     def _compute_global_static(
         self,
         pos: torch.Tensor,
@@ -367,13 +445,17 @@ class HierarchicalLayer(nn.Module):
         idx_reduced2full: torch.Tensor,
         SIZE: int,
     ):
-        """Precompute everything in the global path that does NOT depend on
-        the per-batch features (x): per-node normalized positions, per-element
-        centroids, the int-count all_gather, the centroid all_gather, the
-        key-padding mask. These are graph-static -- identical across every
-        batch element and every forward call for a given graph topology -- so
-        running them once per forward saves SIZE * batch_size * n_layers worth
-        of collectives that the old per-batch path would otherwise do.
+        """Compute the graph-static dict from scratch. Called once per mesh
+        (lazily, on the first forward) by :meth:`_get_global_static`; do not
+        call directly from forward().
+
+        Contents (all functions of mesh topology only -- independent of x,
+        batch, iteration):
+          - per-node normalized positions
+          - per-element centroids (normalized)
+          - centroid all_gather across ranks
+          - int-count all_gather + max_ne
+          - key-padding mask for the gathered set
         """
         device = pos.device
         nodes_per_element = (self.poly_order + 1) ** 3
@@ -539,16 +621,17 @@ class HierarchicalLayer(nn.Module):
         if self.inner.emb_features > 0:
             x = x + self.inner.node_emb_linear(emb)[batch]
 
-        # Precompute graph-static global-path quantities (centroids, mask,
-        # max_ne, centroid all_gather). These do not depend on x, so doing
-        # them ONCE per forward instead of once per batch element saves
-        # batch_size collectives per layer per forward.
-        static = self._compute_global_static(
+        # Graph-static global-path quantities (centroids, mask, max_ne,
+        # centroid all_gather). For single-mesh training these are computed
+        # once on the first forward and cached for the rest of the run --
+        # see _get_global_static for the cache semantics and the multi-mesh
+        # guard that fires if the input tensors ever change identity.
+        static = self._get_global_static(
             pos, pos_min, pos_max, idx_reduced2full, SIZE
         )
 
         def per_batch(x_b: torch.Tensor) -> torch.Tensor:
-            x_post_attn = self.inner._attention_pre_ffn(
+            x_post_attn = self.inner._attention_pre_mlp(
                 x_b,
                 pos,
                 pos_min,
@@ -571,7 +654,7 @@ class HierarchicalLayer(nn.Module):
                 static,
             )
             x_with_global = x_post_attn + delta
-            return self.inner._post_ffn(x_with_global)
+            return self.inner._post_mlp(x_with_global)
 
         def call_per_batch(x_b: torch.Tensor) -> torch.Tensor:
             if self.activation_checkpointing and self.training:

@@ -1198,9 +1198,20 @@ class DGNTrainer:
                         f"[RANK {RANK}]: Found {len(self.neighboring_procs)} neighboring processes: {self.neighboring_procs}"
                     )
 
-            effective_nodes_local = torch.sum(1.0 / node_degree[:n_nodes_local])
-            effective_nodes = torch.zeros(1, dtype=effective_nodes_local.dtype)
+            # mpi4py converts torch buffers via the numpy buffer protocol,
+            # which has no native bf16 -- so an Allreduce on a bf16 tensor
+            # forces IPEX to do a non-zero-copy conversion and prints the
+            # "calling in ipex numpy ..." warning every rank, every run.
+            # Do the reduction in fp64 (one scalar -- negligible) and cast
+            # back to the model dtype for downstream consumers. The result
+            # is a node count, so fp64 is more accurate than bf16 anyway.
+            effective_nodes_local = torch.sum(
+                1.0 / node_degree[:n_nodes_local]
+            ).to(torch.float64)
+            effective_nodes = torch.zeros(1, dtype=torch.float64)
             COMM.Allreduce(effective_nodes_local, effective_nodes, op=MPI.SUM)
+            effective_nodes_local = effective_nodes_local.to(self.torch_dtype)
+            effective_nodes = effective_nodes.to(self.torch_dtype)
         else:
             halo_info = torch.zeros(1, dtype=self.torch_dtype)
             n_nodes_local = self.data_reduced.pos.shape[0]
@@ -1577,6 +1588,16 @@ class DGNTrainer:
         data_dir = self.cfg.gnn_outputs_path
         data, stats = self.load_field_data(data_dir)
 
+        # Materialize per-feature stats as torch tensors in the model dtype.
+        # If we leave them as numpy (their on-disk form), the per-snapshot
+        # arithmetic below would be `bf16_torch_tensor - numpy_fp32_array`,
+        # which forces torch to convert each numpy operand via the buffer
+        # protocol -- and IPEX prints "calling in ipex numpy ... bfloat16"
+        # for every single op (~160 warnings per rank with 80 snapshots).
+        # Casting once here keeps the loop fully in torch land.
+        stats_x_mean_t = torch.as_tensor(stats["x"][0], dtype=self.torch_dtype)
+        stats_x_std_t = torch.as_tensor(stats["x"][1], dtype=self.torch_dtype)
+
         # ~~~~ Populate the data loader
         # No need for distributed sampler -- create standard dataset loader
         # We can use the standard pytorch dataloader on (x,y)
@@ -1587,9 +1608,9 @@ class DGNTrainer:
                     x=(
                         (
                             item["x"][:, : self.cfg.input_node_features]
-                            - stats["x"][0]
+                            - stats_x_mean_t
                         )
-                        / (stats["x"][1] + SMALL)
+                        / (stats_x_std_t + SMALL)
                     ).to(self.torch_dtype)
                 )
             )
@@ -1612,8 +1633,8 @@ class DGNTrainer:
                 val_data_scaled.append(
                     Data(
                         x=(
-                            (item["x"] - stats["x"][0])
-                            / (stats["x"][1] + SMALL)
+                            (item["x"] - stats_x_mean_t)
+                            / (stats_x_std_t + SMALL)
                         ).to(self.torch_dtype)
                     )
                 )

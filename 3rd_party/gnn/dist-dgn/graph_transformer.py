@@ -3,7 +3,7 @@ Distributed Diffusion Graph Transformer (DGT).
 
 Sibling of DistributedDGN that swaps the message-passing processor for an
 element-wise transformer processor (element-restricted self-attention with
-RoPE, redistribution across nodes that share a global ID, halo swap, FFN).
+RoPE, redistribution across nodes that share a global ID, halo swap, MLP).
 
 Adapted from 3rd_party/gnn/dist-gnn/graph_transformer.py with the additions
 required by the diffusion model: diffusion-step embedding injection per block,
@@ -155,7 +155,7 @@ class DGTAttentionBlock(nn.Module):
              for consistency)
            - halo swap with learned softmax-weighted aggregation across rank
              boundaries (when SIZE>1 and halo_swap_mode != "none")
-           - residual + FFN
+           - residual + MLP
     """
 
     def __init__(
@@ -198,13 +198,13 @@ class DGTAttentionBlock(nn.Module):
         self.redist_gate_intra = nn.Linear(hidden_channels, 1, bias=False)
         self.redist_gate_inter = nn.Linear(hidden_channels, 1, bias=False)
 
-        # FFN
+        # MLP
         self.norm2 = nn.LayerNorm(hidden_channels)
-        self.ffn = MlpBlock(
+        self.mlp = MlpBlock(
             hidden_channels, int(hidden_channels * mlp_ratio), hidden_channels
         )
 
-    def _attention_pre_ffn(
+    def _attention_pre_mlp(
         self,
         x_batch: torch.Tensor,
         pos: torch.Tensor,
@@ -222,14 +222,14 @@ class DGTAttentionBlock(nn.Module):
         SIZE,
     ) -> torch.Tensor:
         """Run attention + intra-rank redistribution + halo swap + inter-rank
-        redistribution on a single batch slice, stopping BEFORE the FFN
+        redistribution on a single batch slice, stopping BEFORE the MLP
         residual. Returns x_new in the reduced layout (size N_reduced + halo
         slots, where halo slots have been refreshed by the halo swap when
-        SIZE>1). The FFN tail lives in ``_post_ffn``; the full local block is
+        SIZE>1). The MLP tail lives in ``_post_mlp``; the full local block is
         ``_attention_with_consistency`` and composes both halves.
 
-        Split into pre/post-FFN halves so the hierarchical attention layer can
-        insert a global summary update between the local attention and the FFN
+        Split into pre/post-MLP halves so the hierarchical attention layer can
+        insert a global summary update between the local attention and the MLP
         without reimplementing the (subtle) consistency logic.
         """
         poly_order = self.poly_order
@@ -346,10 +346,10 @@ class DGTAttentionBlock(nn.Module):
 
         return x_new
 
-    def _post_ffn(self, x_new: torch.Tensor) -> torch.Tensor:
-        """Residual FFN tail. Counterpart to ``_attention_pre_ffn``."""
+    def _post_mlp(self, x_new: torch.Tensor) -> torch.Tensor:
+        """Residual MLP tail. Counterpart to ``_attention_pre_mlp``."""
         y = self.norm2(x_new)
-        y = self.ffn(y)
+        y = self.mlp(y)
         return x_new + y
 
     def _attention_with_consistency(
@@ -369,11 +369,11 @@ class DGTAttentionBlock(nn.Module):
         neighboring_procs,
         SIZE,
     ) -> torch.Tensor:
-        """Local-only path: pre-FFN attention block + FFN residual. Preserved
+        """Local-only path: pre-MLP attention block + MLP residual. Preserved
         as a single-call entry point for the non-hierarchical processor stack.
         Bit-equivalent to the pre-refactor implementation.
         """
-        x_new = self._attention_pre_ffn(
+        x_new = self._attention_pre_mlp(
             x_batch,
             pos,
             pos_min,
@@ -389,7 +389,7 @@ class DGTAttentionBlock(nn.Module):
             neighboring_procs,
             SIZE,
         )
-        return self._post_ffn(x_new)
+        return self._post_mlp(x_new)
 
     def forward(
         self,
@@ -418,7 +418,7 @@ class DGTAttentionBlock(nn.Module):
         if self.emb_features > 0:
             x = x + self.node_emb_linear(emb)[batch]
 
-        # Per-batch attention + redistribution + halo swap + FFN. The graph
+        # Per-batch attention + redistribution + halo swap + MLP. The graph
         # topology (idx_reduced2full, idx_full2reduced, halo_info) is shared
         # across batches; only the x slice differs.
         if batch_size == 1:
@@ -494,14 +494,14 @@ class DistributedDGT(nn.Module):
         arch (Dict[str, Any]): Architecture configuration. Keys:
             input_node_features (int): per-node input dimension
             cond_node_features (int): per-node conditional feature dimension (0 if unused)
-            hidden_channels (int): attention/FFN hidden width
+            hidden_channels (int): attention/MLP hidden width
             n_transformer_layers (int): number of attention blocks
             num_heads (int): heads in multi-head attention
             poly_order (int): spectral element polynomial order (nodes/element = (p+1)^3)
             emb_width (int): width of the diffusion-step embedding
             halo_swap_mode (str): one of {none, all_to_all, all_to_all_opt}
             learnable_variance (bool): if True the decoder outputs 2x input_node_features
-            mlp_ratio (float): FFN hidden ratio
+            mlp_ratio (float): MLP hidden ratio
             name (str): tag used in checkpoint filename
     """
 
