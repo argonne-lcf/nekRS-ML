@@ -295,7 +295,9 @@ class DGNTrainer:
 
         # ~~~~ Set diffusion process
         self.diffusion_process = DiffusionProcess(
-            self.cfg.num_diffusion_steps, self.cfg.diffusion_process_schedule
+            self.cfg.num_diffusion_steps,
+            self.cfg.diffusion_process_schedule,
+            dtype=self.torch_dtype,
         )
 
         # ~~~~ Wrap model in DDP
@@ -1294,7 +1296,11 @@ class DGNTrainer:
                 dtype=cnf_local.dtype,
             )
             cnf_full[:n_nodes_local] = cnf_local
-            cnf_local_np = cnf_local.cpu().numpy().astype(np.float64, copy=True)
+            # Cast to fp64 BEFORE .numpy() so we don't trigger IPEX's "not
+            # share memory" warning on bf16 (numpy has no native bf16, so the
+            # conversion must copy anyway -- the .to(fp64) makes that explicit
+            # and gives us the dtype we'd cast to next).
+            cnf_local_np = cnf_local.cpu().to(torch.float64).numpy()
             send_reqs = []
             recv_buffers = {}
             for nr in neighbor_ranks:
@@ -1330,14 +1336,14 @@ class DGNTrainer:
 
         # get data in reduced format
         data_x_reduced = data_x[self.idx_full2reduced, :]
-        x = torch.tensor(data_x_reduced, dtype=torch.float32)
+        x = torch.tensor(data_x_reduced, dtype=self.torch_dtype)
 
         # Add halo nodes by appending the end of the node arrays
         if self.cfg.consistency:
             n_nodes_halo = self.data_reduced.n_nodes_halo
             n_features_x = data_x_reduced.shape[1]
             data_x_halo = torch.zeros(
-                (n_nodes_halo, n_features_x), dtype=torch.float32
+                (n_nodes_halo, n_features_x), dtype=self.torch_dtype
             )
             x = torch.cat((x, data_x_halo), dim=0)
         return x
@@ -1857,8 +1863,8 @@ class DGNTrainer:
             n_local = int(graph.n_nodes_local)
             postprocess.plot_2d_field(
                 COMM,
-                graph.pos[:n_local].numpy(),
-                graph.cond_node_features[:n_local].cpu().numpy(),
+                graph.pos[:n_local].to(torch.float32).numpy(),
+                graph.cond_node_features[:n_local].cpu().to(torch.float32).numpy(),
                 f"cond_node_features.png",
             )
             COMM.Barrier()
@@ -1917,13 +1923,13 @@ class DGNTrainer:
         )
         if self.cfg.postprocess and self.iteration % 100 == 0:
             n_local = int(graph.n_nodes_local)
-            pos_owned = graph.pos[:n_local].numpy()
+            pos_owned = graph.pos[:n_local].to(torch.float32).numpy()
             # data.batch == 0 selects the first batch element's full
             # (n_local + n_halo) rows; further [:n_local] drops the halo.
             postprocess.plot_2d_field(
                 COMM,
                 pos_owned,
-                field_r[data.batch == 0][:n_local].cpu().numpy(),
+                field_r[data.batch == 0][:n_local].cpu().to(torch.float32).numpy(),
                 f"field_r_r{r[0]}_iter{self.iteration}.png",
             )
             postprocess.plot_2d_field(
@@ -1932,6 +1938,7 @@ class DGNTrainer:
                 data
                 .x[data.batch == 0, : self.cfg.input_node_features][:n_local]
                 .cpu()
+                .to(torch.float32)
                 .numpy(),
                 f"data_x_r{r[0]}_iter{self.iteration}.png",
             )
@@ -2006,17 +2013,17 @@ class DGNTrainer:
             mse_target = noise
         if self.cfg.postprocess and self.iteration % 100 == 0:
             n_local = int(graph.n_nodes_local)
-            pos_owned = graph.pos[:n_local].numpy()
+            pos_owned = graph.pos[:n_local].to(torch.float32).numpy()
             postprocess.plot_2d_field(
                 COMM,
                 pos_owned,
-                model_pred[data.batch == 0][:n_local].detach().cpu().numpy(),
+                model_pred[data.batch == 0][:n_local].detach().cpu().to(torch.float32).numpy(),
                 f"model_pred_r{r[0]}_iter{self.iteration}.png",
             )
             postprocess.plot_2d_field(
                 COMM,
                 pos_owned,
-                mse_target[data.batch == 0][:n_local].cpu().numpy(),
+                mse_target[data.batch == 0][:n_local].cpu().to(torch.float32).numpy(),
                 f"target_r{r[0]}_iter{self.iteration}.png",
             )
             COMM.Barrier()
@@ -2058,12 +2065,14 @@ class DGNTrainer:
                 loss = loss + vlb_term  # Dimension (batch_size)
             # Log unweighted per-step losses (always, regardless of learnable_variance)
             if self.cfg.verbose and RANK == 0:
+                mse_log = mse_term.detach().cpu().to(torch.float32)
                 log.info(
-                    f"MSE loss term: {mse_term.detach().cpu().numpy().tolist()}, mean = {mse_term.detach().cpu().mean().numpy().tolist()}"
+                    f"MSE loss term: {mse_log.numpy().tolist()}, mean = {mse_log.mean().numpy().tolist()}"
                 )
                 if self.cfg.learnable_variance:
+                    vlb_log = vlb_term.detach().cpu().to(torch.float32)
                     log.info(
-                        f"VLB loss term: {vlb_term.detach().cpu().numpy().tolist()}, mean = {vlb_term.detach().cpu().mean().numpy().tolist()}"
+                        f"VLB loss term: {vlb_log.numpy().tolist()}, mean = {vlb_log.mean().numpy().tolist()}"
                     )
         else:  # custom consistent loss
             if self.cfg.learnable_variance:
@@ -2093,8 +2102,9 @@ class DGNTrainer:
                     1.0 / (graph.effective_nodes * n_output_features)
                 ) * sum_squared_errors
             if self.cfg.verbose and RANK == 0:
+                mse_log = mse_term.detach().cpu().to(torch.float32)
                 log.info(
-                    f"[RANK {RANK}] MSE loss term: {mse_term.detach().cpu().numpy().tolist()}, mean = {mse_term.detach().cpu().mean().numpy().tolist()}"
+                    f"[RANK {RANK}] MSE loss term: {mse_log.numpy().tolist()}, mean = {mse_log.mean().numpy().tolist()}"
                 )
             loss = mse_term  # Dimension (batch_size)
 
@@ -2124,8 +2134,9 @@ class DGNTrainer:
                 loss = weighted_mse.mean()
             # Log weighted per-step losses (actual gradient contribution)
             if self.cfg.verbose and RANK == 0:
+                w_log = weighted_mse.detach().cpu().to(torch.float32)
                 log.info(
-                    f"[RANK {RANK}] Weighted MSE loss: {weighted_mse.detach().cpu().numpy().tolist()}, mean = {weighted_mse.detach().cpu().mean().numpy().tolist()}"
+                    f"[RANK {RANK}] Weighted MSE loss: {w_log.numpy().tolist()}, mean = {w_log.mean().numpy().tolist()}"
                 )
         else:
             # Uniform weighting (default)

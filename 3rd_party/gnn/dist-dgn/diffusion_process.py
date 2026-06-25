@@ -31,6 +31,7 @@ class DiffusionProcess:
         beta_start: float = 0.0001,
         beta_end: float = 0.02,
         max_beta: float = 0.999,
+        dtype: torch.dtype = torch.float32,
     ) -> None:
         super().__init__()
         # Validate inputs
@@ -43,43 +44,64 @@ class DiffusionProcess:
         self.beta_start = beta_start
         self.beta_end = beta_end
         self.max_beta = max_beta
+        # Float dtype for the precomputed coefficient tensors. Should match the
+        # model's parameter dtype so the multiplications in ``forward`` /
+        # ``get_v_target`` etc. don't silently promote bf16 model inputs back
+        # to fp32. Default fp32 preserves the original behaviour for standalone
+        # use; the trainer always passes its ``self.torch_dtype``.
+        self.dtype = dtype
         # Get beta schedule (on the CPU)
         self.betas = self.get_betas()
         # Precompute some constant coefficients (on the CPU)
         self.init_coefficients()
 
     def init_coefficients(self):
-        self.alphas = 1.0 - self.betas
-        self.alphas_cumprod = torch.cumprod(self.alphas, axis=0)
-        self.alphas_cumprod_prev = F.pad(
-            self.alphas_cumprod[:-1], (1, 0), value=1.0
+        # Compute all coefficients in fp64 for numerical stability of the
+        # cumulative-product chain, then cast each precomputed tensor to
+        # self.dtype so subsequent multiplications with model tensors stay
+        # in the model's dtype (no silent fp32 promotion of bf16 inputs).
+        betas64 = self.betas.to(torch.float64)
+        alphas64 = 1.0 - betas64
+        alphas_cumprod64 = torch.cumprod(alphas64, axis=0)
+        alphas_cumprod_prev64 = F.pad(
+            alphas_cumprod64[:-1], (1, 0), value=1.0
         )
-        self.sqrt_recip_alphas = torch.sqrt(1.0 / self.alphas)
-        self.sqrt_alphas_cumprod = torch.sqrt(self.alphas_cumprod)
-        self.sqrt_one_minus_alphas_cumprod = torch.sqrt(
-            1.0 - self.alphas_cumprod
+        sqrt_recip_alphas64 = torch.sqrt(1.0 / alphas64)
+        sqrt_alphas_cumprod64 = torch.sqrt(alphas_cumprod64)
+        sqrt_one_minus_alphas_cumprod64 = torch.sqrt(1.0 - alphas_cumprod64)
+        posterior_variance64 = (
+            betas64
+            * (1.0 - alphas_cumprod_prev64)
+            / (1.0 - alphas_cumprod64)
         )
-        self.posterior_variance = (
-            self.betas
-            * (1.0 - self.alphas_cumprod_prev)
-            / (1.0 - self.alphas_cumprod)
-        )
-        self.posterior_log_variance_clipped = torch.log(
+        posterior_log_variance_clipped64 = torch.log(
             torch.cat([
-                self.posterior_variance[[1]],
-                self.posterior_variance[1:],
+                posterior_variance64[[1]],
+                posterior_variance64[1:],
             ])
-        )  # This is clipped to avoind nan in the backward pass
-        self.posterior_mean_coef1 = (
-            self.betas
-            * torch.sqrt(self.alphas_cumprod_prev)
-            / (1.0 - self.alphas_cumprod)
+        )  # This is clipped to avoid nan in the backward pass
+        posterior_mean_coef1_64 = (
+            betas64
+            * torch.sqrt(alphas_cumprod_prev64)
+            / (1.0 - alphas_cumprod64)
         )
-        self.posterior_mean_coef2 = (
-            (1.0 - self.alphas_cumprod_prev)
-            * torch.sqrt(self.alphas)
-            / (1.0 - self.alphas_cumprod)
+        posterior_mean_coef2_64 = (
+            (1.0 - alphas_cumprod_prev64)
+            * torch.sqrt(alphas64)
+            / (1.0 - alphas_cumprod64)
         )
+
+        d = self.dtype
+        self.alphas = alphas64.to(d)
+        self.alphas_cumprod = alphas_cumprod64.to(d)
+        self.alphas_cumprod_prev = alphas_cumprod_prev64.to(d)
+        self.sqrt_recip_alphas = sqrt_recip_alphas64.to(d)
+        self.sqrt_alphas_cumprod = sqrt_alphas_cumprod64.to(d)
+        self.sqrt_one_minus_alphas_cumprod = sqrt_one_minus_alphas_cumprod64.to(d)
+        self.posterior_variance = posterior_variance64.to(d)
+        self.posterior_log_variance_clipped = posterior_log_variance_clipped64.to(d)
+        self.posterior_mean_coef1 = posterior_mean_coef1_64.to(d)
+        self.posterior_mean_coef2 = posterior_mean_coef2_64.to(d)
 
     @property
     def steps(self) -> list[int]:
@@ -100,11 +122,18 @@ class DiffusionProcess:
         Returns:
             torch.Tensor: The betas of the diffusion process. Dimensions: [num_steps].
         """
+        # Compute the schedule in fp64 internally for numerical stability of
+        # the downstream cumulative products (init_coefficients does cumprod
+        # over self.num_steps factors close to 1, which is precision-sensitive
+        # in low-precision dtypes). Cast to the configured ``self.dtype`` at
+        # the end so the precomputed coefficients match the model dtype.
         if self.schedule_type == "linear":
             scale = 1000 / self.num_steps
             beta_start = scale * self.beta_start
             beta_end = scale * self.beta_end
-            betas = torch.linspace(beta_start, beta_end, self.num_steps)
+            betas = torch.linspace(
+                beta_start, beta_end, self.num_steps, dtype=torch.float64
+            )
         elif self.schedule_type == "cosine":
             f_t = lambda t: math.cos((t + 0.008) / 1.008 * math.pi / 2) ** 2
             betas = []
@@ -112,10 +141,10 @@ class DiffusionProcess:
                 t1 = i / self.num_steps
                 t2 = (i + 1) / self.num_steps
                 betas.append(1 - f_t(t2) / f_t(t1))
-            betas = torch.tensor(betas)
-        # Truncate the betas to the maximum value
-        betas = torch.minimum(betas, torch.tensor(self.max_beta))
-        return betas  # Dimensions: (num_steps)
+            betas = torch.tensor(betas, dtype=torch.float64)
+        # Truncate the betas to the maximum value, then cast to target dtype.
+        betas = torch.minimum(betas, torch.tensor(self.max_beta, dtype=torch.float64))
+        return betas.to(self.dtype)  # Dimensions: (num_steps)
 
     def forward(
         self,

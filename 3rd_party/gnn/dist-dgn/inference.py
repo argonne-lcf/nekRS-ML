@@ -140,14 +140,18 @@ def infer(cfg: DictConfig, client: Optional[OnlineClient] = None) -> None:
         if RANK == 0:
             log.info("Predicting Dist-DGN sample ...")
         pred = trainer.sample()
-        pred = pred[:n_nodes_local].cpu().numpy()
+        # Cast to fp32 before .numpy() so bf16 runs don't trigger the IPEX
+        # "not share memory" warning (numpy has no native bf16).
+        pred = pred[:n_nodes_local].cpu().to(torch.float32).numpy()
 
         # Undo scaling
         pred = pred * stats["x_std"] + stats["x_mean"]
 
         # Postprocess the data
         if cfg.postprocess:
-            postprocess.plot_2d_field(COMM, pos.numpy(), pred, f"pred_{i}.png")
+            postprocess.plot_2d_field(
+                COMM, pos.to(torch.float32).numpy(), pred, f"pred_{i}.png"
+            )
 
 
 @hydra.main(version_base=None, config_path="./conf", config_name="config")
