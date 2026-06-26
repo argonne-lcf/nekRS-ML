@@ -65,6 +65,7 @@ class TGVOfflineTraj(NekRSMLOfflineTest):
         )
         self.tags |= {"tgv_offline_traj"}
 
+
 @rfm.simple_test
 class TGVOfflineTrajGT(NekRSMLOfflineTest):
     num_nodes = parameter([1])

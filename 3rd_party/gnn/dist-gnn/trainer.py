@@ -910,7 +910,10 @@ class Trainer:
             idx = torch.where(
                 data_full.pos[idx_full2reduced] != data_reduced.pos
             )
-            log.error("RANK %i: AssertionError: Non-matching nodes found in idx_full2reduced", RANK)
+            log.error(
+                "RANK %i: AssertionError: Non-matching nodes found in idx_full2reduced",
+                RANK,
+            )
             log.error("Number of non-matching nodes:", len(idx[0]))
             log.error("Non-matching nodes:", idx[0])
             raise e
@@ -922,7 +925,10 @@ class Trainer:
             idx = torch.where(
                 data_reduced.pos[idx_reduced2full] != data_full.pos
             )
-            log.error("RANK %i: AssertionError: Non-matching nodes found in idx_reduced2full", RANK)
+            log.error(
+                "RANK %i: AssertionError: Non-matching nodes found in idx_reduced2full",
+                RANK,
+            )
             log.error("Number of non-matching nodes:", len(idx[0]))
             log.error("Non-matching nodes:", idx[0])
             raise e
@@ -1878,7 +1884,7 @@ class Trainer:
 
     def train_step(self, data) -> Tensor:
         graph = self.data["graph"]
-        loss = torch.tensor([0.])
+        loss = torch.tensor([0.0])
         tic = time.time()
         if WITH_CUDA or WITH_XPU:
             data = data.to(self.device)
@@ -2166,7 +2172,9 @@ class Trainer:
                     out_gnn = self.model(
                         x=data.x,
                         pos=graph.pos,
-                        index=self.data_full.global_ids.reshape(-1).to(self.device),
+                        index=self.data_full.global_ids.reshape(-1).to(
+                            self.device
+                        ),
                         mask_send=self.mask_send,
                         mask_recv=self.mask_recv,
                         buffer_send=self.buffer_send,
@@ -2178,7 +2186,9 @@ class Trainer:
                         SIZE=SIZE,
                     )
                 else:
-                    raise ValueError("Unknown model name: %s" % self.cfg.model_name)
+                    raise ValueError(
+                        "Unknown model name: %s" % self.cfg.model_name
+                    )
 
                 # Accumulate loss
                 target = data.y
