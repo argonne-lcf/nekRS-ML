@@ -143,12 +143,7 @@ class PerceiverPool(nn.Module):
 
 
 # Caps the per-call SummaryReadout attention buffer at
-# ~chunk * h * np * n_kv * 4 bytes. For the ext_cyl_dgn case (h=4, np=64,
-# n_kv ~6k) that's ~6 MB * chunk per SDPA launch. With activation
-# checkpointing on, peak memory is bounded by one batch's intermediates so a
-# bigger chunk safely cuts the number of SDPA launches (and their per-launch
-# overhead, which dominates at chunk=4). Lower if you see OOM, raise if SDPA
-# launch overhead dominates.
+# ~chunk * h * np * n_kv * 4 bytes.
 DEFAULT_READOUT_CHUNK_SIZE = 16
 
 

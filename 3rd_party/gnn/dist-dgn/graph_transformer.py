@@ -589,17 +589,7 @@ class DistributedDGT(nn.Module):
         self.hierarchical_attention = arch.get("hierarchical_attention", False)
         self.hierarchical_interleve_freq = arch.get("hierarchical_interleve_freq", 2)
         self.k_summary = arch.get("k_summary", 4)
-        # Cap on the SummaryReadout attention matrix per SDPA call (in element
-        # count). Picked so the per-chunk attention buffer (chunk * h * np * n_kv)
-        # is bounded to the same scale as the local DGT block; small enough
-        # to keep Intel IPEX's SDPA fallback from page-faulting on the full
-        # readout in one shot.
         self.readout_chunk_size = arch.get("readout_chunk_size", 16)
-        # When True, each HierarchicalLayer wraps its per-batch sequence with
-        # torch.utils.checkpoint so activations from completed batches do not
-        # accumulate. Strongly recommended at batch_size > 1 because the
-        # per-batch loop otherwise pins ~8x the readout's attention buffers
-        # in the autograd graph until backward runs.
         self.activation_checkpointing = arch.get(
             "activation_checkpointing", False
         )
@@ -626,6 +616,7 @@ class DistributedDGT(nn.Module):
         )
         if self.arch.get("hierarchical_attention", False):
             header += f"_hier{self.arch.get('k_summary', 4)}"
+            header += f"f{self.arch.get('hierarchical_interleve_freq', 1)}"
         return header
 
     def forward(
