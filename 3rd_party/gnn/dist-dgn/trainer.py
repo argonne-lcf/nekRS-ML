@@ -228,7 +228,7 @@ class DGNTrainer:
         if self.cfg.restart:
             if RANK == 0:
                 log.info(f"Loading model checkpoint from {self.ckpt_path}")
-            ckpt = torch.load(self.ckpt_path, weights_only=False)
+            ckpt = torch.load(self.ckpt_path, weights_only=False, map_location="cpu")
             self.model.load_state_dict(ckpt["model_state_dict"])
             self.iteration = ckpt["iteration"] + 1
             self.loss_hist_train = ckpt["loss_hist_train"]
@@ -250,7 +250,7 @@ class DGNTrainer:
         if self.cfg.model_task == "inference":
             if RANK == 0:
                 log.info(f"Loading model checkpoint from {self.model_path}")
-            ckpt = torch.load(self.model_path, weights_only=False)
+            ckpt = torch.load(self.model_path, weights_only=False, map_location="cpu")
             self.model.load_state_dict(ckpt["model_state_dict"])
 
         # ~~~~ Set optimizer

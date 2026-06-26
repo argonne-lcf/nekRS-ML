@@ -77,6 +77,10 @@ traj_data_path: ${work_dir}/traj_poly_1/
 # Online training
 online: False
 
+# Inference-time validation
+validate: False
+validation_data_path: ${gnn_outputs_path}
+
 hydra:
   job:
     chdir: false
