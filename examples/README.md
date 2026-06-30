@@ -2,19 +2,20 @@
 
 ## nekRS-ML examples
 
-|                              | Dist-GNN | SR-GNN | Offline | Online w/ SmartSim | Online w/ ADIOS2 | p-coarsening | EnsembleLauncher |
-|------------------------------|----------|--------|---------|--------------------|------------------|--------------|------------------|
-| tgv_gnn_offline              |   x      |        |  x      |                    |                  |              |                  |
-| tgv_gnn_offline_coarse_mesh  |   x      |        |  x      |                    |                  |       x      |                  |
-| tgv_gnn_offline_traj         |   x      |        |  x      |                    |                  |              |                  |
-| turbChannel_srgnn            |          |    x   |  x      |                    |                  |       x      |                  |
-| turbChannel_wallModel_ML     |          |        |         |        x           |                  |              |                  |
-| tgv_gnn_online               |   x      |        |         |        x           |                  |              |                  |
-| tgv_gnn_online_traj          |   x      |        |         |        x           |                  |              |                  |
-| tgv_gnn_online_traj_adios    |   x      |        |         |                    |        x         |              |                  |
-| shooting_workflow_smartredis |   x      |        |         |        x           |                  |              |                  |
-| shooting_workflow_adios      |   x      |        |         |                    |        x         |              |                  |
-| periodicHill_ensemble        |          |        |         |                    |                  |              |        x         |
+|                              | Model    | Offline | Online w/ SmartSim | Online w/ ADIOS2 | p-coarsening | EnsembleLauncher |
+|------------------------------|----------|---------|--------------------|------------------|--------------|------------------|
+| tgv_gnn_offline              | Dist-GNN |  x      |                    |                  |              |                  |
+| tgv_gnn_offline_coarse_mesh  | Dist-GNN |  x      |                    |                  |       x      |                  |
+| tgv_gnn_offline_traj         | Dist-GNN |  x      |                    |                  |              |                  |
+| tgv_gt_offline_traj          | Dist-GT  |  x      |                    |                  |              |                  |
+| turbChannel_srgnn            | SR-GNN   |  x      |                    |                  |       x      |                  |
+| turbChannel_wallModel_ML     |          |         |        x           |                  |              |                  |
+| tgv_gnn_online               | Dist-GNN |         |        x           |                  |              |                  |
+| tgv_gnn_online_traj          | Dist-GNN |         |        x           |                  |              |                  |
+| tgv_gnn_online_traj_adios    | Dist-GNN |         |                    |        x         |              |                  |
+| shooting_workflow_smartredis | Dist-GNN |         |        x           |                  |              |                  |
+| shooting_workflow_adios      | Dist-GNN |         |                    |        x         |              |                  |
+| periodicHill_ensemble        |          |         |                    |                  |              |        x         |
 
 
 ## Plain nekRS examples
