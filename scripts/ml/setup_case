@@ -112,17 +112,17 @@ function parse_args() {
   fi
 
   # Append model and client to VENV_PATH as what is installed in the environment
-  # depends on the model and the client.
-  if [ "${USER_VENV}" == 0 ]; then
-    if [ -n "${MODEL}" ]; then
-      VENV_PATH=${VENV_PATH}_${MODEL}
-    fi
-    if [ -n "${CLIENT}" ]; then
-      VENV_PATH=${VENV_PATH}_${CLIENT}
-    fi
-    if [ -n "${ENSEMBLE}" ]; then
-      VENV_PATH=${VENV_PATH}_${ENSEMBLE}
-    fi
+  # depends on the model and the client. This is applied whether or not the user
+  # supplied --venv_path, so callers that pass a prefix (e.g. the ReFrame tests)
+  # end up activating the same suffixed path that is built here.
+  if [ -n "${MODEL}" ]; then
+    VENV_PATH=${VENV_PATH}_${MODEL}
+  fi
+  if [ -n "${CLIENT}" ]; then
+    VENV_PATH=${VENV_PATH}_${CLIENT}
+  fi
+  if [ -n "${ENSEMBLE}" ]; then
+    VENV_PATH=${VENV_PATH}_${ENSEMBLE}
   fi
 }
 
