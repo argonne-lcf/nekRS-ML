@@ -344,8 +344,24 @@ class NekRSMLTest(RunOnlyTest):
             f"--cpu-bind=list:{cpu_bind_list}",
         ]
 
+    def validate_deployment(self):
+        # For a colocated deployment the simulation and the ML trainer share the
+        # same node, so the node's ranks are split between them (ml_rpn = rpn//2).
+        # With rpn=1 this leaves zero ranks for the trainer (mlprocs=0), which
+        # launches the train step with an empty 'mpiexec --np --ppn ...' and
+        # fails. Fail fast here with a clear message instead.
+        if self.deployment == "colocated":
+            if self.ml_rpn < 1 or self.sim_rpn < 1:
+                raise ValueError(
+                    f"Colocated deployment requires at least 2 ranks per node "
+                    f"(got rpn={self.rpn}): the simulation and the ML trainer "
+                    f"share a node, giving sim_rpn={self.sim_rpn} and "
+                    f"ml_rpn={self.ml_rpn}. Both must be >= 1."
+                )
+
     @run_before("run")
     def setup_run(self):
+        self.validate_deployment()
         self.set_environment()
         self.set_launcher_options()
 
