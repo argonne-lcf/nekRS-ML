@@ -47,10 +47,14 @@ model_name: "gnn" # {gnn, graph_transformer}
 mlp_hidden_channels: 32
 n_mlp_hidden_layers: 5
 n_messagePassing_layers: 4
-n_transformer_layers: 4
-num_heads: 4
 layer_norm: False
 dropout_rate: 0.0
+n_transformer_layers: 4
+num_heads: 4
+hierarchical_attention: False
+hierarchical_interleve_freq: 1 # frequency with which to alternate local/global attention
+k_summary: 4               # number of learned summary tokens per element
+readout_chunk_size: 16     # SummaryReadout SDPA: # of query elements per chunk.
 
 # Halo swap mode 
 halo_swap_mode : none
@@ -72,6 +76,10 @@ traj_data_path: ${work_dir}/traj_poly_1/
 
 # Online training
 online: False
+
+# Inference-time validation
+validate: False
+validation_data_path: ${gnn_outputs_path}
 
 hydra:
   job:

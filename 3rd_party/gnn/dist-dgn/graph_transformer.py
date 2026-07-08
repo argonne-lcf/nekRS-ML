@@ -3,7 +3,7 @@ Distributed Diffusion Graph Transformer (DGT).
 
 Sibling of DistributedDGN that swaps the message-passing processor for an
 element-wise transformer processor (element-restricted self-attention with
-RoPE, redistribution across nodes that share a global ID, halo swap, FFN).
+RoPE, redistribution across nodes that share a global ID, halo swap, MLP).
 
 Adapted from 3rd_party/gnn/dist-gnn/graph_transformer.py with the additions
 required by the diffusion model: diffusion-step embedding injection per block,
@@ -19,6 +19,7 @@ import torch.distributed.nn as distnn
 import torch.nn as nn
 from torch.nn.functional import scaled_dot_product_attention as sdpa
 
+from attn_utils import apply_rope
 from gnn import SinusoidalPositionEmbedding
 
 try:
@@ -115,47 +116,6 @@ class SwiGLU(nn.Module):
         return x * torch.nn.functional.silu(gate)
 
 
-def apply_rope(
-    x: torch.Tensor,
-    coords: torch.Tensor,
-    max_wavelength: int = 100,
-) -> torch.Tensor:
-    n_dim = coords.shape[-1]
-    feature_dim = x.shape[-1]
-
-    per_dim_features = 2 * (feature_dim // (2 * n_dim))
-    rotated_chunks = []
-    for i in range(n_dim):
-        current_x_chunk = x[
-            ..., i * per_dim_features : (i + 1) * per_dim_features
-        ]
-        current_coords = coords[..., i]
-
-        head_dim = per_dim_features
-        half_head_dim = head_dim // 2
-        fraction = 2 * torch.arange(half_head_dim, device=x.device) / head_dim
-        timescale = max_wavelength**fraction
-
-        theta = current_coords.unsqueeze(-1) / timescale
-        sin = torch.sin(theta)
-        cos = torch.cos(theta)
-
-        first_half, second_half = torch.chunk(current_x_chunk, 2, dim=-1)
-        sin = einops.repeat(sin, "b n c -> b h n c", h=first_half.shape[1])
-        cos = einops.repeat(cos, "b n c -> b h n c", h=first_half.shape[1])
-
-        rotated_first_half = first_half * cos - second_half * sin
-        rotated_second_half = second_half * cos + first_half * sin
-
-        rotated_chunk = torch.cat(
-            [rotated_first_half, rotated_second_half], dim=-1
-        )
-        rotated_chunks.append(rotated_chunk)
-
-    result = torch.cat(rotated_chunks, dim=-1)
-    return result.to(x.dtype)
-
-
 class MlpBlock(nn.Module):
     def __init__(
         self,
@@ -195,7 +155,7 @@ class DGTAttentionBlock(nn.Module):
              for consistency)
            - halo swap with learned softmax-weighted aggregation across rank
              boundaries (when SIZE>1 and halo_swap_mode != "none")
-           - residual + FFN
+           - residual + MLP
     """
 
     def __init__(
@@ -238,13 +198,13 @@ class DGTAttentionBlock(nn.Module):
         self.redist_gate_intra = nn.Linear(hidden_channels, 1, bias=False)
         self.redist_gate_inter = nn.Linear(hidden_channels, 1, bias=False)
 
-        # FFN
+        # MLP
         self.norm2 = nn.LayerNorm(hidden_channels)
-        self.ffn = MlpBlock(
+        self.mlp = MlpBlock(
             hidden_channels, int(hidden_channels * mlp_ratio), hidden_channels
         )
 
-    def _attention_with_consistency(
+    def _attention_pre_mlp(
         self,
         x_batch: torch.Tensor,
         pos: torch.Tensor,
@@ -261,9 +221,16 @@ class DGTAttentionBlock(nn.Module):
         neighboring_procs,
         SIZE,
     ) -> torch.Tensor:
-        """Run attention + redistribution + halo swap on a single batch slice.
+        """Run attention + intra-rank redistribution + halo swap + inter-rank
+        redistribution on a single batch slice, stopping BEFORE the MLP
+        residual. Returns x_new in the reduced layout (size N_reduced + halo
+        slots, where halo slots have been refreshed by the halo swap when
+        SIZE>1). The MLP tail lives in ``_post_mlp``; the full local block is
+        ``_attention_with_consistency`` and composes both halves.
 
-        Returns the updated x_batch (out-of-place; does not mutate input).
+        Split into pre/post-MLP halves so the hierarchical attention layer can
+        insert a global summary update between the local attention and the MLP
+        without reimplementing the (subtle) consistency logic.
         """
         poly_order = self.poly_order
         nodes_per_element = (poly_order + 1) ** 3
@@ -377,11 +344,52 @@ class DGTAttentionBlock(nn.Module):
         else:
             x_new = res + attn_output
 
-        # Residual FFN
-        y = self.norm2(x_new)
-        y = self.ffn(y)
-        x_new = x_new + y
         return x_new
+
+    def _post_mlp(self, x_new: torch.Tensor) -> torch.Tensor:
+        """Residual MLP tail. Counterpart to ``_attention_pre_mlp``."""
+        y = self.norm2(x_new)
+        y = self.mlp(y)
+        return x_new + y
+
+    def _attention_with_consistency(
+        self,
+        x_batch: torch.Tensor,
+        pos: torch.Tensor,
+        pos_min: torch.Tensor,
+        pos_max: torch.Tensor,
+        grouping_index: torch.Tensor,
+        mask_send,
+        mask_recv,
+        buffer_send,
+        buffer_recv,
+        halo_info: torch.Tensor,
+        idx_reduced2full: torch.Tensor,
+        idx_full2reduced: torch.Tensor,
+        neighboring_procs,
+        SIZE,
+    ) -> torch.Tensor:
+        """Local-only path: pre-MLP attention block + MLP residual. Preserved
+        as a single-call entry point for the non-hierarchical processor stack.
+        Bit-equivalent to the pre-refactor implementation.
+        """
+        x_new = self._attention_pre_mlp(
+            x_batch,
+            pos,
+            pos_min,
+            pos_max,
+            grouping_index,
+            mask_send,
+            mask_recv,
+            buffer_send,
+            buffer_recv,
+            halo_info,
+            idx_reduced2full,
+            idx_full2reduced,
+            neighboring_procs,
+            SIZE,
+        )
+        return self._post_mlp(x_new)
 
     def forward(
         self,
@@ -410,7 +418,7 @@ class DGTAttentionBlock(nn.Module):
         if self.emb_features > 0:
             x = x + self.node_emb_linear(emb)[batch]
 
-        # Per-batch attention + redistribution + halo swap + FFN. The graph
+        # Per-batch attention + redistribution + halo swap + MLP. The graph
         # topology (idx_reduced2full, idx_full2reduced, halo_info) is shared
         # across batches; only the x slice differs.
         if batch_size == 1:
@@ -486,14 +494,14 @@ class DistributedDGT(nn.Module):
         arch (Dict[str, Any]): Architecture configuration. Keys:
             input_node_features (int): per-node input dimension
             cond_node_features (int): per-node conditional feature dimension (0 if unused)
-            hidden_channels (int): attention/FFN hidden width
+            hidden_channels (int): attention/MLP hidden width
             n_transformer_layers (int): number of attention blocks
             num_heads (int): heads in multi-head attention
             poly_order (int): spectral element polynomial order (nodes/element = (p+1)^3)
             emb_width (int): width of the diffusion-step embedding
             halo_swap_mode (str): one of {none, all_to_all, all_to_all_opt}
             learnable_variance (bool): if True the decoder outputs 2x input_node_features
-            mlp_ratio (float): FFN hidden ratio
+            mlp_ratio (float): MLP hidden ratio
             name (str): tag used in checkpoint filename
     """
 
@@ -526,19 +534,38 @@ class DistributedDGT(nn.Module):
             self.hidden_channels,
         )
 
-        # ~~~~ Processor: stack of DGTAttentionBlock
+        # ~~~~ Processor: stack of DGTAttentionBlock, optionally wrapped in
+        # HierarchicalLayer when arch["hierarchical_attention"] is true.
+        # Lazy import so the non-hierarchical path doesn't pay the cost.
+        if self.hierarchical_attention:
+            from hierarchical import HierarchicalLayer
         self.processor = nn.ModuleList()
-        for _ in range(self.n_transformer_layers):
-            self.processor.append(
-                DGTAttentionBlock(
-                    hidden_channels=self.hidden_channels,
-                    num_heads=self.num_heads,
-                    emb_features=emb_width,
-                    poly_order=self.poly_order,
-                    mlp_ratio=self.mlp_ratio,
-                    halo_swap_mode=self.halo_swap_mode,
-                )
+        for ilayer in range(self.n_transformer_layers):
+            inner = DGTAttentionBlock(
+                hidden_channels=self.hidden_channels,
+                num_heads=self.num_heads,
+                emb_features=emb_width,
+                poly_order=self.poly_order,
+                mlp_ratio=self.mlp_ratio,
+                halo_swap_mode=self.halo_swap_mode,
             )
+            if (
+                self.hierarchical_attention and 
+                (ilayer + 1) % self.hierarchical_interleve_freq == 0
+            ) :
+                self.processor.append(
+                    HierarchicalLayer(
+                        inner_block=inner,
+                        hidden_channels=self.hidden_channels,
+                        num_heads=self.num_heads,
+                        k_summary=self.k_summary,
+                        poly_order=self.poly_order,
+                        readout_chunk_size=self.readout_chunk_size,
+                        activation_checkpointing=self.activation_checkpointing,
+                    )
+                )
+            else:
+                self.processor.append(inner)
 
         # ~~~~ Decoder MLP. Width matches DistributedDGN's contract.
         self.decoder = MlpBlock(
@@ -559,6 +586,13 @@ class DistributedDGT(nn.Module):
         self.halo_swap_mode = arch["halo_swap_mode"]
         self.learnable_variance = arch.get("learnable_variance", False)
         self.mlp_ratio = arch.get("mlp_ratio", 1.0)
+        self.hierarchical_attention = arch.get("hierarchical_attention", False)
+        self.hierarchical_interleve_freq = arch.get("hierarchical_interleve_freq", 2)
+        self.k_summary = arch.get("k_summary", 4)
+        self.readout_chunk_size = arch.get("readout_chunk_size", 16)
+        self.activation_checkpointing = arch.get(
+            "activation_checkpointing", False
+        )
         self.output_node_features = (
             self.input_node_features * 2
             if self.learnable_variance
@@ -580,6 +614,9 @@ class DistributedDGT(nn.Module):
             f"_lv{self.arch['learnable_variance']}"
             f"_condf{self.arch['cond_node_features']}"
         )
+        if self.arch.get("hierarchical_attention", False):
+            header += f"_hier{self.arch.get('k_summary', 4)}"
+            header += f"f{self.arch.get('hierarchical_interleve_freq', 1)}"
         return header
 
     def forward(

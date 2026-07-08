@@ -621,6 +621,17 @@ class SinusoidalPositionEmbedding(nn.Module):
         assert dim % 2 == 0, "Dimension must be even."
         self.dim = dim
         self.theta = theta
+        # Marker buffer that tracks the model's float dtype. The module has no
+        # parameters, so without a float buffer it is invisible to
+        # ``module.to(bfloat16)`` -- but the trainer DOES call that on the full
+        # model when precision=bf16. With this buffer in place, the cast
+        # propagates here and ``self._dtype_marker.dtype`` returns the model's
+        # dtype. Used below to make the arange + multiply chain produce output
+        # in the same dtype as the subsequent nn.Linear weights, instead of
+        # silently defaulting to fp32 from the int-arange * float math.
+        self.register_buffer(
+            "_dtype_marker", torch.zeros(0, dtype=torch.float32)
+        )
 
     def forward(
         self,
@@ -628,12 +639,13 @@ class SinusoidalPositionEmbedding(nn.Module):
     ) -> torch.Tensor:
         """Returns the embedding of position `r`."""
         device = r.device
+        target_dtype = self._dtype_marker.dtype
         half_dim = self.dim // 2
         emb = math.log(self.theta) / (half_dim - 1)
         emb = torch.exp(
-            torch.arange(half_dim, device=device) * -emb
+            torch.arange(half_dim, device=device, dtype=target_dtype) * -emb
         )  # Dimensions: [dim/2]
-        emb = r.unsqueeze(-1) * emb.unsqueeze(
+        emb = r.to(target_dtype).unsqueeze(-1) * emb.unsqueeze(
             0
         )  # Dimensions: [batch_size, dim/2]
         emb = torch.cat(
