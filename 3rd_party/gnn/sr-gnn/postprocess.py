@@ -275,7 +275,9 @@ def main():
         with torch.no_grad():
             for i in my_elements:
                 if group_rank == 0:
-                    logger.info(f"Rank {RANK} evaluating element {i}/{n_snaps} of file {input_snap}")
+                    logger.info(
+                        f"Rank {RANK} evaluating element {i}/{n_snaps} of file {input_snap}"
+                    )
 
                 pos_xlo_i = (
                     torch.tensor(xlo_field.elem[i].pos).reshape((3, -1)).T
@@ -531,8 +533,12 @@ def main():
 
                 if group_rank == 0:
                     idx_recv = np.empty(int(counts_elem.sum()), dtype=np.int64)
-                    pred_recv = np.empty(int(counts_flat.sum()), dtype=np.float64)
-                    err_recv = np.empty(int(counts_flat.sum()), dtype=np.float64)
+                    pred_recv = np.empty(
+                        int(counts_flat.sum()), dtype=np.float64
+                    )
+                    err_recv = np.empty(
+                        int(counts_flat.sum()), dtype=np.float64
+                    )
                 else:
                     idx_recv = None
                     pred_recv = None
@@ -559,16 +565,18 @@ def main():
                     for k, i in enumerate(idx_recv):
                         s = k * elem_nfloat
                         e = s + elem_nfloat
-                        xhi_field_pred.elem[int(i)].vel[:, :, :, :] = (
-                            pred_recv[s:e].reshape(elem_shape)
-                        )
-                        xhi_field_error.elem[int(i)].vel[:, :, :, :] = (
-                            err_recv[s:e].reshape(elem_shape)
-                        )
+                        xhi_field_pred.elem[int(i)].vel[:, :, :, :] = pred_recv[
+                            s:e
+                        ].reshape(elem_shape)
+                        xhi_field_error.elem[int(i)].vel[:, :, :, :] = err_recv[
+                            s:e
+                        ].reshape(elem_shape)
 
             inf_time = time.perf_counter() - start
             if group_rank == 0:
-                logger.info(f"Performed inference on file {input_snap} in {inf_time:.2f} s")
+                logger.info(
+                    f"Performed inference on file {input_snap} in {inf_time:.2f} s"
+                )
 
             # Write (only the root rank of each file-group).
             if group_rank == 0:
@@ -586,9 +594,9 @@ def main():
                     prediction_path + f"/{args.output_name}_error0.f{time_id}",
                     xhi_field_error,
                 )
-    
+
     COMM.Barrier()
-    if RANK ==0:
+    if RANK == 0:
         logger.info("Done with inference!")
 
 
