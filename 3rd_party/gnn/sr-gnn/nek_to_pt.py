@@ -10,6 +10,15 @@ import numpy as np
 import argparse
 import torch
 
+from mpi4py import MPI
+
+COMM = MPI.COMM_WORLD
+SIZE = COMM.Get_size()
+RANK = COMM.Get_rank()
+LOCAL_RANK = int(os.getenv("PALS_LOCAL_RANKID", 0))
+LOCAL_SIZE = int(os.getenv("PALS_LOCAL_SIZE", 1))
+HOST_NAME = MPI.Get_processor_name()
+
 import dataprep.nekrs_graph_setup as ngs
 
 import logging
@@ -30,22 +39,36 @@ def write_dataset(args: argparse.Namespace):
     # Take care of some initializations
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
+    torch.set_num_threads(1)
     device_for_loading = "cpu"
-    n_train = 0
-    n_valid = 0
-    train_dataset = []
-    test_dataset = []
+    n_train_local = 0
+    n_valid_local = 0
+    train_dataset_local = []
+    test_dataset_local = []
     edge_index_path_lo = f"{args.case_path}/gnn_outputs_poly_{args.input_poly_order}/edge_index_element_local"
     edge_index_path_hi = f"{args.case_path}/gnn_outputs_poly_{args.target_poly_order}/edge_index_element_local"
 
-    # Loop over snapshots (could parallelize with MPI if needed)
-    for i in range(len(args.target_snap_list)):
+    # Loop over snapshots (distributed across MPI ranks).
+    n_files = len(args.target_snap_list)
+    if RANK == 0:
+        logger.info(
+            f"MPI layout: SIZE={SIZE}, distributing {n_files} files across ranks"
+        )
+        if SIZE > n_files:
+            logger.warning(
+                f"SIZE={SIZE} exceeds number of files ({n_files}); ranks "
+                f"{n_files}..{SIZE - 1} will be idle. Consider launching with "
+                f"-n {n_files} to avoid wasted resources."
+            )
+    for i in range(RANK, n_files, SIZE):
         target_snap = args.target_snap_list[i]
         input_snap = args.input_snap_list[i]
         input_path = f"{args.case_path}/{input_snap}"
         target_path = f"{args.case_path}/{target_snap}"
 
-        logger.info(f"Loading data from {input_snap} and {target_snap}")
+        logger.info(
+            f"[rank {RANK}] Loading data from {input_snap} and {target_snap}"
+        )
         dataset = ngs.get_pygeom_dataset_lo_hi_pymech(
             data_xlo_path=input_path,
             data_xhi_path=target_path,
@@ -56,23 +79,33 @@ def write_dataset(args: argparse.Namespace):
             n_element_neighbors=args.n_element_neighbors,
         )
 
-        train_dataset += dataset["train"]["data"]
-        test_dataset += dataset["valid"]["data"]
-        n_train += dataset["train"]["num_samples"]
-        n_valid += dataset["valid"]["num_samples"]
+        train_dataset_local += dataset["train"]["data"]
+        test_dataset_local += dataset["valid"]["data"]
+        n_train_local += dataset["train"]["num_samples"]
+        n_valid_local += dataset["valid"]["num_samples"]
 
-    # Create output directory if it doesn't exist
-    data_dir = args.case_path + f"/pt_datasets"
-    if not os.path.exists(data_dir):
-        os.makedirs(data_dir)
+    # Gather per-rank datasets onto rank 0 for a single unified output.
+    train_gathered = COMM.gather(train_dataset_local, root=0)
+    test_gathered = COMM.gather(test_dataset_local, root=0)
+    n_train = COMM.reduce(n_train_local, op=MPI.SUM, root=0)
+    n_valid = COMM.reduce(n_valid_local, op=MPI.SUM, root=0)
 
-    # try torch.save
-    logger.info(f"Saving dataset to {data_dir}")
-    logger.info(f"Number of training samples: {n_train}")
-    logger.info(f"Number of validation samples: {n_valid}")
-    torch.save(train_dataset, data_dir + f"/train_dataset.pt")
-    torch.save(test_dataset, data_dir + f"/valid_dataset.pt")
-    logger.info("Done!")
+    if RANK == 0:
+        train_dataset = [d for chunk in train_gathered for d in chunk]
+        test_dataset = [d for chunk in test_gathered for d in chunk]
+
+        # Create output directory if it doesn't exist
+        data_dir = args.case_path + f"/pt_datasets"
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir)
+
+        # try torch.save
+        logger.info(f"Saving dataset to {data_dir}")
+        logger.info(f"Number of training samples: {n_train}")
+        logger.info(f"Number of validation samples: {n_valid}")
+        torch.save(train_dataset, data_dir + f"/train_dataset.pt")
+        torch.save(test_dataset, data_dir + f"/valid_dataset.pt")
+        logger.info("Done!")
 
 
 def main() -> None:
