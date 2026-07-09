@@ -88,8 +88,8 @@ echo "    --launcher-config-file ./run_dir/launcher_config.json" >> $RFILE
 
 echo -e "\n# Generate training data from nekRS checkpoint files" >>$RFILE
 echo "echo \"Generating training data from nekRS checkpoint files\"" >> $RFILE
-echo "TARGET_SNAP_LIST=`ls run_dir/from_turbChannel_p\${TARGET_P}*.f0*`" >> $RFILE
-echo "INPUT_SNAP_LIST=`ls run_dir/from_turbChannel_p\${INPUT_P}*.f0*`" >> $RFILE
+echo "TARGET_SNAP_LIST=\`ls run_dir/from_turbChannel_p\${TARGET_P}*.f0*\`" >> $RFILE
+echo "INPUT_SNAP_LIST=\`ls run_dir/from_turbChannel_p\${INPUT_P}*.f0*\`" >> $RFILE
 echo "python ${NEKRS_HOME}/3rd_party/gnn/sr-gnn/nek_to_pt.py \\" >> $RFILE
 echo "    --case_path $PWD \\" >> $RFILE
 echo "    --target_snap_list \${TARGET_SNAP_LIST} \\" >> $RFILE

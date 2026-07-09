@@ -212,8 +212,12 @@ function setup_case() {
     CASE_NAME=${CASE_NAME:0:${#CASE_NAME}-14}
   elif [ "$DEPLOYMENT" == "offline" ]; then
     # offline example
-    CASE_NAME=$(ls *.par)
-    CASE_NAME=${CASE_NAME:0:${#CASE_NAME}-4}
+    mapfile -t par_files < <(ls *.par | grep -v '_.*\.par$')
+    if [ ${#par_files[@]} -ne 1 ]; then
+      echo "Error: expected exactly one base .par file, found: ${par_files[*]}"
+      exit 1
+    fi
+    CASE_NAME=$(basename -s .par "${par_files[0]}")    
   elif [ "${DEPLOYMENT}" == "colocated" ] || [ "${DEPLOYMENT}" == "clustered" ]; then
     # online example
     CASE_NAME=$(ls *.par.safe)
