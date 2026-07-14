@@ -78,10 +78,10 @@ jobs:
           GITLAB_PROJECT_ID: ${{ secrets.GITLAB_PROJECT_ID }}
           GITLAB_TRIGGER_TOKEN: ${{ secrets.GITLAB_TRIGGER_TOKEN }}
           REF: ${{ github.event_name == 'issue_comment' && steps.resolve.outputs.ref || inputs.ref }}
-          SHA: ${{ github.event_name == 'issue_comment' && steps.resolve.outputs.sha || github.sha }}
+          SHA: ${{ github.event_name == 'issue_comment' && steps.resolve.outputs.sha || '' }}
         run: |
           set -euo pipefail
-          for v in GITLAB_URL GITLAB_PROJECT_ID GITLAB_TRIGGER_TOKEN REF SHA; do
+          for v in GITLAB_URL GITLAB_PROJECT_ID GITLAB_TRIGGER_TOKEN REF; do
             if [[ -z "${!v:-}" ]]; then
               echo "Missing required env: $v (set GitHub Actions secrets)" >&2
               exit 1
@@ -89,11 +89,15 @@ jobs:
           done
           base="${GITLAB_URL%/}"
           url="${base}/api/v4/projects/${GITLAB_PROJECT_ID}/trigger/pipeline"
-          echo "POST ${url} (ref=${REF}, sha=${SHA})"
+          echo "POST ${url} (ref=${REF}, sha=${SHA:-<from ref HEAD>})"
+          form_sha=()
+          if [[ -n "${SHA:-}" ]]; then
+            form_sha=(--form "variables[CI_COMMIT_SHA]=${SHA}")
+          fi
           resp=$(curl -sS -w '\n%{http_code}' -X POST \
             --form "token=${GITLAB_TRIGGER_TOKEN}" \
             --form "ref=${REF}" \
-            --form "variables[CI_COMMIT_SHA]=${SHA}" \
+            "${form_sha[@]}" \
             "${url}")
           body=$(echo "$resp" | sed '$d')
           code=$(echo "$resp" | tail -n1)
