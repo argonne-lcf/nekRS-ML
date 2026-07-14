@@ -121,12 +121,12 @@ You will see the following output:
 [       OK ] (1/5) SmartRedisBuild ~aurora:compute+PrgEnv-Aurora /30e810d8 @aurora:compute+PrgEnv-Aurora
 [ RUN      ] NekRSBuild ~aurora:compute+PrgEnv-Aurora /6b4abd03 @aurora:compute+PrgEnv-Aurora
 [       OK ] (2/5) NekRSBuild ~aurora:compute+PrgEnv-Aurora /6b4abd03 @aurora:compute+PrgEnv-Aurora
-[ RUN      ] NekRSTGVOffline %num_nodes=1 %ranks_per_node=2 /5e38581e @aurora:compute+PrgEnv-Aurora
-[ RUN      ] NekRSTGVOfflineCoarseMesh %num_nodes=1 %ranks_per_node=2 /0dc759b6 @aurora:compute+PrgEnv-Aurora
-[ RUN      ] NekRSTGVOfflineTraj %num_nodes=1 %ranks_per_node=4 /67a9fb19 @aurora:compute+PrgEnv-Aurora
-[       OK ] (3/5) NekRSTGVOfflineTraj %num_nodes=1 %ranks_per_node=4 /67a9fb19 @aurora:compute+PrgEnv-Aurora
-[       OK ] (4/5) NekRSTGVOffline %num_nodes=1 %ranks_per_node=2 /5e38581e @aurora:compute+PrgEnv-Aurora
-[       OK ] (5/5) NekRSTGVOfflineCoarseMesh %num_nodes=1 %ranks_per_node=2 /0dc759b6 @aurora:compute+PrgEnv-Aurora
+[ RUN      ] TGVOffline %num_nodes=1 %ranks_per_node=2 /5e38581e @aurora:compute+PrgEnv-Aurora
+[ RUN      ] TGVOfflineCoarseMesh %num_nodes=1 %ranks_per_node=2 /0dc759b6 @aurora:compute+PrgEnv-Aurora
+[ RUN      ] TGVOfflineTraj %num_nodes=1 %ranks_per_node=4 /67a9fb19 @aurora:compute+PrgEnv-Aurora
+[       OK ] (3/5) TGVOfflineTraj %num_nodes=1 %ranks_per_node=4 /67a9fb19 @aurora:compute+PrgEnv-Aurora
+[       OK ] (4/5) TGVOffline %num_nodes=1 %ranks_per_node=2 /5e38581e @aurora:compute+PrgEnv-Aurora
+[       OK ] (5/5) TGVOfflineCoarseMesh %num_nodes=1 %ranks_per_node=2 /0dc759b6 @aurora:compute+PrgEnv-Aurora
 [----------] all spawned checks have finished
 
 [  PASSED  ] Ran 5/5 test case(s) from 5 check(s) (0 failure(s), 0 skipped, 0 aborted)
@@ -141,9 +141,9 @@ test_data/
 │       │   └── compute
 │       │       └── PrgEnv-Aurora
 │       │           ├── NekRSBuild_6b4abd03
-│       │           ├── NekRSTGVOffline
-│       │           ├── NekRSTGVOfflineCoarseMesh
-│       │           └── NekRSTGVOfflineTraj
+│       │           ├── TGVOffline
+│       │           ├── TGVOfflineCoarseMesh
+│       │           └── TGVOfflineTraj
 │       ├── rfm-dwsf8i1k.log
 │       └── rfm-n430vm9z.log
 ├── reports
@@ -155,9 +155,9 @@ test_data/
                 └── PrgEnv-Aurora
                     ├── _env
                     ├── NekRSBuild_6b4abd03
-                    ├── NekRSTGVOffline
-                    ├── NekRSTGVOfflineCoarseMesh
-                    └── NekRSTGVOfflineTraj
+                    ├── TGVOffline
+                    ├── TGVOfflineCoarseMesh
+                    └── TGVOfflineTraj
 
 20 directories, 3 files
 ```

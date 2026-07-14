@@ -108,9 +108,6 @@ class TurbChannelOffline(NekRSMLOfflineTest):
 @rfm.simple_test
 class TGVOnline(NekRSMLOnlineTest):
     num_nodes = parameter([1])
-    # rpn=1 is unsupported for colocated online runs: the node must host the
-    # simulation, the trainer, and the DB, so ml_rpn = rpn//2 = 0 leaves zero
-    # ranks for training. At least 2 ranks per node are needed.
     ranks_per_node = parameter([2, 4])
 
     def __init__(self):
