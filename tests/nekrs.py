@@ -180,7 +180,7 @@ class NekRSMLTest(RunOnlyTest):
         self.ml_args = init_missing_args(args)
 
         # Initialize reframe fields.
-        self.descr = f"NekRS-ML {self.ml_args['test_type']} test"
+        self.descr = f"NekRS-ML {self.test_type} test"
         self.maintainers = ["tratnayaka@anl.gov", "kris.rowe@anl.gov"]
         self.tags = {"all", self.model, self.case, self.time_dependency}
         self.readonly_files = [f"{self.case}.re2"]
@@ -192,6 +192,10 @@ class NekRSMLTest(RunOnlyTest):
     @property
     def case_dir(self):
         return self.ml_args["directory"]
+
+    @property
+    def test_type(self):
+        return self.ml_args["test_type"]
 
     @property
     def time_dependency(self):
@@ -504,13 +508,13 @@ class NekRSMLOfflineTest(NekRSMLTest):
             self.nekrs_cmd(),
         ]
 
-        if self.ml_args["model"] == "dist-gnn":
+        if self.model == "dist-gnn":
             self.prerun_cmds += [
                 self.check_halo_info_cmd(),
                 self.check_input_files_cmd(),
                 *self.check_traj_cmd(),
             ]
-        elif self.ml_args["model"] == "sr-gnn":
+        elif self.model == "sr-gnn":
             self.prerun_cmds += [
                 self.set_sr_gnn_target_and_input_list(),
                 self.generate_sr_gnn_data_cmd(),
@@ -543,7 +547,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
             ]
 
     def set_postrun_cmds(self):
-        if self.ml_args["model"] != "sr-gnn":
+        if self.model != "sr-gnn":
             return
 
         self.postrun_cmds += [
@@ -577,7 +581,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
 
         pattern = (
             r"Total training time: \S+ seconds"
-            if self.ml_args["model"] == "sr-gnn"
+            if self.model == "sr-gnn"
             else r"SUCCESS! GNN training validated!"
         )
         gnn_ok = sn.assert_found(
@@ -592,7 +596,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
                 self.stdout,
                 msg="GNN validation failed (inference).",
             )
-            if self.ml_args["model"] == "sr-gnn"
+            if self.model == "sr-gnn"
             else True
         )
 
