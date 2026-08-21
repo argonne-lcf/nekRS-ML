@@ -4,6 +4,7 @@ Trainer for distributed, consistent graph neural network
 
 import sys
 import os
+import glob
 import socket
 from typing import Optional, Union, Callable
 import logging
@@ -219,12 +220,27 @@ class Trainer:
             self.ckpt_path = cfg.ckpt_dir + "checkpoint.tar"
             self.model_path = cfg.model_dir + "model.tar"
 
+
+        def _resolve_legacy(path):
+            """Checkpoints written before the repartitioning work embedded
+            the training world size in the name (POLY_p_SIZE_S_SEED_s);
+            fall back to them (any S) when the size-free name is absent."""
+            if os.path.exists(path):
+                return path
+            matches = sorted(
+                glob.glob(path.replace("_SEED_", "_SIZE_*_SEED_", 1))
+            )
+            return matches[0] if matches else path
+
+        self._resolve_legacy_ckpt = _resolve_legacy
+
         # ~~~~ Load model parameters if we are restarting from checkpoint
         self.iteration = 0
         if self.cfg.restart:
+            ckpt_load_path = self._resolve_legacy_ckpt(self.ckpt_path)
             if RANK == 0:
-                log.info(f"Loading model checkpoint from {self.ckpt_path}")
-            ckpt = torch.load(self.ckpt_path, weights_only=False)
+                log.info(f"Loading model checkpoint from {ckpt_load_path}")
+            ckpt = torch.load(ckpt_load_path, weights_only=False)
             self.model.load_state_dict(ckpt["model_state_dict"])
             self.iteration = ckpt["iteration"] + 1
             self.loss_hist_train = ckpt["loss_hist_train"]
@@ -368,8 +384,10 @@ class Trainer:
             n_mlp_hidden_layers = self.cfg.n_mlp_hidden_layers
             n_messagePassing_layers = self.cfg.n_messagePassing_layers
             layer_norm = self.cfg.layer_norm
-            # name = 'POLY_%d_RANK_%d_SIZE_%d_SEED_%d' %(poly,RANK,SIZE,self.cfg.seed)
-            name = "POLY_%d_SIZE_%d_SEED_%d" % (poly, SIZE, self.cfg.seed)
+            # No SIZE in the name: the model is partition-independent, so a
+            # checkpoint trained at any rank count must be findable at any
+            # other (see the legacy-name fallback in the restart load).
+            name = "POLY_%d_SEED_%d" % (poly, self.cfg.seed)
             if self.cfg.use_residual:
                 name += "_RESID"
 
@@ -389,7 +407,7 @@ class Trainer:
             pos_graph = graph.pos[self.idx_reduced2full]
             num_node_per_element = (poly + 1) ** 3
             num_elements = pos_graph.shape[0] // num_node_per_element
-            name = "GT_POLY_%d_SIZE_%d_SEED_%d" % (poly, SIZE, self.cfg.seed)
+            name = "GT_POLY_%d_SEED_%d" % (poly, self.cfg.seed)
             if self.cfg.use_residual:
                 name += "_RESID"
 

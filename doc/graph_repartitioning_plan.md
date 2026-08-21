@@ -189,10 +189,13 @@ all offline loss-equality tests. Remaining:
      component-major layout per writer block (adiosStreamer.cpp:155-175);
      replace the naive shape[0]/size split with writer-block-aware,
      element-aligned reads + routing.
-   - `trainer.py:369/389` save_header embeds SIZE — replace with a
-     partition-independent name (e.g. drop SIZE, keep a fallback that also
-     tries the old name on load). Without this, inference at M != training
-     size cannot find the .tar.
+   - ~~`trainer.py:369/389` save_header embeds SIZE~~ DONE 2026-08-21:
+     model name is now `POLY_%d_SEED_%d` (no SIZE); the restart load
+     resolves legacy `POLY_p_SIZE_S_SEED_s` checkpoints (any S) via a
+     glob fallback (`_resolve_legacy_ckpt`). Verified: py_compile + a
+     filename-shape micro-test of the fallback (get_save_header appends
+     the non-name input_dict values once; name is not repeated). NOT yet
+     exercised end-to-end at M != S — do that with the inference smoke.
    - `driver.py:150-183 launchInference` + `nrsrun_aurora`: add
      `inferprocs`, `inferprocs_pn`, `infer_cpu_bind`, `infer_nodes` config
      keys (default: sim_nodes+train_nodes, 2x mlprocs) and use them.
