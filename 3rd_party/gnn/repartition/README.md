@@ -24,7 +24,10 @@ inside a single element. This package:
      `mesh->globalIds` classes exactly), and any field record (U, P, T,
      S##) becomes node data;
 2. **Partitions** whole elements onto the current communicator
-   (`block` contiguous split or `rcb` recursive coordinate bisection);
+   (`block` contiguous split, `rcb` recursive coordinate bisection, or
+   `parrsb` — nek5000's parRSB, recursive spectral bisection on the
+   corner-vertex connectivity graph: fully distributed and topology-aware,
+   so it keeps periodic neighbors together; see "parRSB" below);
 3. **Redistributes** elements with a single `Alltoallv`, keeping a reusable
    `Routing` so any node-level field laid out in source order (snapshots,
    trajectories, checkpoints) can be moved identically;
@@ -94,6 +97,36 @@ dist-gnn can alternatively skip the CLI entirely: its trainer autodetects
 a rank-count mismatch in `gnn_outputs_path` and repartitions in memory
 (config keys `gnn_outputs_size`, `repartition_method`).
 
+## parRSB (`--method parrsb`)
+
+`block` and `rcb` are pure Python and always available. `parrsb` calls
+nek5000's production partitioner through a small C shim
+(`parrsb_shim.c`) loaded with ctypes. It is the right choice for large
+meshes: it is fully distributed (RCB here gathers centroids to rank 0)
+and it partitions the element connectivity graph induced by shared
+corner-vertex gids, so mesh topology — including periodic identification,
+which coordinate-based RCB always cuts — drives the partition.
+
+Build the shim once against a nekRS install (needs the `libparRSB.a` /
+`libgs.a` that every standard nekRS build already produces):
+
+```sh
+NEKRS_HOME=/path/to/nekrs-install \
+    bash repartition/build_parrsb_shim.sh
+```
+
+The library is searched at `$PARRSB_SHIM_LIB`, next to `parrsb.py`, then
+under `$NEKRS_HOME`. parRSB options can be tuned via `PARRSB_*`
+environment variables (see `parRSB.h`), e.g. `PARRSB_PARTITIONER=1` for
+its internal RCB instead of RSB.
+
+Partition-quality comparison (halo classes, per-rank neighbor counts):
+
+```sh
+mpirun -n M python repartition/tests/partition_quality.py \
+    --src /tmp/synth --methods block rcb parrsb
+```
+
 ## Tests
 
 ```sh
@@ -101,7 +134,7 @@ cd 3rd_party/gnn
 python repartition/tests/gen_synthetic.py --out /tmp/synth \
     --nex 4 --ney 3 --nez 2 --poly 3 --src-size 4
 mpirun -n M python repartition/tests/test_consistency.py \
-    --src /tmp/synth --method rcb    # any M
+    --src /tmp/synth --method rcb    # any M; also --method parrsb
 ```
 
 The MPI test checks mask invariants, global reduced-edge-set invariance,

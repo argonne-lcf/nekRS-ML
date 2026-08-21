@@ -81,7 +81,7 @@ repartition/
                    #   BinSource      gnn_outputs_poly_* at any source size
                    #   AdiosSource    graph.bp / checkpoint.bp / solutionStream (phase 2)
                    #   FldSource      nekRS .f files (phase 3)
-  partition.py     # dest-rank per element: 'block' | 'rcb' | 'parrsb' (phase 3)
+  partition.py     # dest-rank per element: 'block' | 'rcb' | 'parrsb'
   redistribute.py  # mpi4py Alltoallv of element records; deterministic receiver order
   rebuild.py       # edge template extraction + rep-mapped edges + mask regeneration
   cli.py           # mpirun -n M python -m repartition.cli --src gnn_outputs_poly_7
@@ -210,13 +210,32 @@ all offline loss-equality tests. Remaining:
    nekRS output to a different rank count via the CLI and train
    (target_loss unchanged), (b) run the .f-only pipeline. Mirror the local
    commands recorded in the Progress log.
-4. **parRSB wrapper** (optional quality upgrade over RCB): cffi around
-   `parrsb_part_mesh(part, vtx, xyz, tag, nel, nv, opts, comm)`;
-   corner-vertex gids = gids at the 8 GLL lattice corners of each element;
-   needs a shared-object build (objects are -fPIC; link libparRSB.a +
-   nek5000-side libgs.a whole-archive) and mpi4py comm handle passing.
-   Acceptance: neighbor-count/edge-cut <= RCB on the synthetic mesh; plug
-   in as `method="parrsb"` in repartition/partition.py.
+4. **parRSB wrapper** — DONE on macOS (see Progress log 2026-08-21,
+   parRSB entry) via a C shim (`repartition/parrsb_shim.c`) + ctypes
+   (`repartition/parrsb.py`), `method="parrsb"` in partition.py, CLI
+   choice, quality metric `tests/partition_quality.py`. Remaining
+   hand-off items for this task:
+   a. **CMake integration**: build `libparrsb_shim.so` during the nekRS
+      build and install it with the repartition package (today users run
+      `repartition/build_parrsb_shim.sh` manually against NEKRS_HOME).
+      Natural place: after the parRSB external project in
+      `cmake/nek5000.cmake` (link `${PARRSB_DIR}/lib/libparRSB.a` +
+      nek5000-side `libgs.a`, `-DMPI`, includes from both installs), then
+      install next to the repartition package (its CMake install rule
+      already exists). Note: use the **nek5000-side gslib** (BLAS=2
+      build), not nekRS's own gs_content copy (USE_NAIVE_BLAS) — parRSB
+      was compiled against the former.
+   b. **HPC validation (Aurora/Polaris/Crux)**: `-fPIC` is already passed
+      to the nek5000/parRSB builds by cmake/nek5000.cmake, so linking the
+      shared shim should work; `build_parrsb_shim.sh` honors `MPICC` for
+      Cray `cc`. Run the synthetic consistency matrix and
+      partition_quality at a few hundred ranks; confirm no rank-0 memory
+      spike (parRSB is fully distributed, unlike our RCB).
+   c. **ReFrame**: add a `method=parrsb` variant to `TGVOfflineRepart`
+      (tests/nekrs.py hardcodes `--method rcb` in `repartition_cmd()`);
+      needs the shim built in the CI environment (depends on a).
+   d. Optional: distributed edge-cut metric (partition_quality.py gathers
+      (gid, rank) pairs to rank 0 — fine at test scale only).
 5. **New example** `tgv_gnn_offline_fld` (or README section): the .f-only
    workflow the user requested, wired with the CLI commands from the
    Progress log; udf writes .f checkpoints only (writeCheckpoint), no
@@ -316,7 +335,33 @@ all offline loss-equality tests. Remaining:
       locally via `reframe --system generic -l` (instantiation only; the
       run stage needs PBS + Lmod). Also added nrsrun_crux to the
       tgv_gnn_offline_fld example (mirrors tgv_gnn_offline's Crux script).
-- [ ] Remaining: see Phase 2 tasks (online ADIOS path is the big one).
+- [x] parRSB wrapper (Phase 2 item 4), branch worktree-parrsb-wrapper:
+      `parrsb_shim.c` (one exported function wrapping `parrsb_part_mesh`
+      with `MPI_Comm_f2c(fcomm)` — same pattern as nek5000's
+      partitioner.c) + `build_parrsb_shim.sh` (mpicc, `-DMPI`, links
+      libparRSB.a + nek5000-side libgs.a from $NEKRS_HOME; on macOS
+      `-dynamiclib`, PIC by default; Linux `-shared`, libs are -fPIC) +
+      `parrsb.py` (ctypes: vtx (Ne,8) int64 corner gids, xyz (Ne,8,3)
+      f8, comm via py2f; parRSB averages xyz to centroids itself) +
+      `partition.py` `method="parrsb"`: corner lattice indices
+      [0, nq-1, nq^2-1, nq(nq-1)] × {k=0, k=nq-1} in nekRS hex vertex
+      order (verified against ref data by a reader agent); gid==0
+      corners (never-shared) get unique NEGATIVE labels from the element
+      ordinal — aliasing them would glue unrelated elements. VALIDATED
+      locally: test_consistency ALL PASS for M ∈ {1,2,3,4,6,8} (synth
+      4x3x2 poly 3) + rcb/block regression; determinism across repeated
+      calls confirmed; CLI end-to-end on real tgv ref gnn_outputs_poly_7
+      (4 -> 2, includes the gid==0 halo-file path). Quality
+      (tests/partition_quality.py, halo classes / halo copies / neighbor
+      ranks): synth M=8 parrsb 314/684/mean 4.25 vs rcb 328/746/6.50 vs
+      block 334/768/6.00 — acceptance (<= RCB) met with a strict win; on
+      the perfectly symmetric periodic tgv 8x8x8 box all three methods
+      tie exactly (equivalent cuts by symmetry). NOTE for real science
+      meshes: parRSB is the only method without a rank-0 gather (our RCB
+      gathers all centroids) — default choice at scale.
+- [ ] Remaining: see Phase 2 tasks (online ADIOS path is the big one;
+      parRSB items a-d: CMake shim build+install, HPC validation,
+      ReFrame parrsb variant, optional distributed quality metric).
 
 Local reproduction notes: python env at ~/.venvs/nekrs-gnn-repart
 (mpi4py, torch, torch_geometric, hydra-core, einops, ruff); run nekRS with

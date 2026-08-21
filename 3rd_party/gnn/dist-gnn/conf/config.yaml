@@ -64,7 +64,8 @@ traj_data_path: ${work_dir}/traj_poly_1/
 # Offline graph repartitioning: rank count the gnn_outputs files were
 # written with (0 = current world size, autodetected if files for the
 # current size are missing) and the element partitioning method used when
-# repartitioning is needed ({rcb, block})
+# repartitioning is needed ({rcb, block, parrsb}; parrsb needs the shim
+# built by repartition/build_parrsb_shim.sh)
 gnn_outputs_size: 0
 repartition_method: "rcb"
 

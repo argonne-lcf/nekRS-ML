@@ -221,7 +221,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--src-dir", help="gnn_outputs_poly_* source directory")
     ap.add_argument("--out-dir", default=None)
-    ap.add_argument("--method", default="rcb", choices=["rcb", "block"])
+    ap.add_argument(
+        "--method", default="rcb", choices=["rcb", "block", "parrsb"]
+    )
     ap.add_argument("--fld", action="store_true")
     ap.add_argument("--traj-dir", default=None)
     ap.add_argument("--traj-out", default=None)

@@ -8,8 +8,13 @@ repeated runs (graph vs. field data passes) produce identical layouts.
   and, when the source ordering came from a good partitioner (parRSB), it
   preserves locality well for integer refactorings of the rank count.
 - "rcb": recursive coordinate bisection on element centroids. Centroids are
-  gathered to rank 0 (fine for preprocessing-scale meshes; a distributed RCB
-  or a parRSB wrapper is the planned upgrade for very large meshes).
+  gathered to rank 0 (fine for preprocessing-scale meshes; use "parrsb" for
+  very large meshes).
+- "parrsb": nek5000's parRSB (recursive spectral bisection on the element
+  connectivity graph induced by shared corner-vertex gids). Fully
+  distributed — no rank-0 gather — and connectivity-aware, so it keeps
+  periodic neighbors together where RCB always cuts them. Needs the ctypes
+  shim built by build_parrsb_shim.sh (see parrsb.py).
 """
 
 import numpy as np
@@ -74,6 +79,54 @@ def partition_rcb(centroids, ordinals, comm):
     return alltoallv(dest_all, rcounts, scounts, comm)
 
 
+def corner_lattice_indices(np_pts):
+    """Within-element node indices of the 8 hex corners (np_pts = Np).
+
+    Nodes are lattice-ordered i + j*nq + k*nq^2 (i/x fastest, the gnn plugin
+    convention); corners follow nekRS's hex vertex order (meshLoadReference-
+    NodesHex3D): (-,-,-), (+,-,-), (+,+,-), (-,+,-), then the k=nq-1 plane.
+    """
+    nq = round(np_pts ** (1.0 / 3.0))
+    if nq * nq * nq != np_pts:
+        raise ValueError(f"Np={np_pts} is not a cube")
+    lo, hi = 0, nq - 1
+    return np.array(
+        [
+            lo + nq * lo + nq * nq * lo,
+            hi + nq * lo + nq * nq * lo,
+            hi + nq * hi + nq * nq * lo,
+            lo + nq * hi + nq * nq * lo,
+            lo + nq * lo + nq * nq * hi,
+            hi + nq * lo + nq * nq * hi,
+            hi + nq * hi + nq * nq * hi,
+            lo + nq * hi + nq * nq * hi,
+        ],
+        dtype=np.int64,
+    )
+
+
+def element_corners(elems):
+    """(Ne, 8) corner gids and (Ne, 8, 3) corner coords for parRSB.
+
+    gid==0 marks never-shared (single-gather) nodes in nekRS outputs; parRSB
+    treats vertex ids purely as equality labels, so aliasing all of them to
+    one vertex would glue unrelated elements together. Give each instance a
+    unique negative label derived from the partition-independent element
+    ordinal (deterministic across runs and rank counts).
+    """
+    corners = corner_lattice_indices(elems.Np)
+    gids = elems.gids.reshape(elems.n_elements, elems.Np)[:, corners].copy()
+    zero = gids == 0
+    if zero.any():
+        ords = np.broadcast_to(elems.ordinals[:, None], gids.shape)
+        cidx = np.broadcast_to(
+            np.arange(8, dtype=np.int64)[None, :], gids.shape
+        )
+        gids[zero] = -(ords[zero] * 8 + cidx[zero] + 1)
+    xyz = elems.pos.reshape(elems.n_elements, elems.Np, 3)[:, corners, :]
+    return gids, xyz
+
+
 def partition_elements(elems, comm, method="rcb"):
     size = comm.Get_size()
     if size == 1:
@@ -83,7 +136,19 @@ def partition_elements(elems, comm, method="rcb"):
         return partition_block(n_total, elems.ordinals, size)
     if method == "rcb":
         return partition_rcb(elems.centroids(), elems.ordinals, comm)
+    if method == "parrsb":
+        from .parrsb import partition_parrsb
+
+        gids, xyz = element_corners(elems)
+        return partition_parrsb(gids, xyz, comm)
     raise ValueError(f"unknown partition method: {method}")
 
 
-__all__ = ["displs", "partition_block", "partition_elements", "partition_rcb"]
+__all__ = [
+    "corner_lattice_indices",
+    "displs",
+    "element_corners",
+    "partition_block",
+    "partition_elements",
+    "partition_rcb",
+]
