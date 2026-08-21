@@ -61,6 +61,11 @@ class TGVOfflineRepart(NekRSMLOfflineRepartTest):
     # before training to check that the loss is independent of the rank
     # count (rpn=4 exercises an actual 2 -> 4 repartitioning).
     ranks_per_node = parameter([2, 4])
+    # rcb is pure Python; parrsb builds the C shim against the install's
+    # libparRSB.a/libgs.a in a prerun step (build_parrsb_shim.sh) and
+    # checks the topology-aware partitioner end to end. Same target_loss:
+    # the loss is independent of the partitioning method.
+    repart_method = parameter(["rcb", "parrsb"])
 
     def __init__(self):
         super().__init__(
@@ -69,6 +74,7 @@ class TGVOfflineRepart(NekRSMLOfflineRepartTest):
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
             nekrs_ranks=2,
+            repartition_method=self.repart_method,
             time_dependency="time_independent",
             target_loss=2.7161e-04,
             extra_opts=TGV_TRANSFORM_OPTS,

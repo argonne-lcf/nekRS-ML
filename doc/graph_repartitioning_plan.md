@@ -231,9 +231,13 @@ all offline loss-equality tests. Remaining:
       Cray `cc`. Run the synthetic consistency matrix and
       partition_quality at a few hundred ranks; confirm no rank-0 memory
       spike (parRSB is fully distributed, unlike our RCB).
-   c. **ReFrame**: add a `method=parrsb` variant to `TGVOfflineRepart`
-      (tests/nekrs.py hardcodes `--method rcb` in `repartition_cmd()`);
-      needs the shim built in the CI environment (depends on a).
+   c. **ReFrame**: DONE (local instantiation) — `TGVOfflineRepart` now
+      parameterized over `repart_method ∈ {rcb, parrsb}`; for parrsb the
+      test builds the shim into the stage dir via the installed
+      `build_parrsb_shim.sh` (the CMake `install(DIRECTORY ...)` rule
+      ships the .c/.sh with the package) and exports `PARRSB_SHIM_LIB`,
+      so it does NOT depend on item a. Not yet run on ALCF CI; if the
+      Cray wrapper isn't `mpicc`, export `MPICC=cc` in the test env.
    d. Optional: distributed edge-cut metric (partition_quality.py gathers
       (gid, rank) pairs to rank 0 — fine at test scale only).
 5. **New example** `tgv_gnn_offline_fld` (or README section): the .f-only
@@ -359,9 +363,16 @@ all offline loss-equality tests. Remaining:
       tie exactly (equivalent cuts by symmetry). NOTE for real science
       meshes: parRSB is the only method without a rank-0 gather (our RCB
       gathers all centroids) — default choice at scale.
+- [x] ReFrame parrsb variant (parRSB item c): `TGVOfflineRepart`
+      parameterized over `repart_method ∈ {rcb, parrsb}` (4 variants with
+      rpn ∈ {2,4}); `NekRSMLOfflineRepartTest` gained a
+      `repartition_method` kwarg and, for parrsb, prerun cmds that build
+      the shim into the stage dir (`parrsb_shim_cmds()`) and export
+      PARRSB_SHIM_LIB. Validated via `reframe -C sites.py --system
+      generic -c tests.py -l` (22 checks instantiate). CI run pending.
 - [ ] Remaining: see Phase 2 tasks (online ADIOS path is the big one;
-      parRSB items a-d: CMake shim build+install, HPC validation,
-      ReFrame parrsb variant, optional distributed quality metric).
+      parRSB items a/b/d: CMake shim build+install, HPC validation,
+      optional distributed quality metric).
 
 Local reproduction notes: python env at ~/.venvs/nekrs-gnn-repart
 (mpi4py, torch, torch_geometric, hydra-core, einops, ruff); run nekRS with

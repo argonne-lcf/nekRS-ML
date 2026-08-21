@@ -617,6 +617,7 @@ class NekRSMLOfflineRepartTest(NekRSMLOfflineTest):
 
     def __init__(self, **kwargs):
         self.nekrs_ranks = kwargs.pop("nekrs_ranks", 2)
+        self.repartition_method = kwargs.pop("repartition_method", "rcb")
         super().__init__(**kwargs)
 
     @property
@@ -662,10 +663,30 @@ class NekRSMLOfflineRepartTest(NekRSMLOfflineTest):
                 "--out-dir",
                 self.repart_graph_dir,
                 "--method",
-                "rcb",
+                self.repartition_method,
             ]
             + self.repartition_cli_opts()
         )
+
+    def parrsb_shim_cmds(self):
+        """Build the parRSB ctypes shim into the stage dir.
+
+        The shim source and build script are installed with the
+        repartition package; libparRSB.a/libgs.a come from NEKRS_HOME.
+        Building into the stage dir keeps the (possibly shared,
+        read-only) install tree untouched; PARRSB_SHIM_LIB makes
+        repartition.parrsb pick the result up.
+        """
+        script = os.path.join(
+            self.repartition_pkg_root, "repartition", "build_parrsb_shim.sh"
+        )
+        lib = os.path.join(self.stagedir, "libparrsb_shim.so")
+        return [
+            lst2cmd(
+                [f"NEKRS_HOME={self.nekrs_home}", "bash", script, self.stagedir]
+            ),
+            f"export PARRSB_SHIM_LIB={lib}",
+        ]
 
     def set_prerun_cmds(self):
         nekrs_rpn = min(
@@ -676,6 +697,10 @@ class NekRSMLOfflineRepartTest(NekRSMLOfflineTest):
             self.setup_cmd(),
             self.source_cmd(),
             f"export PYTHONPATH={self.repartition_pkg_root}:$PYTHONPATH",
+        ]
+        if self.repartition_method == "parrsb":
+            self.prerun_cmds += self.parrsb_shim_cmds()
+        self.prerun_cmds += [
             self.nekrs_cmd_n(
                 self.nekrs_ranks,
                 nekrs_rpn,
