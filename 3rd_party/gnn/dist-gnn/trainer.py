@@ -38,6 +38,7 @@ import torch_geometric.utils as pyg_utils
 import utils
 from scheduler import ScheduledOptim
 import gnn
+import graph_transformer as gtr
 import graph_connectivity as gcon
 from client import OnlineClient
 import create_halo_info_par
@@ -59,8 +60,8 @@ try:
     COMM = MPI.COMM_WORLD
     RANK = COMM.Get_rank()
     SIZE = COMM.Get_size()
-    LOCAL_RANK = int(os.getenv("PALS_LOCAL_RANKID"))
-    LOCAL_SIZE = int(os.getenv("PALS_LOCAL_SIZE"))
+    LOCAL_RANK = int(os.getenv("PALS_LOCAL_RANKID", default=RANK))
+    LOCAL_SIZE = int(os.getenv("PALS_LOCAL_SIZE", default=SIZE))
     WITH_DDP = True
 except ModuleNotFoundError as e:
     SIZE = 1
@@ -356,29 +357,50 @@ class Trainer:
 
         # Full model
         input_node_channels = sample["x"].shape[1]
-        input_edge_channels = graph.edge_attr.shape[1]
         hidden_channels = self.cfg.hidden_channels
         output_node_channels = sample["y"].shape[1]
-        n_mlp_hidden_layers = self.cfg.n_mlp_hidden_layers
-        n_messagePassing_layers = self.cfg.n_messagePassing_layers
         halo_swap_mode = self.cfg.halo_swap_mode
-        layer_norm = self.cfg.layer_norm
-        # name = 'POLY_%d_RANK_%d_SIZE_%d_SEED_%d' %(poly,RANK,SIZE,self.cfg.seed)
-        name = "POLY_%d_SIZE_%d_SEED_%d" % (poly, SIZE, self.cfg.seed)
-        if self.cfg.use_residual:
-            name += "_RESID"
+        if self.cfg.model_name == "gnn":
+            input_edge_channels = graph.edge_attr.shape[1]
+            n_mlp_hidden_layers = self.cfg.n_mlp_hidden_layers
+            n_messagePassing_layers = self.cfg.n_messagePassing_layers
+            layer_norm = self.cfg.layer_norm
+            # name = 'POLY_%d_RANK_%d_SIZE_%d_SEED_%d' %(poly,RANK,SIZE,self.cfg.seed)
+            name = "POLY_%d_SIZE_%d_SEED_%d" % (poly, SIZE, self.cfg.seed)
+            if self.cfg.use_residual:
+                name += "_RESID"
 
-        model = gnn.DistributedGNN(
-            input_node_channels,
-            input_edge_channels,
-            hidden_channels,
-            output_node_channels,
-            n_mlp_hidden_layers,
-            n_messagePassing_layers,
-            halo_swap_mode,
-            layer_norm,
-            name,
-        )
+            model = gnn.DistributedGNN(
+                input_node_channels,
+                input_edge_channels,
+                hidden_channels,
+                output_node_channels,
+                n_mlp_hidden_layers,
+                n_messagePassing_layers,
+                halo_swap_mode,
+                layer_norm,
+                name,
+            )
+
+        elif self.cfg.model_name == "graph_transformer":
+            pos_graph = graph.pos[self.idx_reduced2full]
+            num_node_per_element = (poly + 1) ** 3
+            num_elements = pos_graph.shape[0] // num_node_per_element
+            name = "GT_POLY_%d_SIZE_%d_SEED_%d" % (poly, SIZE, self.cfg.seed)
+            if self.cfg.use_residual:
+                name += "_RESID"
+
+            model = gtr.GraphTransformer(
+                input_node_channels,
+                hidden_channels,
+                output_node_channels,
+                n_transformer_layers=self.cfg.n_transformer_layers,
+                num_heads=self.cfg.num_heads,
+                num_elements=num_elements,
+                halo_swap_mode=halo_swap_mode,
+                name=name,
+            )
+
         return model
 
     def count_weights(self, model) -> int:
@@ -807,12 +829,39 @@ class Trainer:
             self.load_graph_data()
         )
 
-        # We are only periodic in z for the BFS. so we do the following:
+        # We need to make the graph periodic in all directions
         pos = pos.astype(NP_FLOAT_DTYPE)
         pos_orig = np.copy(pos)
-        L_z = 2.0
-        # pos[:,2] = np.cos(2.*np.pi*pos[:,2]/L_z) # cosine
-        pos[:, 2] = np.abs((pos[:, 2] % L_z) - L_z / 2)  # piecewise linear
+        if self.cfg.transform_x:
+            xmin_loc = np.amin(pos[:, 0])
+            xmin_glob = np.zeros_like(xmin_loc)
+            COMM.Allreduce(xmin_loc, xmin_glob, op=MPI.MIN)
+            xmax_loc = np.amax(pos[:, 0])
+            xmax_glob = np.zeros_like(xmax_loc)
+            COMM.Allreduce(xmax_loc, xmax_glob, op=MPI.MAX)
+            L_x = (xmax_glob - xmin_glob) / 2.0
+            pos[:, 0] = np.abs((pos[:, 0] % L_x) - L_x / 2)  # piecewise linear
+
+        if self.cfg.transform_y:
+            ymin_loc = np.amin(pos[:, 1])
+            ymin_glob = np.zeros_like(ymin_loc)
+            COMM.Allreduce(ymin_loc, ymin_glob, op=MPI.MIN)
+            ymax_loc = np.amax(pos[:, 1])
+            ymax_glob = np.zeros_like(ymax_loc)
+            COMM.Allreduce(ymax_loc, ymax_glob, op=MPI.MAX)
+            L_y = (ymax_glob - ymin_glob) / 2.0
+            pos[:, 1] = np.abs((pos[:, 1] % L_y) - L_y / 2)  # piecewise linear
+
+        if self.cfg.transform_z:
+            zmin_loc = np.amin(pos[:, 2])
+            zmin_glob = np.zeros_like(zmin_loc)
+            COMM.Allreduce(zmin_loc, zmin_glob, op=MPI.MIN)
+            zmax_loc = np.amax(pos[:, 2])
+            zmax_glob = np.zeros_like(zmax_loc)
+            COMM.Allreduce(zmax_loc, zmax_glob, op=MPI.MAX)
+            L_z = (zmax_glob - zmin_glob) / 2.0
+            # pos[:,2] = np.cos(2.*np.pi*pos[:,2]/L_z) # cosine
+            pos[:, 2] = np.abs((pos[:, 2] % L_z) - L_z / 2)  # piecewise linear
 
         # ~~~~ Make the full graph:
         if self.cfg.verbose:
@@ -851,6 +900,38 @@ class Trainer:
         idx_reduced2full = gcon.get_upsample_indices(
             data_full, data_reduced, idx_full2reduced
         )
+
+        # Checks on full2reduced and reduced2full mappings
+        try:
+            assert torch.allclose(
+                data_full.pos[idx_full2reduced], data_reduced.pos
+            )
+        except AssertionError as e:
+            idx = torch.where(
+                data_full.pos[idx_full2reduced] != data_reduced.pos
+            )
+            log.error(
+                "RANK %i: AssertionError: Non-matching nodes found in idx_full2reduced",
+                RANK,
+            )
+            log.error("Number of non-matching nodes:", len(idx[0]))
+            log.error("Non-matching nodes:", idx[0])
+            raise e
+        try:
+            assert torch.allclose(
+                data_reduced.pos[idx_reduced2full], data_full.pos
+            )
+        except AssertionError as e:
+            idx = torch.where(
+                data_reduced.pos[idx_reduced2full] != data_full.pos
+            )
+            log.error(
+                "RANK %i: AssertionError: Non-matching nodes found in idx_reduced2full",
+                RANK,
+            )
+            log.error("Number of non-matching nodes:", len(idx[0]))
+            log.error("Non-matching nodes:", idx[0])
+            raise e
 
         return data_reduced, data_full, idx_full2reduced, idx_reduced2full
 
@@ -964,12 +1045,21 @@ class Trainer:
                     log.info(
                         f"[RANK {RANK}]: Found {len(self.neighboring_procs)} neighboring processes: {self.neighboring_procs}"
                     )
+
+            effective_nodes_local = torch.sum(1.0 / node_degree[:n_nodes_local])
+            effective_nodes = torch.zeros(1, dtype=effective_nodes_local.dtype)
+            COMM.Allreduce(effective_nodes_local, effective_nodes, op=MPI.SUM)
         else:
             halo_info = torch.zeros(1, dtype=self.torch_dtype)
             n_nodes_local = self.data_reduced.pos.shape[0]
             n_nodes_halo = 0
-            edge_weight = torch.zeros(1, dtype=self.torch_dtype)
-            node_degree = torch.zeros(1, dtype=self.torch_dtype)
+            n_edges_local = self.data_reduced.edge_index.shape[1]
+            edge_weight = torch.ones(n_edges_local, dtype=self.torch_dtype)
+            node_degree = torch.ones(n_nodes_local, dtype=self.torch_dtype)
+            effective_nodes_local = n_nodes_local
+            effective_nodes = torch.tensor(
+                effective_nodes_local, dtype=self.torch_dtype
+            )
 
         self.data_reduced.n_nodes_local = torch.tensor(
             n_nodes_local, dtype=torch.int64
@@ -980,6 +1070,8 @@ class Trainer:
         self.data_reduced.halo_info = halo_info
         self.data_reduced.edge_weight = edge_weight
         self.data_reduced.node_degree = node_degree
+        self.data_reduced.effective_nodes_local = effective_nodes_local
+        self.data_reduced.effective_nodes = effective_nodes
         return
 
     def prepare_snapshot_data(self, data: np.ndarray):
@@ -1013,10 +1105,21 @@ class Trainer:
         )
         for i in range(len(data_list)):
             x_full[i, :, :] = data_list[i][var][:n_nodes_local, :]
-        data_mean_ = x_full.mean(axis=(0, 1)).to(device)
-        data_var_ = x_full.var(axis=(0, 1)).to(device)
+
+        # Weight each row by 1/node_degree so halo-unique rows shared with a
+        # neighbor rank are not double-counted in the global mean/variance.
+        weights = (1.0 / self.data_reduced.node_degree[:n_nodes_local]).to(
+            self.torch_dtype
+        )
+        w = weights.view(1, -1, 1)
+        n_scale_local = weights.sum() * n_snaps
+
+        data_mean_ = (x_full * w).sum(dim=(0, 1)).to(device) / n_scale_local
+        data_var_ = (((x_full - data_mean_.view(1, 1, -1)) ** 2) * w).sum(
+            dim=(0, 1)
+        ).to(device) / n_scale_local
         n_scale_ = torch.tensor(
-            [n_nodes_local * n_snaps], dtype=self.torch_dtype, device=device
+            [n_scale_local.item()], dtype=self.torch_dtype, device=device
         )
 
         data_mean_gather = [
@@ -1063,6 +1166,13 @@ class Trainer:
         input_field = self.cfg.input_fld_name
         output_field = self.cfg.output_fld_name
 
+        # extract time from file name
+        def snapshot_time_from_filename(path: str) -> float:
+            base = os.path.basename(path)
+            _, _, rest = base.partition("_time_")
+            time_part, _, _ = rest.partition("_rank_")
+            return float(time_part)
+
         # read files
         if not self.cfg.online:
             file_list = os.listdir(data_dir)
@@ -1071,13 +1181,13 @@ class Trainer:
                 for item in file_list
                 if (f"fld_{input_field}" in item) and (f"rank_{RANK}" in item)
             ]
-            input_files.sort(key=lambda x: int(x.split(".")[0].split("_")[-1]))
+            input_files.sort(key=snapshot_time_from_filename)
             output_files = [
                 item
                 for item in file_list
                 if (f"fld_{output_field}" in item) and (f"rank_{RANK}" in item)
             ]
-            output_files.sort(key=lambda x: int(x.split(".")[0].split("_")[-1]))
+            output_files.sort(key=snapshot_time_from_filename)
         else:
             tic = time.time()
             output_files = self.client.get_file_list(f"outputs_rank_{RANK}")
@@ -1209,7 +1319,6 @@ class Trainer:
         # read files
         if not self.cfg.online:
             files = os.listdir(data_dir + f"/data_rank_{RANK}_size_{SIZE}")
-            # files = [item for item in files_temp if 'p_step' not in item]
             files.sort(key=lambda x: int(x.split("_")[-1].split(".")[0]))
 
             # populate dataset for single-step predictions
@@ -1373,16 +1482,17 @@ class Trainer:
                 if RANK == 0:
                     log.info(f"Computing training data statistics")
                 x_mean, x_std = self.compute_statistics(data["train"], "x")
+                y_mean, y_std = self.compute_statistics(data["train"], "y")
                 if RANK == 0 and not self.cfg.online:
                     np.savez(
                         data_dir + "/data_stats.npz",
                         x_mean=x_mean.cpu().to(torch.float32).numpy(),
                         x_std=x_std.cpu().to(torch.float32).numpy(),
-                        y_mean=x_mean.cpu().to(torch.float32).numpy(),
-                        y_std=x_std.cpu().to(torch.float32).numpy(),
+                        y_mean=y_mean.cpu().to(torch.float32).numpy(),
+                        y_std=y_std.cpu().to(torch.float32).numpy(),
                     )
                 stats["x"] = [x_mean, x_std]
-                stats["y"] = [x_mean, x_std]
+                stats["y"] = [y_mean, y_std]
                 if RANK == 0:
                     log.info(
                         f"Computed training data statistics for each node feature"
@@ -1651,14 +1761,15 @@ class Trainer:
         stats = self.data["stats"]
         train_data_scaled = []
         for item in data["train"]:
-            tdict = {}
-            tdict["x"] = (
-                (item["x"] - stats["x_mean"]) / (stats["x_std"] + SMALL)
-            ).to(self.torch_dtype)
-            tdict["y"] = (
-                (item["y"] - stats["y_mean"]) / (stats["y_std"] + SMALL)
-            ).to(self.torch_dtype)
-            train_data_scaled.append(tdict)
+            tmp_data = Data(
+                x=((item["x"] - stats["x_mean"]) / (stats["x_std"] + SMALL)).to(
+                    self.torch_dtype
+                ),
+                y=((item["y"] - stats["y_mean"]) / (stats["y_std"] + SMALL)).to(
+                    self.torch_dtype
+                ),
+            )
+            train_data_scaled.append(tmp_data)
         train_loader = DataLoader(
             dataset=train_data_scaled,
             batch_size=self.cfg.batch_size,
@@ -1773,6 +1884,7 @@ class Trainer:
 
     def train_step(self, data) -> Tensor:
         graph = self.data["graph"]
+        loss = torch.tensor([0.0])
         tic = time.time()
         if WITH_CUDA or WITH_XPU:
             data = data.to(self.device)
@@ -1781,6 +1893,11 @@ class Trainer:
             graph.halo_info = graph.halo_info.to(self.device)
             graph.edge_weight = graph.edge_weight.to(self.device)
             graph.node_degree = graph.node_degree.to(self.device)
+            loss = loss.to(self.device)
+            graph.effective_nodes = graph.effective_nodes.to(self.device)
+            if self.cfg.model_name == "graph_transformer":
+                graph.pos = graph.pos.to(self.device)
+                graph.global_ids = graph.global_ids.to(self.device)
         if self.cfg.timers:
             self.update_timer(
                 "dataTransfer", self.timer_step, time.time() - tic
@@ -1804,22 +1921,41 @@ class Trainer:
         if self.cfg.timers:
             self.update_timer("bufferInit", self.timer_step, time.time() - tic)
 
-        # Prediction
+        # Forward pass
         tic = time.time()
-        out_gnn = self.model(
-            x=data.x,
-            edge_index=graph.edge_index,
-            edge_attr=graph.edge_attr,
-            edge_weight=graph.edge_weight,
-            halo_info=graph.halo_info,
-            mask_send=self.mask_send,
-            mask_recv=self.mask_recv,
-            buffer_send=self.buffer_send,
-            buffer_recv=self.buffer_recv,
-            neighboring_procs=self.neighboring_procs,
-            SIZE=SIZE,
-            batch=data.batch,
-        )
+        if self.cfg.model_name == "gnn":
+            out_gnn = self.model(
+                x=data.x,
+                edge_index=graph.edge_index,
+                edge_attr=graph.edge_attr,
+                edge_weight=graph.edge_weight,
+                halo_info=graph.halo_info,
+                mask_send=self.mask_send,
+                mask_recv=self.mask_recv,
+                buffer_send=self.buffer_send,
+                buffer_recv=self.buffer_recv,
+                neighboring_procs=self.neighboring_procs,
+                SIZE=SIZE,
+                batch=graph.batch,
+            )
+        elif self.cfg.model_name == "graph_transformer":
+            out_gnn = self.model(
+                x=data.x,
+                pos=graph.pos,
+                index=graph.global_ids.reshape(-1).to(self.device),
+                mask_send=self.mask_send,
+                mask_recv=self.mask_recv,
+                buffer_send=self.buffer_send,
+                buffer_recv=self.buffer_recv,
+                halo_info=graph.halo_info,
+                idx_reduced2full=self.idx_reduced2full,
+                idx_full2reduced=self.idx_full2reduced,
+                neighboring_procs=self.neighboring_procs,
+                SIZE=SIZE,
+            )
+        else:
+            raise ValueError("Unknown model name: %s" % self.cfg.model_name)
+
         if self.cfg.timers:
             self.update_timer("forwardPass", self.timer_step, time.time() - tic)
 
@@ -1840,7 +1976,6 @@ class Trainer:
                     pred[data.batch == batch_idx],
                     target[data.batch == batch_idx],
                 )
-                effective_nodes = n_nodes_local
             else:  # custom loss
                 pred_local = pred[data.batch == batch_idx]
                 target_local = target[data.batch == batch_idx]
@@ -1852,14 +1987,9 @@ class Trainer:
                 ].unsqueeze(-1)
 
                 sum_squared_errors_local = squared_errors_local.sum()
-                effective_nodes_local = torch.sum(
-                    1.0 / graph.node_degree[:n_nodes_local]
-                )
-
-                effective_nodes = distnn.all_reduce(effective_nodes_local)
                 sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
                 mse_loss[batch_idx] = (
-                    1.0 / (effective_nodes * n_output_features)
+                    1.0 / (graph.effective_nodes * n_output_features)
                 ) * sum_squared_errors
         loss = mse_loss.mean()
         if self.cfg.timers:
@@ -1899,6 +2029,9 @@ class Trainer:
             graph.edge_attr = graph.edge_attr.to(self.device)
             graph.halo_info = graph.halo_info.to(self.device)
             graph.node_degree = graph.node_degree.to(self.device)
+            if self.cfg.model_name == "graph_transformer":
+                graph.pos = graph.pos.to(self.device)
+                graph.global_ids = graph.global_ids.to(self.device)
         if self.cfg.timers:
             self.update_timer(
                 "dataTransfer", self.timer_step, time.time() - tic
@@ -1922,20 +2055,39 @@ class Trainer:
 
         # Prediction
         tic = time.time()
-        out_gnn = self.model(
-            x=x,
-            edge_index=graph.edge_index,
-            edge_attr=graph.edge_attr,
-            edge_weight=graph.edge_weight,
-            halo_info=graph.halo_info,
-            mask_send=self.mask_send,
-            mask_recv=self.mask_recv,
-            buffer_send=self.buffer_send,
-            buffer_recv=self.buffer_recv,
-            neighboring_procs=self.neighboring_procs,
-            SIZE=SIZE,
-            batch=batch,
-        )
+        if self.cfg.model_name == "gnn":
+            out_gnn = self.model(
+                x=x,
+                edge_index=graph.edge_index,
+                edge_attr=graph.edge_attr,
+                edge_weight=graph.edge_weight,
+                halo_info=graph.halo_info,
+                mask_send=self.mask_send,
+                mask_recv=self.mask_recv,
+                buffer_send=self.buffer_send,
+                buffer_recv=self.buffer_recv,
+                neighboring_procs=self.neighboring_procs,
+                SIZE=SIZE,
+                batch=graph.batch,
+            )
+        elif self.cfg.model_name == "graph_transformer":
+            out_gnn = self.model(
+                x=x_scaled,
+                pos=graph.pos,
+                index=graph.global_ids.reshape(-1).to(self.device),
+                mask_send=self.mask_send,
+                mask_recv=self.mask_recv,
+                buffer_send=self.buffer_send,
+                buffer_recv=self.buffer_recv,
+                halo_info=graph.halo_info,
+                idx_reduced2full=self.idx_reduced2full,
+                idx_full2reduced=self.idx_full2reduced,
+                neighboring_procs=self.neighboring_procs,
+                SIZE=SIZE,
+            )
+        else:
+            raise ValueError("Unknown model name: %s" % self.cfg.model_name)
+
         if self.cfg.timers:
             self.update_timer("forwardPass", self.timer_step, time.time() - tic)
 
@@ -1976,6 +2128,9 @@ class Trainer:
                     graph.edge_weight = graph.edge_weight.to(self.device)
                     graph.node_degree = graph.node_degree.to(self.device)
                     loss = loss.to(self.device)
+                    if self.cfg.model_name == "graph_transformer":
+                        graph.pos = graph.pos.to(self.device)
+                        graph.global_ids = graph.global_ids.to(self.device)
 
                 # re-allocate send buffer
                 if self.cfg.halo_swap_mode != "none":
@@ -1998,20 +2153,42 @@ class Trainer:
                     self.buffer_send = None
                     self.buffer_recv = None
 
-                out_gnn = self.model(
-                    x=data.x,
-                    edge_index=graph.edge_index,
-                    edge_attr=graph.edge_attr,
-                    edge_weight=graph.edge_weight,
-                    halo_info=graph.halo_info,
-                    mask_send=self.mask_send,
-                    mask_recv=self.mask_recv,
-                    buffer_send=self.buffer_send,
-                    buffer_recv=self.buffer_recv,
-                    neighboring_procs=self.neighboring_procs,
-                    SIZE=SIZE,
-                    batch=batch,
-                )
+                if self.cfg.model_name == "gnn":
+                    out_gnn = self.model(
+                        x=data.x,
+                        edge_index=graph.edge_index,
+                        edge_attr=graph.edge_attr,
+                        edge_weight=graph.edge_weight,
+                        halo_info=graph.halo_info,
+                        mask_send=self.mask_send,
+                        mask_recv=self.mask_recv,
+                        buffer_send=self.buffer_send,
+                        buffer_recv=self.buffer_recv,
+                        neighboring_procs=self.neighboring_procs,
+                        SIZE=SIZE,
+                        batch=graph.batch,
+                    )
+                elif self.cfg.model_name == "graph_transformer":
+                    out_gnn = self.model(
+                        x=data.x,
+                        pos=graph.pos,
+                        index=self.data_full.global_ids.reshape(-1).to(
+                            self.device
+                        ),
+                        mask_send=self.mask_send,
+                        mask_recv=self.mask_recv,
+                        buffer_send=self.buffer_send,
+                        buffer_recv=self.buffer_recv,
+                        halo_info=graph.halo_info,
+                        idx_reduced2full=self.idx_reduced2full,
+                        idx_full2reduced=self.idx_full2reduced,
+                        neighboring_procs=self.neighboring_procs,
+                        SIZE=SIZE,
+                    )
+                else:
+                    raise ValueError(
+                        "Unknown model name: %s" % self.cfg.model_name
+                    )
 
                 # Accumulate loss
                 target = data.y
@@ -2020,7 +2197,6 @@ class Trainer:
                     loss = self.loss_fn(
                         out_gnn[:n_nodes_local], target[:n_nodes_local]
                     )
-                    effective_nodes = n_nodes_local
                 else:  # custom
                     n_output_features = out_gnn.shape[1]
                     squared_errors_local = torch.pow(
@@ -2032,16 +2208,11 @@ class Trainer:
                     )
 
                     sum_squared_errors_local = squared_errors_local.sum()
-                    effective_nodes_local = torch.sum(
-                        1.0 / graph.node_degree[:n_nodes_local]
-                    )
-
-                    effective_nodes = distnn.all_reduce(effective_nodes_local)
                     sum_squared_errors = distnn.all_reduce(
                         sum_squared_errors_local
                     )
                     loss = (
-                        1.0 / (effective_nodes * n_output_features)
+                        1.0 / (graph.effective_nodes * n_output_features)
                     ) * sum_squared_errors
 
                 running_loss += loss.item()

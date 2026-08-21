@@ -1,13 +1,20 @@
 import reframe as rfm
 import reframe.utility.sanity as sn
-from nekrs import NekRSMLOfflineTest, NekRSMLOnlineTest
+from nekrs import NekRSMLOfflineTest, NekRSMLOnlineTest, EnsembleTest
 import os
+
+
+TGV_TRANSFORM_OPTS = [
+    "transform_x=true",
+    "transform_y=true",
+    "transform_z=true",
+]
 
 
 @rfm.simple_test
 class TGVOffline(NekRSMLOfflineTest):
     num_nodes = parameter([1])
-    ranks_per_node = parameter([2])
+    ranks_per_node = parameter([1, 2, 4])
 
     def __init__(self):
         super().__init__(
@@ -16,7 +23,8 @@ class TGVOffline(NekRSMLOfflineTest):
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
             time_dependency="time_independent",
-            target_loss=2.706e-04,
+            target_loss=2.7161e-04,
+            extra_opts=TGV_TRANSFORM_OPTS,
         )
         self.tags |= {"tgv_offline"}
 
@@ -33,7 +41,8 @@ class TGVOfflineCoarseMesh(NekRSMLOfflineTest):
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
             time_dependency="time_independent",
-            target_loss=2.706e-04,
+            target_loss=2.7161e-04,
+            extra_opts=TGV_TRANSFORM_OPTS,
         )
         self.tags |= {"tgv_offline_coarse_mesh"}
 
@@ -41,7 +50,8 @@ class TGVOfflineCoarseMesh(NekRSMLOfflineTest):
 @rfm.simple_test
 class TGVOfflineTraj(NekRSMLOfflineTest):
     num_nodes = parameter([1])
-    ranks_per_node = parameter([4])
+    # Run with 1, 2, and 4 ranks to check consistency of Dist-GNN model
+    ranks_per_node = parameter([1, 2, 4])
 
     def __init__(self):
         super().__init__(
@@ -50,9 +60,29 @@ class TGVOfflineTraj(NekRSMLOfflineTest):
             nn=self.num_nodes,
             rpn=self.ranks_per_node,
             time_dependency="time_dependent",
-            target_loss=6.9076e-01,
+            target_loss=6.6139e-01,
+            extra_opts=TGV_TRANSFORM_OPTS,
         )
         self.tags |= {"tgv_offline_traj"}
+
+
+@rfm.simple_test
+class TGVOfflineTrajGT(NekRSMLOfflineTest):
+    num_nodes = parameter([1])
+    # Run with 1, 2, and 4 ranks to check consistency of the Graph Transformer model
+    ranks_per_node = parameter([1, 2, 4])
+
+    def __init__(self):
+        super().__init__(
+            case="tgv",
+            directory="tgv_gt_offline_traj",
+            nn=self.num_nodes,
+            rpn=self.ranks_per_node,
+            time_dependency="time_dependent",
+            target_loss=3.1556e-01,
+            extra_opts=["model_name=graph_transformer", *TGV_TRANSFORM_OPTS],
+        )
+        self.tags |= {"tgv_offline_traj_gt"}
 
 
 @rfm.simple_test
@@ -78,7 +108,7 @@ class TurbChannelOffline(NekRSMLOfflineTest):
 @rfm.simple_test
 class TGVOnline(NekRSMLOnlineTest):
     num_nodes = parameter([1])
-    ranks_per_node = parameter([4])
+    ranks_per_node = parameter([2, 4])
 
     def __init__(self):
         super().__init__(
@@ -88,7 +118,8 @@ class TGVOnline(NekRSMLOnlineTest):
             rpn=self.ranks_per_node,
             time_dependency="time_independent",
             client="smartredis",
-            target_loss=1.6206e-04,
+            target_loss=2.7161e-04,
+            extra_opts=TGV_TRANSFORM_OPTS,
         )
         self.tags |= {"tgv_online"}
 
@@ -96,7 +127,7 @@ class TGVOnline(NekRSMLOnlineTest):
 @rfm.simple_test
 class TGVOnlineTraj(NekRSMLOnlineTest):
     num_nodes = parameter([1])
-    ranks_per_node = parameter([8])
+    ranks_per_node = parameter([4])
 
     def __init__(self):
         super().__init__(
@@ -106,7 +137,8 @@ class TGVOnlineTraj(NekRSMLOnlineTest):
             rpn=self.ranks_per_node,
             time_dependency="time_dependent",
             client="smartredis",
-            target_loss=6.9076e-01,
+            target_loss=6.6139e-01,
+            extra_opts=TGV_TRANSFORM_OPTS,
         )
         self.tags |= {"tgv_online_traj"}
 
@@ -114,7 +146,7 @@ class TGVOnlineTraj(NekRSMLOnlineTest):
 @rfm.simple_test
 class TGVOnlineTrajAdios(NekRSMLOnlineTest):
     num_nodes = parameter([1])
-    ranks_per_node = parameter([8])
+    ranks_per_node = parameter([4])
 
     def __init__(self):
         super().__init__(
@@ -124,6 +156,25 @@ class TGVOnlineTrajAdios(NekRSMLOnlineTest):
             rpn=self.ranks_per_node,
             time_dependency="time_dependent",
             client="adios",
-            target_loss=6.9076e-01,
+            target_loss=6.6139e-01,
+            extra_opts=TGV_TRANSFORM_OPTS,
         )
         self.tags |= {"tgv_online_traj_adios"}
+
+
+@rfm.simple_test
+class PeriodicHillEnsemble(EnsembleTest):
+    num_members = parameter([4])
+    nodes_per_member = parameter([1])
+    ranks_per_node = parameter([12])
+
+    def __init__(self):
+        super().__init__(
+            case="periodicHill",
+            directory="periodicHill_ensemble",
+            members=self.num_members,
+            nodes_per_member=self.nodes_per_member,
+            rpn=self.ranks_per_node,
+            gen_args=["--hillScale", f"0.8,1.2,{self.num_members}"],
+        )
+        self.tags |= {"periodichill_ensemble"}

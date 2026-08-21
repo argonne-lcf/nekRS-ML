@@ -183,7 +183,7 @@ class Trainer:
             init_method="env://",
         )
 
-    def cleanup():
+    def cleanup(self):
         dist.destroy_process_group()
 
     def build_model(self) -> nn.Module:

@@ -3,6 +3,7 @@ import os
 import sys
 import argparse
 from typing import Optional
+import time
 
 import torch
 import torch_geometric
@@ -10,6 +11,15 @@ import torch_geometric.utils as utils
 import torch_geometric.nn as tgnn
 
 from pymech.neksuite import readnek, writenek
+
+from mpi4py import MPI
+
+COMM = MPI.COMM_WORLD
+SIZE = COMM.Get_size()
+RANK = COMM.Get_rank()
+LOCAL_RANK = int(os.getenv("PALS_LOCAL_RANKID", 0))
+LOCAL_SIZE = int(os.getenv("PALS_LOCAL_SIZE", 1))
+HOST_NAME = MPI.Get_processor_name()
 
 from gnn import GNN_Element_Neighbor_Lo_Hi
 import dataprep.nekrs_graph_setup as ngs
@@ -41,11 +51,13 @@ except:
 if WITH_CUDA:
     DEVICE = torch.device("cuda")
     N_DEVICES = torch.cuda.device_count()
-    DEVICE_ID = 0
+    DEVICE_ID = LOCAL_RANK if N_DEVICES > 1 else 0
+    torch.cuda.set_device(DEVICE_ID)
 elif WITH_XPU:
     DEVICE = torch.device("xpu")
     N_DEVICES = torch.xpu.device_count()
-    DEVICE_ID = 0
+    DEVICE_ID = LOCAL_RANK if N_DEVICES > 1 else 0
+    torch.xpu.set_device(DEVICE_ID)
 else:
     DEVICE = torch.device("cpu")
     DEVICE_ID = 0
@@ -125,12 +137,37 @@ def main():
         default=True,
         help="Use residual mode for inference",
     )
+    parser.add_argument(
+        "--ranks_per_file",
+        type=int,
+        default=-1,
+        help=(
+            "Number of MPI ranks that cooperate on a single file. "
+            "Default -1 means all ranks work on every file."
+        ),
+    )
     args = parser.parse_args()
 
     # ~~~~ Some initializations ~~~~ #
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     torch.set_grad_enabled(False)
+
+    # ~~~~ Build the file-group communicator ~~~~ #
+    # Ranks in the same file-group load the same file and split its elements.
+    # Different file-groups process different files in parallel.
+    ranks_per_file = args.ranks_per_file if args.ranks_per_file > 0 else SIZE
+    ranks_per_file = min(ranks_per_file, SIZE)
+    file_group_id = RANK // ranks_per_file
+    n_file_groups = (SIZE + ranks_per_file - 1) // ranks_per_file
+    file_group_comm = COMM.Split(color=file_group_id, key=RANK)
+    group_rank = file_group_comm.Get_rank()
+    group_size = file_group_comm.Get_size()
+    if RANK == 0:
+        logger.info(
+            f"MPI layout: SIZE={SIZE}, n_file_groups={n_file_groups}, "
+            f"ranks_per_file={ranks_per_file}"
+        )
 
     # ~~~~ Load model state and instantiate model ~~~~ #
     a = torch.load(args.model_path, map_location="cpu", weights_only=False)
@@ -157,9 +194,11 @@ def main():
         device=DEVICE,
         name=name,
     )
-    logger.info(
-        f"Number of parameters in the SR-GNN model: {count_parameters(model)}"
-    )
+    COMM.Barrier()
+    if RANK == 0:
+        logger.info(
+            f"Number of parameters in the SR-GNN model: {count_parameters(model)}"
+        )
     model.load_state_dict(a["state_dict"])
     model.to(DEVICE)
     model.eval()
@@ -169,7 +208,8 @@ def main():
     edge_index_path_hi = f"{args.case_path}/gnn_outputs_poly_{args.target_poly_order}/edge_index_element_local"
     edge_index_lo = get_edge_index(edge_index_path_lo)
     edge_index_hi = get_edge_index(edge_index_path_hi)
-    logger.info("Loaded edge index for input and target graphs")
+    if RANK == 0:
+        logger.info("Loaded edge index for input and target graphs")
 
     # Get full edge index
     edge_index = edge_index_lo
@@ -191,7 +231,8 @@ def main():
         edge_index = edge_index_full
 
     # ~~~~ For each input snapshot, perform model inference ~~~~ #
-    for isnap in range(len(args.input_snap_list)):
+    # Each file-group processes a strided subset of the snapshot list.
+    for isnap in range(file_group_id, len(args.input_snap_list), n_file_groups):
         time_id = args.input_snap_list[isnap].split(".f")[-1]
 
         target_snap = args.target_snap_list[isnap]
@@ -227,9 +268,16 @@ def main():
         prediction_path = (
             args.case_path + f"/predictions/{model.get_save_header()}"
         )
+        # Split the element loop across ranks in this file-group (round-robin
+        # for load balance across variable neighbor gathers).
+        my_elements = list(range(group_rank, n_snaps, group_size))
+        start = time.perf_counter()
         with torch.no_grad():
-            for i in range(n_snaps):
-                logger.info(f"Evaluating element {i}/{n_snaps}")
+            for i in my_elements:
+                if group_rank == 0:
+                    logger.info(
+                        f"Rank {RANK} evaluating element {i}/{n_snaps} of file {input_snap}"
+                    )
 
                 pos_xlo_i = (
                     torch.tensor(xlo_field.elem[i].pos).reshape((3, -1)).T
@@ -457,20 +505,99 @@ def main():
                 # target_orig = xhi_field.elem[i].vel
                 # err_sanity = target_orig - target_rs
 
-            # Write
-            logger.info(f"Writing {time_id} prediction to {prediction_path}...")
-            if not os.path.exists(prediction_path):
-                os.makedirs(prediction_path)
-                logger.info(f"Directory '{prediction_path}' created.")
-            writenek(
-                prediction_path + f"/{args.output_name}_pred0.f{time_id}",
-                xhi_field_pred,
-            )
-            writenek(
-                prediction_path + f"/{args.output_name}_error0.f{time_id}",
-                xhi_field_error,
-            )
-            logger.info("Done with inference!")
+            # Assemble predictions and errors on the group-root rank via
+            # Gatherv over the elements this rank processed.
+            if group_size > 1:
+                elem_shape = xhi_field.elem[0].vel.shape
+                elem_nfloat = int(np.prod(elem_shape))
+                n_local = len(my_elements)
+
+                # Pack local contributions into contiguous flat buffers.
+                idx_send = np.array(my_elements, dtype=np.int64)
+                pred_send = np.empty(n_local * elem_nfloat, dtype=np.float64)
+                err_send = np.empty(n_local * elem_nfloat, dtype=np.float64)
+                for k, i in enumerate(my_elements):
+                    s = k * elem_nfloat
+                    e = s + elem_nfloat
+                    pred_send[s:e] = xhi_field_pred.elem[i].vel.reshape(-1)
+                    err_send[s:e] = xhi_field_error.elem[i].vel.reshape(-1)
+
+                # Gather per-rank element counts to build recv layouts.
+                counts_elem = np.array(
+                    file_group_comm.allgather(n_local), dtype=np.int64
+                )
+                counts_flat = counts_elem * elem_nfloat
+                displs_elem = np.zeros_like(counts_elem)
+                displs_elem[1:] = np.cumsum(counts_elem[:-1])
+                displs_flat = displs_elem * elem_nfloat
+
+                if group_rank == 0:
+                    idx_recv = np.empty(int(counts_elem.sum()), dtype=np.int64)
+                    pred_recv = np.empty(
+                        int(counts_flat.sum()), dtype=np.float64
+                    )
+                    err_recv = np.empty(
+                        int(counts_flat.sum()), dtype=np.float64
+                    )
+                else:
+                    idx_recv = None
+                    pred_recv = None
+                    err_recv = None
+
+                file_group_comm.Gatherv(
+                    idx_send,
+                    [idx_recv, counts_elem, displs_elem, MPI.LONG],
+                    root=0,
+                )
+                file_group_comm.Gatherv(
+                    pred_send,
+                    [pred_recv, counts_flat, displs_flat, MPI.DOUBLE],
+                    root=0,
+                )
+                file_group_comm.Gatherv(
+                    err_send,
+                    [err_recv, counts_flat, displs_flat, MPI.DOUBLE],
+                    root=0,
+                )
+
+                # Unpack on group-root into the full field objects.
+                if group_rank == 0:
+                    for k, i in enumerate(idx_recv):
+                        s = k * elem_nfloat
+                        e = s + elem_nfloat
+                        xhi_field_pred.elem[int(i)].vel[:, :, :, :] = pred_recv[
+                            s:e
+                        ].reshape(elem_shape)
+                        xhi_field_error.elem[int(i)].vel[:, :, :, :] = err_recv[
+                            s:e
+                        ].reshape(elem_shape)
+
+            inf_time = time.perf_counter() - start
+            if group_rank == 0:
+                logger.info(
+                    f"Performed inference on file {input_snap} in {inf_time:.2f} s"
+                )
+
+            # Write (only the root rank of each file-group).
+            if group_rank == 0:
+                logger.info(
+                    f"Writing {time_id} prediction to {prediction_path}..."
+                )
+                if not os.path.exists(prediction_path):
+                    os.makedirs(prediction_path)
+                    logger.info(f"Directory '{prediction_path}' created.")
+                writenek(
+                    prediction_path + f"/{args.output_name}_pred0.f{time_id}",
+                    xhi_field_pred,
+                )
+                writenek(
+                    prediction_path + f"/{args.output_name}_error0.f{time_id}",
+                    xhi_field_error,
+                )
+
+    COMM.Barrier()
+    if RANK == 0:
+        logger.info("Done with inference!")
 
 
 if __name__ == "__main__":

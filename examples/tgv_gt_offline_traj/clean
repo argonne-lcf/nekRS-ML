@@ -1,0 +1,6 @@
+#!/bin/bash
+
+rm -r gnn_outputs_poly_7 traj_poly_7 
+rm -r outputs ckpt/ saved_models/
+rm *.f* tgv.nek5000
+rm run.sh

@@ -1,0 +1,109 @@
+# Trigger the ALCF (Aurora + Polaris) ReFrame pipeline on the GitLab mirror via the
+# Pipeline Trigger API. Two entry points:
+#   * Comment "/ci" on a pull request (see authorization note below).
+#   * Actions → "Trigger ALCF CI (GitLab)" → Run workflow → set ref (manual).
+#
+# Prerequisites (one-time):
+#   1. On GitLab: Settings → CI/CD → Pipeline triggers → Add trigger → copy the token.
+#   2. On GitHub: Settings → Secrets and variables → Actions → add:
+#        GITLAB_URL          e.g. https://gitlab.anl.gov  (no trailing slash)
+#        GITLAB_PROJECT_ID   numeric ID or URL-encoded path (group%2Fproject)
+#        GITLAB_TRIGGER_TOKEN the trigger token string
+#   3. In .gitlab-ci.yml: allow CI_PIPELINE_SOURCE == "trigger" (already in repo).
+#   4. Mirror: the branch passed as "ref" must exist on GitLab before triggering.
+#
+# Notes on the "/ci" comment path:
+#   * GitHub always runs issue_comment workflows from the DEFAULT branch's copy of this
+#     file, so "/ci" only works once this workflow is on the default branch.
+#   * The GitLab job clones the base repo and checks out the PR head SHA, so "/ci" only
+#     works for PRs from a branch in this repo (not from forks).
+#   * Only users with write access (OWNER/MEMBER/COLLABORATOR) may run "/ci".
+
+name: Trigger ALCF CI (GitLab)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch on the GitLab mirror to build (must exist there, e.g. main or your PR branch)
+        required: true
+        type: string
+        default: main
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+
+jobs:
+  trigger-gitlab:
+    # Run for a manual dispatch, or for a "/ci" comment on a pull request.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.issue.pull_request != null &&
+       startsWith(github.event.comment.body, '/ci'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Authorize and resolve PR ref
+        id: resolve
+        if: github.event_name == 'issue_comment'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const assoc = context.payload.comment.author_association;
+            const allowed = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+            if (!allowed.includes(assoc)) {
+              core.setFailed(`User ${context.payload.comment.user.login} (${assoc}) is not authorized to run /ci.`);
+              return;
+            }
+            const { owner, repo } = context.repo;
+            const pr = await github.rest.pulls.get({
+              owner, repo, pull_number: context.payload.issue.number,
+            });
+            if (pr.data.head.repo.full_name !== `${owner}/${repo}`) {
+              core.setFailed('/ci is only supported for PRs from a branch in this repository, not forks.');
+              return;
+            }
+            core.setOutput('ref', pr.data.head.ref);
+            core.setOutput('sha', pr.data.head.sha);
+            // React to the comment so the user knows it was picked up.
+            await github.rest.reactions.createForIssueComment({
+              owner, repo, comment_id: context.payload.comment.id, content: 'rocket',
+            });
+
+      - name: Trigger GitLab pipeline
+        env:
+          GITLAB_URL: ${{ secrets.GITLAB_URL }}
+          GITLAB_PROJECT_ID: ${{ secrets.GITLAB_PROJECT_ID }}
+          GITLAB_TRIGGER_TOKEN: ${{ secrets.GITLAB_TRIGGER_TOKEN }}
+          REF: ${{ github.event_name == 'issue_comment' && steps.resolve.outputs.ref || inputs.ref }}
+          SHA: ${{ github.event_name == 'issue_comment' && steps.resolve.outputs.sha || '' }}
+        run: |
+          set -euo pipefail
+          for v in GITLAB_URL GITLAB_PROJECT_ID GITLAB_TRIGGER_TOKEN REF; do
+            if [[ -z "${!v:-}" ]]; then
+              echo "Missing required env: $v (set GitHub Actions secrets)" >&2
+              exit 1
+            fi
+          done
+          base="${GITLAB_URL%/}"
+          url="${base}/api/v4/projects/${GITLAB_PROJECT_ID}/trigger/pipeline"
+          echo "POST ${url} (ref=${REF}, sha=${SHA:-<from ref HEAD>})"
+          form_sha=()
+          if [[ -n "${SHA:-}" ]]; then
+            form_sha=(--form "variables[CI_COMMIT_SHA]=${SHA}")
+          fi
+          resp=$(curl -sS -w '\n%{http_code}' -X POST \
+            --form "token=${GITLAB_TRIGGER_TOKEN}" \
+            --form "ref=${REF}" \
+            "${form_sha[@]}" \
+            "${url}")
+          body=$(echo "$resp" | sed '$d')
+          code=$(echo "$resp" | tail -n1)
+          echo "$body"
+          if [[ "$code" != "201" && "$code" != "200" ]]; then
+            echo "GitLab API HTTP status: $code (expected 200 or 201)" >&2
+            exit 1
+          fi

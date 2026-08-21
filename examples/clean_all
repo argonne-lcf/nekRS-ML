@@ -46,3 +46,6 @@ cd turbChannel_wallModel_ML
 ./clean
 cd ..
 
+cd periodicHill_ensemble
+./clean
+cd ..

@@ -1,0 +1,68 @@
+#!/bin/bash
+set -e
+
+#--------------------------------------
+: ${QUEUE:="debug-scaling"}
+: ${NEKRS_GPU_MPI:=0}
+: ${NEKRS_BACKEND:="CUDA"}
+: ${RANKS_PER_NODE:=4}
+: ${CPU_BIND_LIST:="24:16:8:1"}
+: ${CPU_BIND_LIST_EL:="24,16,8,1"}
+: ${VENV_PATH:=""}
+#--------------------------------------
+
+source $NEKRS_HOME/bin/nrsqsub_utils
+setup $# 1
+
+#--------------------------------------
+# Generate the run script
+RFILE=run.sh
+echo "#!/bin/bash -l" > $RFILE
+echo "#PBS -S /bin/bash" >> $RFILE
+echo "#PBS -N nekrs-ml_el" >> $RFILE
+echo "#PBS -l select=${nodes}" >> $RFILE
+echo "#PBS -l walltime=01:00:00" >> $RFILE
+echo "#PBS -l filesystems=home:eagle" >> $RFILE
+echo "#PBS -A <project_name>" >> $RFILE
+echo "#PBS -q ${QUEUE}" >> $RFILE
+echo "#PBS -k doe" >> $RFILE
+echo "#PBS -j oe" >> $RFILE
+echo "cd \$PBS_O_WORKDIR" >> $RFILE
+
+echo -e "\nexport TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
+
+echo -e "\necho Jobid: \$PBS_JOBID" >>$RFILE
+echo "echo Running on host \`hostname\`" >>$RFILE
+echo "echo Running on nodes \`cat \$PBS_NODEFILE\`" >>$RFILE
+
+echo "module restore" >> $RFILE
+echo "module use /soft/modulefiles" >> $RFILE
+echo "module load conda" >> $RFILE
+echo "conda activate" >> $RFILE
+echo "source ${VENV_PATH}" >> $RFILE
+echo "module list" >> $RFILE
+
+echo -e "\nexport NEKRS_HOME=$NEKRS_HOME" >>$RFILE
+echo "export NEKRS_CACHE_BCAST=$NEKRS_CACHE_BCAST" >>$RFILE
+echo "export NEKRS_LOCAL_TMP_DIR=/local/scratch" >>$RFILE
+echo "export NEKRS_GPU_MPI=$NEKRS_GPU_MPI" >>$RFILE
+echo "export MPICH_MPIIO_HINTS=$MPICH_MPIIO_HINTS" >>$RFILE
+echo "export MPICH_MPIIO_STATS=0" >>$RFILE
+echo "export MPICH_GPU_SUPPORT_ENABLED=0" >> $RFILE
+echo "export MPICH_OFI_NIC_POLICY=NUMA" >> $RFILE
+
+echo -e "\n# Build nekRS cache" >>$RFILE
+echo "mpiexec -n ${RANKS_PER_NODE} -ppn ${RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND} --build-only ${RANKS_PER_NODE}" >> $RFILE
+
+echo -e "\n# Create per-member run dirs and EnsembleLauncher configs" >>$RFILE
+echo "python gen_ensemble_inputs.py ${case} --hillScale 0.8,1.2,${nodes} --ppn ${RANKS_PER_NODE} --cpu-bind \"${CPU_BIND_LIST_EL}\" --backend ${NEKRS_BACKEND} --system polaris" >> $RFILE
+
+echo -e "\n# Launch the ensemble via the EnsembleLauncher CLI" >>$RFILE
+echo "echo -e \"\\n\\nStarting ensemble on ${nodes} nodes ...\"" >> $RFILE
+echo "echo \"Check run logs in ./run_dir/hillScale_*\"" >> $RFILE
+echo "el start ./run_dir/config.json \\" >> $RFILE
+echo "    --system-config-file   ./run_dir/system_config.json \\" >> $RFILE
+echo "    --launcher-config-file ./run_dir/launcher_config.json" >> $RFILE
+echo "echo \"Done\"" >> $RFILE
+
+chmod u+x $RFILE
