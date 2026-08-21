@@ -164,31 +164,75 @@ snapshots, trajectories, .f-only reconstruction incl. periodic folding), and
 all offline loss-equality tests. Remaining:
 
 1. **Online ADIOS path — the 24-GPU shooting-workflow inference** (the
-   original motivating feature). Changes, with the couplings at:
-   - `client.py:150-216 get_graph_data_from_stream`: writer size W =
-     `inquire_variable("N").shape()[0]` (writer-rank counts array). Read the
-     full `N`/`num_edges` arrays, compute writer-block offsets; assign each
-     reader a contiguous global ELEMENT range (N is per-writer-block,
-     element-aligned since N = Ne*Np; Np from the stream); read pos/gids
-     element-aligned. Edge index: do NOT read per-writer edge blocks —
-     extract the intra-element template from writer block 0's edges (both
-     endpoints < Np after subtracting nothing; block 0 starts at local id 0)
-     and rebuild, or simpler: feed pos/gids elements into
-     `repartition.Repartitioner` with an `AdiosSource` that mirrors
-     `BinSource` (implement `read_elements` reading the stream, and reuse
-     partition/redistribute/rebuild unchanged). Then compute halo info on
-     the fly exactly as the online path already does (trainer.py:989-1034).
-   - `client.py:218-254 get_train_data_from_stream` (in_u/out_u): writer
-     blocks are `graph->fieldOffset*3` long (component-major u,v,w per
-     block, fieldOffset = alignStride(N) — trajGen.cpp:239-269); slice per
-     writer block, truncate padding to N, reshape, then route through
-     `Repartitioner.routing.route_node_array`. NOTE the existing code
-     slices by N_list, which silently assumes zero padding — fix while
-     touching this.
-   - `client.py:104-114 get_array` for `checkpoint.bp`: same fieldOffset
-     component-major layout per writer block (adiosStreamer.cpp:155-175);
-     replace the naive shape[0]/size split with writer-block-aware,
-     element-aligned reads + routing.
+   original motivating feature). IMPLEMENTATION SPEC, verified against the
+   writers by a reader agent 2026-08-21 (file:line refs checked at HEAD):
+
+   **Writer layouts (the ground truth the reader must honor):**
+   - `graph.bp` (`gnn.cpp:249-330`, written on `_write_io` which has NO
+     SetEngine — graph.bp and checkpoint.bp are ALWAYS BP files, never
+     SST, regardless of `[ML] adiosEngine`; only `solutionStream` is SST):
+     1-D global concatenations of per-writer blocks. Variables: `N` and
+     `num_edges` (shape {W}, one int32 per writer — `shape("N")[0]` is
+     the ONLY writer-size announcement), `pos_node` (float64,
+     COMPONENT-major per block: [x(0..N-1), y(...), z(...)] — unlike the
+     row-major .bin files), `global_ids` (int64), the two masks (int32),
+     `edge_index` (int32, component-major per block [all nei, all own],
+     block-LOCAL node ids), `Np` (int32, scalar; note defect: declared
+     start {1} not {0} — read it without a selection). graph.bp has NO
+     padding: N_w = Ne_w * Np exactly.
+   - `in_u`/`out_u` (`trajGen.cpp:218-279`, SST `solutionStream`): per
+     writer block `3 * fieldOffset_w` float64, component-major
+     [u(0..fo-1), v, w], where fieldOffset_w = alignStride(N_w) =
+     ceil(N_w/32)*32 (256B/8B alignment, `nekrsSys.hpp.in:167-175`) — up
+     to 31 trailing pad doubles PER COMPONENT. Global block offsets use
+     fieldOffset strides, NOT N. No step/time variable — the ADIOS step
+     counter is the only cadence signal.
+   - `checkpoint.bp` (`adiosStreamer.cpp:155-176`): one variable
+     `checkpoint`, per-block `3 * _nrs->fieldOffset` component-major —
+     the FINE-mesh fieldOffset (nrs->fieldOffset), not the GNN coarse
+     graph->fieldOffset; global shape assumes uniform fieldOffset across
+     writers (pre-existing; see Latent issues).
+
+   **AdiosSource (new, in repartition/):** mirror BinSource's surface —
+   `Np`, `src_size` (= W = shape("N")[0]), `read_elements(comm)`,
+   `read_node_field(...)`. `ne_per_src = N_list // Np` (exact),
+   el_offsets = cumsum. `my_ordinal_range` / `_overlaps` are
+   source-agnostic — lift them into a shared helper/base instead of
+   copying. KEY DIFFERENCE vs BinSource: blocks are component-major, so
+   an element-range slice of pos_node (or a field) is THREE disjoint
+   sub-reads per overlapped block (x at blockstart+el0*Np, y at +N_s,
+   z at +2*N_s) stacked into (nrows, 3) — the single-offset `_read_slice`
+   shortcut does NOT carry over. Template: from writer block 0's
+   edge_index, reshape order="F" first, then the same
+   `(ei[:,0]<Np)&(ei[:,1]<Np)` filter. For in_u/out_u reads use
+   fieldOffset_w strides (fixes the confirmed client.py padding bug: it
+   slices by N_list — wrong start for every rank>0 and u/v/w component
+   mixing whenever N_w % 32 != 0). `Repartitioner.read_field` takes a
+   path-per-src-rank callable; generalize so AdiosSource can accept a
+   variable name / open Stream instead.
+
+   **Wiring:** `trainer.py:740` gates `_maybe_repartition_graph` behind
+   `if not self.cfg.online:` — move the gate and add the AdiosSource
+   branch next to the BinSource import (trainer.py:849). The halo-info
+   on-the-fly path already works unchanged: under adios,
+   `client.file_exists` returns None (client.py:81-86 has no adios
+   branch) so `setup_halo` (trainer.py:1002-1143) always computes
+   halo_info/node_degree/edge_weights from gids at the current M.
+   `get_graph_data_from_stream` (client.py:150-216) currently reads
+   `N[[rank]]` — the hard M==W coupling; replace its body with
+   AdiosSource+Repartitioner. `get_train_data_from_stream`
+   (client.py:218-254): keep the persistent SST stream, replace the
+   slicing with AdiosSource block reads + `routing.route_node_array`.
+   `get_array`/checkpoint (client.py:104-115 + trainer.py:1591): the
+   naive shape/size split ALSO reshapes C-order against a
+   component-major writer (existing bug) — replace with block-aware
+   fine-mesh reads; note the fine-vs-coarse mesh mismatch when
+   gnnPolynomialOrder < nekrs order (shooting workflow uses gnn p=2).
+   ALSO: `client.put_array` is a no-op under adios and
+   `inference.py:313` pushes the rollout result through it — the adios
+   shooting loop currently DROPS the inference result; an adios return
+   path (e.g. a BP write mirroring check-run.bp, adiosStreamer.cpp:81-119
+   reads it) is part of this task.
    - ~~`trainer.py:369/389` save_header embeds SIZE~~ DONE 2026-08-21:
      model name is now `POLY_%d_SEED_%d` (no SIZE); the restart load
      resolves legacy `POLY_p_SIZE_S_SEED_s` checkpoints (any S) via a
@@ -199,8 +243,30 @@ all offline loss-equality tests. Remaining:
    - `driver.py:150-183 launchInference` + `nrsrun_aurora`: add
      `inferprocs`, `inferprocs_pn`, `infer_cpu_bind`, `infer_nodes` config
      keys (default: sim_nodes+train_nodes, 2x mlprocs) and use them.
-   Acceptance: shooting workflow on 2 nodes with inference on all GPUs;
-   local smoke test with SST on a laptop (nekRS 2 ranks, train 2, infer 4).
+   **Driver knobs:** `driver.py:150-183 launchInference` reuses
+   mlprocs/mlprocs_pn/ml_cpu_bind/inference_nodes verbatim — add
+   `inferprocs`, `inferprocs_pn`, `infer_cpu_bind`, `infer_nodes`
+   (default: sim_nodes+train_nodes, 2x mlprocs); touch `assignNodes`
+   (driver.py:64-88) and the nrsrun config generators. Latent script
+   bugs to fix in passing: shooting nrsrun_aurora emits
+   `ml_nodes: ${SIM_NODES}` (should be TRAIN_NODES) and defines
+   INFERENCE_CPU_BIND_LIST without ever using it.
+
+   **Local testing (verified feasible):** the venv now has the serial
+   pip adios2 wheel 2.12.1 (installed 2026-08-21; per-rank BP-file reads
+   work without MPI-adios2). No graph.bp exists on this machine and the
+   local nekRS build has -DENABLE_ADIOS=OFF (BuildMeOnLocal:72), so the
+   cheap fixture is a small Python BP writer that replicates the exact
+   graph.bp / in_u / checkpoint layouts above from the in-repo ref dir
+   `examples/tgv_gnn_offline_traj/ref/gnn_outputs_poly_7` (component-
+   major, alignStride padding, W=4) — then assert AdiosSource-at-M
+   arrays equal BinSource-at-M arrays for M in {1,2,3,8}. That
+   equivalence test is the core acceptance gate; SST end-to-end needs
+   an MPI-enabled adios2 (Aurora) or a local rebuild with ADIOS ON.
+
+   Acceptance: AdiosSource==BinSource fixture test locally; then
+   shooting workflow on 2 nodes with inference on all GPUs; SST smoke
+   (nekRS 2 ranks, train 2, infer 4) on a machine with MPI adios2.
 2. **Trainer in-memory wiring (offline)**: optional convenience so users
    skip the CLI: cfg keys `gnn_outputs_size` (0=autodetect via
    `BinSource.detect_size`) + `repartition_method`; in `load_graph_data`
@@ -261,6 +327,11 @@ all offline loss-equality tests. Remaining:
 - `client.py:81-86` `file_exists` returns None for adios; `put_array` no-op for adios
   (`inference.py:313-315` result is silently dropped).
 - `graph.bp` `Np` variable declared shape {1} start {1} (`gnn.cpp:303`) — off-by-one.
+- `checkpoint.bp` global shape is `_size * 3 * fieldOffset` (`adiosStreamer.cpp:165-168`)
+  — assumes a UNIFORM fieldOffset across writer ranks; only true for uniform element
+  counts. No per-rank block-size record exists in that file.
+- shooting `nrsrun_aurora:79` emits `ml_nodes: ${SIM_NODES}` (should be TRAIN_NODES);
+  `INFERENCE_CPU_BIND_LIST` (line 17) is defined but never consumed.
 - `inference.py:49-50` crashes off-PALS (`PALS_LOCAL_RANKID` no default).
 - Offline a-priori `inference()` uses `data["test"]` / `stats["mean"]` keys that
   `setup_data` never creates.
@@ -378,9 +449,23 @@ all offline loss-equality tests. Remaining:
       the shim into the stage dir (`parrsb_shim_cmds()`) and export
       PARRSB_SHIM_LIB. Validated via `reframe -C sites.py --system
       generic -c tests.py -l` (22 checks instantiate). CI run pending.
-- [ ] Remaining: see Phase 2 tasks (online ADIOS path is the big one;
-      parRSB items a/b/d: CMake shim build+install, HPC validation,
-      optional distributed quality metric).
+- [x] Checkpoint names made partition-independent (commit a6179d7b):
+      model name drops SIZE (`POLY_p_SEED_s`); restart load falls back
+      to legacy `POLY_p_SIZE_*_SEED_s` via glob. First slice of the
+      online task. End-to-end M != S load still to be exercised.
+- [x] Online ADIOS path fully specced (Phase 2 item 1 above rewritten
+      from a verified deep-read of gnn.cpp/trajGen.cpp/adiosStreamer.cpp/
+      client.py/driver.py): exact BP layouts (component-major blocks,
+      alignStride(N)=ceil(N/32)*32 padding, W=shape("N")[0]), AdiosSource
+      design (three sub-reads per block; shared _overlaps helper),
+      trainer/client wiring points, driver knobs, and a LOCAL test
+      recipe — graph.bp is always a plain BP file (writer IO never sets
+      an engine), serial pip adios2 2.12.1 is now in the venv, so a
+      Python-written fixture from the ref dir + AdiosSource==BinSource
+      equivalence is the acceptance gate. Ready for Opus to implement.
+- [ ] Remaining: see Phase 2 tasks (online ADIOS path — implementation,
+      spec is done; parRSB items a/b/d: CMake shim build+install, HPC
+      validation, optional distributed quality metric).
 
 Local reproduction notes: python env at ~/.venvs/nekrs-gnn-repart
 (mpi4py, torch, torch_geometric, hydra-core, einops, ruff); run nekRS with
