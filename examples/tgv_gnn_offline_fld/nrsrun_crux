@@ -1,0 +1,54 @@
+#!/bin/bash
+set -e
+
+#--------------------------------------
+: ${QUEUE:="debug"}
+: ${NEKRS_GPU_MPI:=0}
+: ${NEKRS_BACKEND:="cpu"}
+: ${SIM_RANKS_PER_NODE:=2}
+: ${ML_RANKS_PER_NODE:=4}
+: ${CPU_BIND_LIST:="1:8:16:24"}
+: ${VENV_PATH:=""}
+#--------------------------------------
+
+source $NEKRS_HOME/bin/nrsqsub_utils
+setup $# 1
+
+SIM_RANKS=$(( nodes * SIM_RANKS_PER_NODE ))
+ML_RANKS=$(( nodes * ML_RANKS_PER_NODE ))
+chk_case $SIM_RANKS
+
+#--------------------------------------
+# Generate the run script
+RFILE=run.sh
+echo "#!/bin/bash" > $RFILE
+
+echo -e "\nexport TZ='/usr/share/zoneinfo/US/Central'" >> $RFILE
+
+echo -e "\necho Jobid: \$PBS_JOBID" >>$RFILE
+echo "echo Running on host \`hostname\`" >>$RFILE
+echo "echo Running on nodes \`cat \$PBS_NODEFILE\`" >>$RFILE
+
+echo "module restore" >> $RFILE
+echo "module use /soft/modulefiles/" >> $RFILE
+echo "module load PrgEnv-gnu/8.5.0" >> $RFILE
+echo "module load gcc-native/12.3" >> $RFILE
+echo "module load spack-pe-base/0.8.0" >> $RFILE
+echo "module load cmake" >> $RFILE
+echo "module load python/3.10.13" >> $RFILE
+echo "source ${VENV_PATH}" >> $RFILE
+echo "module list" >> $RFILE
+
+echo -e "\nexport NEKRS_HOME=$NEKRS_HOME" >>$RFILE
+echo "export PYTHONPATH=$NEKRS_HOME/3rd_party/gnn:\$PYTHONPATH" >> $RFILE
+
+echo -e "\n# Run nekRS (writes the tgv0.f00000 checkpoint, nothing else)" >>$RFILE
+echo "mpiexec -n ${SIM_RANKS} -ppn ${SIM_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND}" >> $RFILE
+
+echo -e "\n# Reconstruct the graph and training data from the .f file at the ML rank count" >>$RFILE
+echo "mpiexec -n ${ML_RANKS} -ppn ${ML_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python -m repartition.cli --fld-mesh tgv0.f00000 --out-dir ./gnn_from_fld --method rcb --periodic xyz" >> $RFILE
+
+echo -e "\n# Train the GNN" >>$RFILE
+echo "head_node=\`head -1 \$PBS_NODEFILE | cut -d'.' -f1\`" >>$RFILE
+echo "mpiexec -n ${ML_RANKS} -ppn ${ML_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/dist-gnn/main.py master_addr=\$head_node backend=ccl halo_swap_mode=all_to_all_opt layer_norm=True gnn_outputs_path=${PWD}/gnn_from_fld target_loss=2.7161e-04 transform_x=true transform_y=true transform_z=true" >> $RFILE
+chmod u+x $RFILE

@@ -603,6 +603,134 @@ class NekRSMLOfflineTest(NekRSMLTest):
         return nekrs_ok and gnn_ok and inference_ok
 
 
+class NekRSMLOfflineRepartTest(NekRSMLOfflineTest):
+    """Offline dist-gnn training on repartitioned nekRS output.
+
+    nekRS runs at its own, fixed rank count (nekrs_ranks) and the
+    repartition package (3rd_party/gnn/repartition) redistributes the
+    graph and the training data written by the gnn plugin to the test's
+    rank count before training. Running the test at different rpn values
+    against the same target_loss checks that the loss is independent of
+    the partitioning. See NekRSMLOfflineFldTest for the variant that
+    reconstructs everything from a .f checkpoint alone.
+    """
+
+    def __init__(self, **kwargs):
+        self.nekrs_ranks = kwargs.pop("nekrs_ranks", 2)
+        super().__init__(**kwargs)
+
+    @property
+    def repart_graph_dir(self):
+        return os.path.join(self.stagedir, "gnn_repartitioned")
+
+    @property
+    def repartition_pkg_root(self):
+        return os.path.join(self.nekrs_home, "3rd_party", "gnn")
+
+    def repartition_cli_opts(self):
+        return [
+            "--src-dir",
+            self.gnn_output_dir,
+            "--fld",
+        ]
+
+    def mpiexec_n(self, nranks, rpn):
+        """Launcher prefix for a rank count independent of the test's."""
+        cpu_bind_list = self.current_partition.extras["cpu_bind_list"]
+        return self.job.launcher.command(self.job) + [
+            f"-np {nranks}",
+            f"-ppn {rpn}",
+            f"--cpu-bind=list:{cpu_bind_list}",
+            "--",
+        ]
+
+    def nekrs_cmd_n(self, nranks, rpn, extra_args=[]):
+        return lst2cmd(
+            self.mpiexec_n(nranks, rpn)
+            + self.nekrs_exec_cmd
+            + self.nekrs_exec_opts
+            + extra_args
+        )
+
+    def repartition_cmd(self):
+        return lst2cmd(
+            self.mpiexec
+            + [
+                "python",
+                "-m",
+                "repartition.cli",
+                "--out-dir",
+                self.repart_graph_dir,
+                "--method",
+                "rcb",
+            ]
+            + self.repartition_cli_opts()
+        )
+
+    def set_prerun_cmds(self):
+        nekrs_rpn = min(
+            self.nekrs_ranks,
+            self.current_partition.extras["ranks_per_node"],
+        )
+        self.prerun_cmds += [
+            self.setup_cmd(),
+            self.source_cmd(),
+            f"export PYTHONPATH={self.repartition_pkg_root}:$PYTHONPATH",
+            self.nekrs_cmd_n(
+                self.nekrs_ranks,
+                nekrs_rpn,
+                extra_args=[f"--build-only {self.nekrs_ranks}"],
+            ),
+            self.nekrs_cmd_n(self.nekrs_ranks, nekrs_rpn),
+            self.repartition_cmd(),
+        ]
+
+    def set_executable_options(self):
+        self.executable = lst2cmd([
+            "python",
+            os.path.join(self.gnn_dir, "main.py"),
+        ])
+
+        args = self.ml_args
+        self.executable_opts = [
+            "halo_swap_mode=all_to_all_opt",
+            "layer_norm=True",
+            f"gnn_outputs_path={self.repart_graph_dir}",
+            f"target_loss={args['target_loss']}",
+            f"time_dependency={args['time_dependency']}",
+        ]
+        self.executable_opts += list(args.get("extra_opts", []))
+
+
+class NekRSMLOfflineFldTest(NekRSMLOfflineRepartTest):
+    """Offline dist-gnn training through .f checkpoint files only.
+
+    nekRS writes a single .f checkpoint at its own, fixed rank count
+    (nekrs_ranks) and produces no gnn_outputs or trajectory files; the
+    repartition package reconstructs the graph (coordinate coincidence
+    with periodic folding) and the training data from that file at the
+    test's rank count. Running the test at different rpn values against
+    the same target_loss checks that the loss is independent of both the
+    reconstruction and the partitioning.
+    """
+
+    def __init__(self, **kwargs):
+        self.periodic = kwargs.pop("periodic", "xyz")
+        super().__init__(**kwargs)
+
+    @property
+    def repart_graph_dir(self):
+        return os.path.join(self.stagedir, "gnn_from_fld")
+
+    def repartition_cli_opts(self):
+        return [
+            "--fld-mesh",
+            f"{self.case}0.f00000",
+            "--periodic",
+            self.periodic,
+        ]
+
+
 class NekRSMLOnlineTest(NekRSMLTest):
     def __init__(self, **kwargs):
         kwargs["test_type"] = "online"

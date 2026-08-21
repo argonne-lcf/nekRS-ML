@@ -303,8 +303,20 @@ all offline loss-equality tests. Remaining:
       rank count hits 2.7161e-04. Validated locally end-to-end (nekRS at 4
       ranks, training at 2 and 3). Run scripts default to
       SIM_RANKS_PER_NODE=2, ML_RANKS_PER_NODE=4 to showcase the decoupling.
+- [x] ReFrame coverage (Phase 2 item 3): `TGVOfflineRepart` (variant a —
+      nekRS at fixed nekrs_ranks=2 writes gnn_outputs, CLI repartitions
+      graph + fld data with `--src-dir ... --fld`) and `TGVOfflineFld`
+      (variant b — .f-only reconstruction with `--fld-mesh ... --periodic
+      xyz` on the tgv_gnn_offline_fld example), both parameterized over
+      rpn ∈ {2,4} against the standard target loss 2.7161e-04 (trainer
+      check is math.isclose rel_tol=1e-3, so the 2.7161/2e-04 spread is
+      fine). Shared machinery in `NekRSMLOfflineRepartTest` (tests/nekrs.py):
+      decoupled-rank nekRS launch (mpiexec_n), PYTHONPATH export for the
+      installed repartition package, CLI step, trainer opts. Validated
+      locally via `reframe --system generic -l` (instantiation only; the
+      run stage needs PBS + Lmod). Also added nrsrun_crux to the
+      tgv_gnn_offline_fld example (mirrors tgv_gnn_offline's Crux script).
 - [ ] Remaining: see Phase 2 tasks (online ADIOS path is the big one).
-      Also: add ReFrame coverage for tgv_gnn_offline_fld (Phase 2 item 3).
 
 Local reproduction notes: python env at ~/.venvs/nekrs-gnn-repart
 (mpi4py, torch, torch_geometric, hydra-core, einops, ruff); run nekRS with

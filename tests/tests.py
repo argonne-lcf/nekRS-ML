@@ -1,6 +1,12 @@
 import reframe as rfm
 import reframe.utility.sanity as sn
-from nekrs import NekRSMLOfflineTest, NekRSMLOnlineTest, EnsembleTest
+from nekrs import (
+    NekRSMLOfflineFldTest,
+    NekRSMLOfflineRepartTest,
+    NekRSMLOfflineTest,
+    NekRSMLOnlineTest,
+    EnsembleTest,
+)
 import os
 
 
@@ -45,6 +51,53 @@ class TGVOfflineCoarseMesh(NekRSMLOfflineTest):
             extra_opts=TGV_TRANSFORM_OPTS,
         )
         self.tags |= {"tgv_offline_coarse_mesh"}
+
+
+@rfm.simple_test
+class TGVOfflineRepart(NekRSMLOfflineRepartTest):
+    num_nodes = parameter([1])
+    # nekRS always runs on nekrs_ranks=2 and writes the usual gnn_outputs
+    # directory; the repartition CLI redistributes it to 2 and 4 ranks
+    # before training to check that the loss is independent of the rank
+    # count (rpn=4 exercises an actual 2 -> 4 repartitioning).
+    ranks_per_node = parameter([2, 4])
+
+    def __init__(self):
+        super().__init__(
+            case="tgv",
+            directory="tgv_gnn_offline",
+            nn=self.num_nodes,
+            rpn=self.ranks_per_node,
+            nekrs_ranks=2,
+            time_dependency="time_independent",
+            target_loss=2.7161e-04,
+            extra_opts=TGV_TRANSFORM_OPTS,
+        )
+        self.tags |= {"tgv_offline_repart"}
+
+
+@rfm.simple_test
+class TGVOfflineFld(NekRSMLOfflineFldTest):
+    num_nodes = parameter([1])
+    # nekRS always runs on nekrs_ranks=2 and writes only a .f checkpoint;
+    # the graph and training data are reconstructed from it at 2 and 4
+    # ranks to check that the loss is independent of the rank count
+    # (rpn=4 exercises an actual 2 -> 4 repartitioning).
+    ranks_per_node = parameter([2, 4])
+
+    def __init__(self):
+        super().__init__(
+            case="tgv",
+            directory="tgv_gnn_offline_fld",
+            nn=self.num_nodes,
+            rpn=self.ranks_per_node,
+            nekrs_ranks=2,
+            periodic="xyz",
+            time_dependency="time_independent",
+            target_loss=2.7161e-04,
+            extra_opts=TGV_TRANSFORM_OPTS,
+        )
+        self.tags |= {"tgv_offline_fld"}
 
 
 @rfm.simple_test
