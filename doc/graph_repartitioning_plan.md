@@ -293,7 +293,18 @@ all offline loss-equality tests. Remaining:
       2.7162e-04 with the repartitioner dormant; in-memory repartition
       (M=2 reading the size-4 dir directly, no CLI step) hits 2.7162e-04
       (time_independent) and 6.6139e-01 (time_dependent trajectory).
+- [x] Package promoted to `3rd_party/gnn/repartition/` (model-agnostic,
+      numpy+mpi4py core; the dist-gnn halo-file writing in the CLI is an
+      optional integration, `--no-halo` to skip). Installed into NEKRS_HOME
+      via CMakeLists install rule. dist-gnn imports it from the parent dir.
+- [x] New example `examples/tgv_gnn_offline_fld`: nekRS writes ONLY a .f
+      checkpoint (`nrs->writeCheckpoint`, no gnn plugin); the repartition
+      CLI reconstructs graph + fld_u/fld_p data; training at an arbitrary
+      rank count hits 2.7161e-04. Validated locally end-to-end (nekRS at 4
+      ranks, training at 2 and 3). Run scripts default to
+      SIM_RANKS_PER_NODE=2, ML_RANKS_PER_NODE=4 to showcase the decoupling.
 - [ ] Remaining: see Phase 2 tasks (online ADIOS path is the big one).
+      Also: add ReFrame coverage for tgv_gnn_offline_fld (Phase 2 item 3).
 
 Local reproduction notes: python env at ~/.venvs/nekrs-gnn-repart
 (mpi4py, torch, torch_geometric, hydra-core, einops, ruff); run nekRS with

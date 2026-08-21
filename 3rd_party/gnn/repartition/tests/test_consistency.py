@@ -31,8 +31,9 @@ import numpy as np
 from mpi4py import MPI
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DISTGNN = os.path.abspath(os.path.join(HERE, "..", ".."))
-sys.path.insert(0, DISTGNN)
+PKG_PARENT = os.path.abspath(os.path.join(HERE, "..", ".."))
+sys.path.insert(0, PKG_PARENT)  # for `from repartition import ...`
+sys.path.insert(0, os.path.join(PKG_PARENT, "dist-gnn"))  # halo machinery
 sys.path.insert(0, HERE)
 
 import create_halo_info_par as chip
@@ -43,12 +44,13 @@ from gen_synthetic import (
     field_fn,
     node_feature,
 )
+from torch_geometric.data import (
+    Data,
+)
+
 from repartition import (
     BinSource,
     Repartitioner,
-)
-from torch_geometric.data import (
-    Data,
 )
 
 COMM = MPI.COMM_WORLD

@@ -839,6 +839,13 @@ class Trainer:
         if (src_size == 0 or src_size == SIZE) and have_native:
             return None
 
+        # the repartition package lives one level up (3rd_party/gnn/), so
+        # multiple models can share it
+        pkg_parent = os.path.abspath(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        )
+        if pkg_parent not in sys.path:
+            sys.path.insert(0, pkg_parent)
         from repartition import BinSource, Repartitioner
 
         src = BinSource(

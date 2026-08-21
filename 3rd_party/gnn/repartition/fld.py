@@ -15,8 +15,7 @@ points in the file's element order (lattice index i + j*nq + k*nq^2, i
 fastest -- the same convention as the gnn plugin); global ids are assigned
 by distributed coordinate coincidence matching (rendezvous hash over
 quantized coordinates). Any consistent numbering of the coincidence classes
-is valid for the dist-gnn machinery, which only ever compares gids for
-equality.
+is valid downstream, since consumers only ever compare gids for equality.
 """
 
 import numpy as np

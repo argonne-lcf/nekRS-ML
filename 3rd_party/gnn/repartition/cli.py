@@ -5,12 +5,15 @@ repartitioned to the current MPI communicator size.
         [--out-dir OUT] [--method rcb|block] [--fld] \
         [--traj-dir traj_poly_7/tinit_0.000000_dtfactor_10 [--traj-out OUT2]]
 
-Writes the five graph arrays, the Np file, and the three halo .npy files
-(halo_info / node_degree / edge_weights, via the real create_halo_info_par
-functions) named *_rank_r_size_M, so existing offline training/inference
-runs unchanged at the new size. --fld routes every fld_* snapshot found in
-the source dir; --traj-dir routes every file of every data_rank_*_size_S
-trajectory subdirectory.
+Writes the five graph arrays and the Np file named *_rank_r_size_M
+(model-agnostic), plus -- as a dist-gnn integration, skippable with
+--no-halo -- the three halo .npy files (halo_info / node_degree /
+edge_weights, via dist-gnn's create_halo_info_par functions), so existing
+offline dist-gnn training/inference runs unchanged at the new size. --fld
+routes every fld_* snapshot found in the source dir; --traj-dir routes
+every file of every data_rank_*_size_S trajectory subdirectory.
+
+Run from 3rd_party/gnn (or with that directory on PYTHONPATH).
 """
 
 # ruff: file-ignore[module-import-not-at-top-of-file]  # imports follow sys.path setup
@@ -25,8 +28,9 @@ import numpy as np
 from mpi4py import MPI
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DISTGNN = os.path.abspath(os.path.join(HERE, ".."))
-sys.path.insert(0, DISTGNN)
+PKG_PARENT = os.path.abspath(os.path.join(HERE, ".."))
+DISTGNN = os.path.join(PKG_PARENT, "dist-gnn")
+sys.path.insert(0, PKG_PARENT)
 
 from repartition import (
     BinSource,
@@ -80,6 +84,11 @@ def write_graph(rp, out_dir):
 
 
 def write_halo_files(rp, out_dir):
+    """dist-gnn integration: derive halo_info / node_degree / edge_weights
+    at the new size with dist-gnn's own machinery. Other models can skip
+    this (--no-halo) and derive their own metadata from the five arrays."""
+    if DISTGNN not in sys.path:
+        sys.path.insert(0, DISTGNN)
     import create_halo_info_par as chip
     import graph_connectivity as gcon
     import torch
@@ -245,6 +254,12 @@ def main():
         default=None,
         help="output trajectory directory (contains data_rank_* subdirs)",
     )
+    ap.add_argument(
+        "--no-halo",
+        action="store_true",
+        help="skip writing the dist-gnn halo .npy files (for models that "
+        "derive their own halo metadata from the five graph arrays)",
+    )
     args = ap.parse_args()
 
     if args.fld_mesh:
@@ -282,7 +297,7 @@ def main():
 
     rp = Repartitioner(src, COMM, method=args.method)
     write_graph(rp, out_dir)
-    if SIZE > 1:
+    if SIZE > 1 and not args.no_halo:
         write_halo_files(rp, out_dir)
     if args.fld_mesh:
         if args.fld_traj:

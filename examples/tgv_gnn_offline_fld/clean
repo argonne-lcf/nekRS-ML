@@ -1,0 +1,5 @@
+#!/bin/bash
+
+rm -r gnn_from_fld outputs ckpt/ saved_models/
+rm tgv0.f* tgv.nek5000
+rm run.sh
