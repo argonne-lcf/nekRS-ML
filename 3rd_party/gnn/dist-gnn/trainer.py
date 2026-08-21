@@ -110,6 +110,9 @@ class Trainer:
         self.device = DEVICE
         self.backend = self.cfg.backend
         self.client = client
+        # set by load_graph_data when the offline gnn_outputs files were
+        # written at a different rank count than the current world size
+        self.repart = None
 
         # ~~~ Perform some checks
         if not self.cfg.consistency:
@@ -734,6 +737,11 @@ class Trainer:
         else:
             main_path = ""
 
+        if not self.cfg.online:
+            repart_arrays = self._maybe_repartition_graph(main_path)
+            if repart_arrays is not None:
+                return repart_arrays
+
         if self.cfg.client.backend == "adios":
             graph_data = self.client.get_graph_data_from_stream()
             self.Np = graph_data["Np"]
@@ -819,6 +827,55 @@ class Trainer:
                 )
 
         return pos, gli, ei, local_unique_mask, halo_unique_mask
+
+    def _maybe_repartition_graph(self, main_path):
+        """Route offline graph loading through the repartition package when
+        the gnn_outputs files were written at a different rank count.
+        Returns the load_graph_data tuple, or None for the native path."""
+        src_size = int(self.cfg.get("gnn_outputs_size", 0) or 0)
+        have_native = os.path.exists(
+            main_path + "pos_node_rank_%d_size_%d.bin" % (RANK, SIZE)
+        )
+        if (src_size == 0 or src_size == SIZE) and have_native:
+            return None
+
+        from repartition import BinSource, Repartitioner
+
+        src = BinSource(
+            self.cfg.gnn_outputs_path, src_size=src_size or None
+        )
+        if src.src_size == SIZE and have_native:
+            return None
+        method = str(self.cfg.get("repartition_method", "rcb"))
+        if RANK == 0:
+            log.info(
+                f"Repartitioning graph from size {src.src_size} to "
+                f"{SIZE} (method={method})"
+            )
+        self.repart = Repartitioner(src, COMM, method=method)
+        arrs = self.repart.graph_arrays()
+        self.Np = np.array([float(self.repart.Np)], dtype=np.float32)
+        return (
+            arrs["pos"],
+            arrs["global_ids"],
+            arrs["edge_index"].astype(np.int64).T,
+            arrs["local_unique_mask"],
+            arrs["halo_unique_mask"],
+        )
+
+    def _load_snapshot(self, file_name, dim):
+        """Load one node-level snapshot, routing through the repartitioner
+        when one is active (file_name is then the source-rank-0 path)."""
+        if not self.cfg.online and self.repart is not None:
+            src = self.repart.source.src_size
+
+            def path_for(s, p=file_name):
+                return p.replace(
+                    f"_rank_0_size_{src}", f"_rank_{s}_size_{src}"
+                )
+
+            return self.repart.read_field(path_for, ncols=dim)
+        return self.load_data(file_name, dtype=np.float64).reshape((-1, dim))
 
     def setup_local_graph(self):
         """
@@ -942,7 +999,7 @@ class Trainer:
                     "[RANK %d]: Assembling halo_ids_list using reduced graph"
                     % (RANK)
                 )
-            if not self.cfg.online:
+            if not self.cfg.online and self.repart is None:
                 path_to_ew = (
                     self.cfg.gnn_outputs_path
                     + "/edge_weights_rank_%d_size_%d" % (RANK, SIZE)
@@ -968,7 +1025,7 @@ class Trainer:
                     self.load_data(path_to_halo_info, extension=".npy")
                 )
             else:
-                if self.client.file_exists(
+                if self.client is not None and self.client.file_exists(
                     f"halo_info_rank_{RANK}_size_{SIZE}"
                 ):
                     halo_info = torch.tensor(
@@ -1000,9 +1057,11 @@ class Trainer:
                             % (RANK, time.time() - tic)
                         )
                     halo_info = halo_info_glob[RANK]
-                    self.client.put_array(
-                        f"halo_info_rank_{RANK}_size_{SIZE}", halo_info.numpy()
-                    )
+                    if self.client is not None:
+                        self.client.put_array(
+                            f"halo_info_rank_{RANK}_size_{SIZE}",
+                            halo_info.numpy(),
+                        )
 
                     tic = time.time()
                     node_degree = create_halo_info_par.get_node_degree(
@@ -1013,10 +1072,11 @@ class Trainer:
                             "[RANK %d]: computed node degree in %f sec"
                             % (RANK, time.time() - tic)
                         )
-                    self.client.put_array(
-                        f"node_degree_rank_{RANK}_size_{SIZE}",
-                        node_degree.numpy(),
-                    )
+                    if self.client is not None:
+                        self.client.put_array(
+                            f"node_degree_rank_{RANK}_size_{SIZE}",
+                            node_degree.numpy(),
+                        )
 
                     tic = time.time()
                     edge_freq = create_halo_info_par.get_edge_weights(
@@ -1028,10 +1088,11 @@ class Trainer:
                             "[RANK %d]: computed edge weights in %f sec"
                             % (RANK, time.time() - tic)
                         )
-                    self.client.put_array(
-                        f"edge_weight_rank_{RANK}_size_{SIZE}",
-                        edge_weight.to(torch.float32).numpy(),
-                    )
+                    if self.client is not None:
+                        self.client.put_array(
+                            f"edge_weight_rank_{RANK}_size_{SIZE}",
+                            edge_weight.to(torch.float32).numpy(),
+                        )
 
             self.neighboring_procs = np.unique(halo_info[:, 3])
             n_nodes_local = self.data_reduced.pos.shape[0]
@@ -1176,16 +1237,23 @@ class Trainer:
         # read files
         if not self.cfg.online:
             file_list = os.listdir(data_dir)
+            # with an active repartitioner, snapshots are listed (and then
+            # read collectively) from the source rank 0 files
+            rank_token = (
+                f"rank_{RANK}"
+                if self.repart is None
+                else f"rank_0_size_{self.repart.source.src_size}"
+            )
             input_files = [
                 item
                 for item in file_list
-                if (f"fld_{input_field}" in item) and (f"rank_{RANK}" in item)
+                if (f"fld_{input_field}" in item) and (rank_token in item)
             ]
             input_files.sort(key=snapshot_time_from_filename)
             output_files = [
                 item
                 for item in file_list
-                if (f"fld_{output_field}" in item) and (f"rank_{RANK}" in item)
+                if (f"fld_{output_field}" in item) and (rank_token in item)
             ]
             output_files.sort(key=snapshot_time_from_filename)
         else:
@@ -1211,10 +1279,9 @@ class Trainer:
         )
         for i in range(len(output_files)):
             tic = time.time()
-            data_x = self.load_data(input_files[i], dtype=np.float64).reshape((
-                -1,
-                self.cfg.input_fld_dim,
-            ))
+            data_x = self._load_snapshot(
+                input_files[i], self.cfg.input_fld_dim
+            )
             toc = time.time()
             if self.cfg.online:
                 self.online_timers["trainDataTime"].append(toc - tic)
@@ -1224,10 +1291,9 @@ class Trainer:
             data_x = self.prepare_snapshot_data(data_x)
 
             tic = time.time()
-            data_y = self.load_data(output_files[i], dtype=np.float64).reshape((
-                -1,
-                self.cfg.output_fld_dim,
-            ))
+            data_y = self._load_snapshot(
+                output_files[i], self.cfg.output_fld_dim
+            )
             toc = time.time()
             if self.cfg.online:
                 self.online_timers["trainDataTime"].append(toc - tic)
@@ -1318,7 +1384,12 @@ class Trainer:
         COMM.Barrier()  # sync helps here
         # read files
         if not self.cfg.online:
-            files = os.listdir(data_dir + f"/data_rank_{RANK}_size_{SIZE}")
+            traj_sub = (
+                f"data_rank_{RANK}_size_{SIZE}"
+                if self.repart is None
+                else f"data_rank_0_size_{self.repart.source.src_size}"
+            )
+            files = os.listdir(data_dir + f"/{traj_sub}")
             files.sort(key=lambda x: int(x.split("_")[-1].split(".")[0]))
 
             # populate dataset for single-step predictions
@@ -1330,24 +1401,14 @@ class Trainer:
             for i in range(len(idx_x)):
                 step_x_i = idx_x[i]
                 step_y_i = idx_y[i]
-                path_x_i = (
-                    data_dir
-                    + f"/data_rank_{RANK}_size_{SIZE}/"
-                    + files[idx_x[i]]
+                path_x_i = data_dir + f"/{traj_sub}/" + files[idx_x[i]]
+                path_y_i = data_dir + f"/{traj_sub}/" + files[idx_y[i]]
+                data_x_i = self._load_snapshot(
+                    path_x_i, self.cfg.input_fld_dim
                 )
-                path_y_i = (
-                    data_dir
-                    + f"/data_rank_{RANK}_size_{SIZE}/"
-                    + files[idx_y[i]]
+                data_y_i = self._load_snapshot(
+                    path_y_i, self.cfg.input_fld_dim
                 )
-                data_x_i = self.load_data(path_x_i, dtype=np.float64).reshape((
-                    -1,
-                    self.cfg.input_fld_dim,
-                ))
-                data_y_i = self.load_data(path_y_i, dtype=np.float64).reshape((
-                    -1,
-                    self.cfg.input_fld_dim,
-                ))
                 data_x_i = self.prepare_snapshot_data(data_x_i)
                 data_y_i = self.prepare_snapshot_data(data_y_i)
                 self.data_list.append({
@@ -1504,12 +1565,17 @@ class Trainer:
         COMM.Barrier()  # sync helps here
         # read files
         if not self.cfg.online:
-            files = os.listdir(data_dir + f"/data_rank_{RANK}_size_{SIZE}")
+            traj_sub = (
+                f"data_rank_{RANK}_size_{SIZE}"
+                if self.repart is None
+                else f"data_rank_0_size_{self.repart.source.src_size}"
+            )
+            files = os.listdir(data_dir + f"/{traj_sub}")
             # files = [item for item in files_temp if 'p_step' not in item]
             files.sort(key=lambda x: int(x.split("_")[-1].split(".")[0]))
             file = files[0]
-            path_x = data_dir + f"/data_rank_{RANK}_size_{SIZE}/" + file
-            data_x = self.load_data(path_x, dtype=np.float64).reshape((-1, 3))
+            path_x = data_dir + f"/{traj_sub}/" + file
+            data_x = self._load_snapshot(path_x, 3)
         else:
             if self.cfg.client.backend == "smartredis":
                 file = f"checkpt_u_rank_{RANK}_size_{SIZE}"
