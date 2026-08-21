@@ -362,7 +362,12 @@ all offline loss-equality tests. Remaining:
       the perfectly symmetric periodic tgv 8x8x8 box all three methods
       tie exactly (equivalent cuts by symmetry). NOTE for real science
       meshes: parRSB is the only method without a rank-0 gather (our RCB
-      gathers all centroids) — default choice at scale.
+      gathers all centroids) — default choice at scale. LOSS GOLD TEST:
+      trainer in-memory path (`gnn_outputs_size=4 repartition_method=parrsb`,
+      M=2, tgv_gnn_offline_traj ref data, traj_data_path pointing at the
+      tinit_0.000000_dtfactor_10 subdir) hits 6.6139e-01 exactly at step
+      100 — "SUCCESS! GNN training validated!", log shows
+      "Repartitioning graph from size 4 to 2 (method=parrsb)".
 - [x] ReFrame parrsb variant (parRSB item c): `TGVOfflineRepart`
       parameterized over `repart_method ∈ {rcb, parrsb}` (4 variants with
       rpn ∈ {2,4}); `NekRSMLOfflineRepartTest` gained a
