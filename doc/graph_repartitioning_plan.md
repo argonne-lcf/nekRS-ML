@@ -284,16 +284,10 @@ all offline loss-equality tests. Remaining:
    (`repartition/parrsb.py`), `method="parrsb"` in partition.py, CLI
    choice, quality metric `tests/partition_quality.py`. Remaining
    hand-off items for this task:
-   a. **CMake integration**: build `libparrsb_shim.so` during the nekRS
-      build and install it with the repartition package (today users run
-      `repartition/build_parrsb_shim.sh` manually against NEKRS_HOME).
-      Natural place: after the parRSB external project in
-      `cmake/nek5000.cmake` (link `${PARRSB_DIR}/lib/libparRSB.a` +
-      nek5000-side `libgs.a`, `-DMPI`, includes from both installs), then
-      install next to the repartition package (its CMake install rule
-      already exists). Note: use the **nek5000-side gslib** (BLAS=2
-      build), not nekRS's own gs_content copy (USE_NAIVE_BLAS) — parRSB
-      was compiled against the former.
+   a. **CMake integration**: DONE (see Progress log 2026-08-26). The shim
+      is now a normal `parrsb_shim` SHARED target built by the nekRS build
+      and installed with the package; `build_parrsb_shim.sh` is kept only
+      as the standalone/ReFrame path.
    b. **HPC validation (Aurora/Polaris/Crux)**: `-fPIC` is already passed
       to the nek5000/parRSB builds by cmake/nek5000.cmake, so linking the
       shared shim should work; `build_parrsb_shim.sh` honors `MPICC` for
@@ -463,9 +457,38 @@ all offline loss-equality tests. Remaining:
       an engine), serial pip adios2 2.12.1 is now in the venv, so a
       Python-written fixture from the ref dir + AdiosSource==BinSource
       equivalence is the acceptance gate. Ready for Opus to implement.
+- [x] parRSB shim CMake integration (parRSB item a): `parrsb_shim` SHARED
+      target added at the end of `add_nek5000()` in `cmake/nek5000.cmake`
+      — it must live there because `PARRSB_*`/`NEK5000_GS_*` are
+      function-local and expand to empty paths at the top level. Links
+      `${PARRSB_LIB_DIR}/libparRSB.a` + `${NEK5000_GS_LIB_DIR}/libgs.a`
+      by path (the imported targets carry no usage requirements),
+      `MPI::MPI_C`, `m`; `-DMPI`; PREFIX/SUFFIX forced to `lib`/`.so`
+      because parrsb.py hardcodes that filename on every platform. Also
+      fixed a latent bug on the neighbouring imported target: its
+      IMPORTED_LOCATION was `${PARRSB_DIR}/lib/libparRSB.a`, but
+      PARRSB_DIR is the *source* dir — the archive is installed one level
+      up in PARRSB_LIB_DIR (harmless so far only because nothing links
+      that target). New cache option `ENABLE_PARRSB_SHIM` (default ON) as
+      an escape hatch if a platform link misbehaves. Install: the
+      `install(DIRECTORY 3rd_party/gnn/repartition ...)` rule gained
+      `PATTERN "libparrsb_shim.so" EXCLUDE` so a stale hand-built copy in
+      the source tree can never shadow the real artifact, then the target
+      file is installed to both `3rd_party/gnn/repartition/` (where
+      parrsb.py looks first) and `lib/` (so $NEKRS_HOME/lib resolves it
+      when the package is imported from a source checkout). blasLapack is
+      deliberately NOT linked — `nm -u` shows no dgemm/mxm/blas
+      undefineds, matching the known-good manual recipe; add
+      `${BLASLAPACK_DIR}/libblasLapack.a` only if a Linux link proves
+      otherwise. VALIDATED: configure+build clean, library exports the
+      same 172 symbols as the manually built one, test_consistency
+      parrsb ALL PASS for M ∈ {2,3,6} against the build-tree copy and
+      M=3 against the installed copy, and a clean-prefix install with a
+      stale 293056 B copy planted in the source tree still ships the
+      311632 B CMake artifact to both destinations.
 - [ ] Remaining: see Phase 2 tasks (online ADIOS path — implementation,
-      spec is done; parRSB items a/b/d: CMake shim build+install, HPC
-      validation, optional distributed quality metric).
+      spec is done; parRSB items b/d: HPC validation, optional
+      distributed quality metric).
 
 Local reproduction notes: python env at ~/.venvs/nekrs-gnn-repart
 (mpi4py, torch, torch_geometric, hydra-core, einops, ruff); run nekRS with

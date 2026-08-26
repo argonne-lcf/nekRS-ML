@@ -12,6 +12,7 @@ set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=${1:-$HERE}
+mkdir -p "$OUT"
 : "${NEKRS_HOME:?set NEKRS_HOME to a nekRS install prefix}"
 
 PARRSB_DIR="$NEKRS_HOME/nek5000/3rd_party/parRSB"
