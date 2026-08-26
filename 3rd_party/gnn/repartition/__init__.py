@@ -21,6 +21,6 @@ Design notes (verified against src/plugins/gnn.cpp and gnn_connectivity.cpp):
 """
 
 from .api import Repartitioner
-from .sources import BinSource
+from .sources import AdiosSource, BinSource, open_bp_read
 
-__all__ = ["BinSource", "Repartitioner"]
+__all__ = ["AdiosSource", "BinSource", "Repartitioner", "open_bp_read"]

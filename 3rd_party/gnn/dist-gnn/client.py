@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 from typing import Optional, Union, Tuple
 import logging
@@ -76,6 +77,12 @@ class OnlineClient:
             }
             self.client.set_parameters(parameters)
             self.solutionStream = None
+        # set by get_graph_data_from_stream
+        self.graph_source = None
+        self.repart = None
+        self.N_list = None
+        self.num_edges_list = None
+        self.fieldOffset_list = None
         self.timers["init"].append(perf_counter() - tic)
 
     def file_exists(self, file_name: str) -> bool:
@@ -116,10 +123,60 @@ class OnlineClient:
         self.timers["data"].append(perf_counter() - tic)
         return array
 
-    def put_array(self, file_name: str, array: np.ndarray) -> None:
-        """Put/send an array to staging area / simulation"""
+    def put_array(
+        self,
+        file_name: str,
+        array: np.ndarray,
+        global_ids: Optional[np.ndarray] = None,
+    ) -> None:
+        """Put/send an array to staging area / simulation.
+
+        Under adios the array is written as one global BP array over the
+        whole reader communicator, not one file per rank: the per-rank
+        _rank_R_size_S suffix is stripped from file_name and the blocks are
+        concatenated in rank order. Layout is component-major with no
+        alignStride padding, matching the nekRS-facing convention of
+        in_u/out_u (but unpadded, since the reader has no fieldOffset).
+
+        global_ids, when given, is written alongside as <var>_global_ids so
+        a consumer can scatter the result back onto the simulation mesh
+        without knowing how many ranks produced it -- necessary as soon as
+        the ML rank count is decoupled from the nekRS rank count.
+        """
         if self.backend == "smartredis":
             self.client.put_tensor(file_name, array)
+        elif self.backend == "adios":
+            tic = perf_counter()
+            var = re.sub(r"_rank_\d+_size_\d+$", "", file_name)
+            arr = np.ascontiguousarray(array)
+            if arr.ndim == 1:
+                arr = arr.reshape(-1, 1)
+            nloc, ncols = arr.shape
+            counts = self.comm.allgather(nloc)
+            start, total = sum(counts[: self.rank]), sum(counts)
+            with Stream(f"{var}.bp", "w", self.comm) as stream:
+                stream.begin_step()
+                stream.write(
+                    var,
+                    np.ascontiguousarray(arr.T).reshape(-1),
+                    [total * ncols],
+                    [start * ncols],
+                    [nloc * ncols],
+                )
+                if global_ids is not None:
+                    gid = np.ascontiguousarray(
+                        np.asarray(global_ids).reshape(-1), dtype=np.int64
+                    )
+                    if gid.size != nloc:
+                        raise ValueError(
+                            f"global_ids has {gid.size} entries but the "
+                            f"array has {nloc} rows"
+                        )
+                    stream.write(
+                        f"{var}_global_ids", gid, [total], [start], [nloc]
+                    )
+                stream.end_step()
+            self.timers["data"].append(perf_counter() - tic)
 
     def get_file_list(self, list_name: str) -> list:
         """Get the list of files to read"""
@@ -147,73 +204,149 @@ class OnlineClient:
         self.timers["meta_data"].append(perf_counter() - tic)
         return list_length
 
-    def get_graph_data_from_stream(self) -> dict:
-        """Get the entire set of graph datasets from a stream"""
+    def _import_repartition(self):
+        """The repartition package lives one level up so models can share it."""
+        pkg_parent = os.path.abspath(
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+        )
+        if pkg_parent not in sys.path:
+            sys.path.insert(0, pkg_parent)
+        from repartition import AdiosSource, Repartitioner
+
+        return AdiosSource, Repartitioner
+
+    def _open_bp_read(self, path: str):
+        """Open a BP file for reading, tolerating a serial adios2 build."""
+        self._import_repartition()
+        from repartition import open_bp_read
+
+        return open_bp_read(path, self.comm)
+
+    def _wait_for_graph(self, path: str = "graph.bp", timeout: float = 600.0):
+        """Block until nekRS has finished writing graph.bp.
+
+        gnn.cpp writes the file in a single step and closes it, so waiting
+        for the directory to appear is not enough -- the metadata may not be
+        flushed yet. Opening it and requiring the variables we need is the
+        cheapest reliable completion test.
+        """
+        tic = perf_counter()
+        while True:
+            if os.path.exists(path):
+                try:
+                    with self._open_bp_read(path) as stream:
+                        stream.begin_step()
+                        have = set(stream.available_variables())
+                        stream.end_step()
+                    if {"N", "num_edges", "pos_node"} <= have:
+                        return
+                except Exception:
+                    pass
+            if perf_counter() - tic > timeout:
+                raise TimeoutError(
+                    f"{path} did not become readable within {timeout:.0f}s"
+                )
+            sleep(1)
+
+    def get_graph_data_from_stream(self, method: str = "rcb") -> dict:
+        """Get the entire set of graph datasets from a stream.
+
+        graph.bp is written by the nekRS ranks, so it has W writer blocks
+        while this communicator has self.size readers. When the two agree
+        each rank reads its own block directly (the original path). When
+        they differ the graph is repartitioned onto this communicator by
+        whole elements, which also fixes the routing used later for the
+        in_u/out_u solution stream.
+        """
         tic = perf_counter()
         graph_data = {}
         if self.backend == "adios":
-            while True:
-                if os.path.exists("./graph.bp"):
-                    sleep(1)
-                    break
-                else:
-                    sleep(2)
+            self._wait_for_graph("graph.bp")
+            AdiosSource, Repartitioner = self._import_repartition()
+            src = AdiosSource("graph.bp", comm=self.comm)
+            self.graph_source = src
 
-            # with Stream(self.client, 'graphStream', 'r', self.comm) as stream:
-            with Stream("graph.bp", "r", self.comm) as stream:
-                stream.begin_step()
+            # writer-side per-block metadata, kept for the solution stream
+            self.N_list = [int(n) for n in src.n_per_src]
+            self.num_edges_list = [int(e) for e in src.num_edges_per_src]
+            self.fieldOffset_list = [int(f) for f in src.fo_per_src]
+            graph_data["Np"] = src.Np
 
-                graph_data["Np"] = int(stream.read("Np"))
-
-                arr = stream.inquire_variable("N")
-                N = stream.read("N", [self.rank], [1])
-                self.N_list = self.comm.allgather(N)
-
-                arr = stream.inquire_variable("num_edges")
-                num_edges = stream.read("num_edges", [self.rank], [1])
-                self.num_edges_list = self.comm.allgather(num_edges)
-
-                arr = stream.inquire_variable("pos_node")
-                count = N * 3
-                start = sum(self.N_list[: self.rank]) * 3
-                graph_data["pos"] = stream.read(
-                    "pos_node", [start], [count]
-                ).reshape((-1, 3), order="F")
-
-                arr = stream.inquire_variable("edge_index")
-                count = num_edges * 2
-                start = sum(self.num_edges_list[: self.rank]) * 2
+            if src.src_size == self.size:
+                self.repart = None
+                graph_data.update(self._read_own_graph_block(src))
+            else:
+                if self.rank == 0:
+                    log.info(
+                        "Repartitioning online graph from %d nekRS ranks to "
+                        "%d ML ranks (method=%s)",
+                        src.src_size,
+                        self.size,
+                        method,
+                    )
+                self.repart = Repartitioner(src, self.comm, method=method)
+                arrs = self.repart.graph_arrays()
+                graph_data["pos"] = arrs["pos"]
+                graph_data["global_ids"] = arrs["global_ids"].reshape(-1)
+                graph_data["local_unique_mask"] = arrs["local_unique_mask"]
+                graph_data["halo_unique_mask"] = arrs["halo_unique_mask"]
                 graph_data["edge_index"] = (
-                    stream
-                    .read("edge_index", [start], [count])
-                    .reshape((-1, 2), order="F")
-                    .T
+                    arrs["edge_index"].astype(np.int64).T
                 )
-
-                arr = stream.inquire_variable("global_ids")
-                count = N
-                start = sum(self.N_list[: self.rank])
-                graph_data["global_ids"] = stream.read(
-                    "global_ids", [start], [count]
-                )
-
-                arr = stream.inquire_variable("local_unique_mask")
-                count = N
-                start = sum(self.N_list[: self.rank])
-                graph_data["local_unique_mask"] = stream.read(
-                    "local_unique_mask", [start], [count]
-                )
-
-                arr = stream.inquire_variable("halo_unique_mask")
-                count = N
-                start = sum(self.N_list[: self.rank])
-                graph_data["halo_unique_mask"] = stream.read(
-                    "halo_unique_mask", [start], [count]
-                )
-
-                stream.end_step()
         self.timers["data"].append(perf_counter() - tic)
         return graph_data
+
+    def _read_own_graph_block(self, src) -> dict:
+        """Read writer block self.rank straight out of graph.bp (W == M).
+
+        Within a block pos_node and edge_index are component-major, hence
+        the order="F" reshapes; the masks and global_ids are plain per-node
+        scalars.
+        """
+        r = self.rank
+        n = self.N_list[r]
+        e = self.num_edges_list[r]
+        n_off = int(src.node_offsets[r])
+        e_off = int(src.edge_offsets[r])
+        out = {}
+        with self._open_bp_read("graph.bp") as stream:
+            stream.begin_step()
+            out["pos"] = stream.read(
+                "pos_node", [n_off * 3], [n * 3]
+            ).reshape((-1, 3), order="F")
+            out["edge_index"] = (
+                stream.read("edge_index", [e_off * 2], [e * 2])
+                .reshape((-1, 2), order="F")
+                .T.astype(np.int64)
+            )
+            out["global_ids"] = stream.read("global_ids", [n_off], [n])
+            out["local_unique_mask"] = stream.read(
+                "local_unique_mask", [n_off], [n]
+            )
+            out["halo_unique_mask"] = stream.read(
+                "halo_unique_mask", [n_off], [n]
+            )
+            stream.end_step()
+        return out
+
+    def _read_own_field_block(self, name: str, ncols: int) -> np.ndarray:
+        """Read writer block self.rank of a solution variable (W == M).
+
+        in_u/out_u are component-major with a per-writer stride of
+        fieldOffset = alignStride(N), not N, so the N rows of each component
+        must be read separately; a single contiguous N*ncols read silently
+        picks up padding and shears the components whenever N % 32 != 0.
+        """
+        r = self.rank
+        n = self.N_list[r]
+        fo = self.fieldOffset_list[r]
+        base = sum(self.fieldOffset_list[:r]) * ncols
+        out = np.empty((n, ncols), dtype=np.float64)
+        for c in range(ncols):
+            out[:, c] = self.solutionStream.read(
+                name, [base + c * fo], [n]
+            ).reshape(-1)
+        return out
 
     def get_train_data_from_stream(self) -> Tuple[np.ndarray, np.ndarray]:
         """Get the solution from a stream"""
@@ -226,28 +359,28 @@ class OnlineClient:
                 self.solutionStream = Stream(
                     self.client, "solutionStream", "r", self.comm
                 )
+            if self.N_list is None:
+                raise RuntimeError(
+                    "get_graph_data_from_stream() must run before "
+                    "get_train_data_from_stream(): the solution stream is "
+                    "laid out in the writer's blocks, whose sizes only "
+                    "graph.bp announces"
+                )
 
             self.solutionStream.begin_step()
-
-            arr = self.solutionStream.inquire_variable("out_u")
-            count = self.N_list[self.rank] * 3
-            start = sum(self.N_list[: self.rank]) * 3
             # stream.read() gets data now, Mode.Sync is default
             # see
             #   - https://github.com/ornladios/ADIOS2/blob/67f771b7a2f88ce59b6808cc4356159d86255f1d/python/adios2/stream.py#L331
             #   - https://github.com/ornladios/ADIOS2/blob/67f771b7a2f88ce59b6808cc4356159d86255f1d/python/adios2/engine.py#L123)
             ticc = perf_counter()
-            outputs = self.solutionStream.read("out_u", [start], [count])
+            if self.repart is not None:
+                self.graph_source.attach_field_stream(self.solutionStream)
+                inputs = self.repart.read_field("in_u", ncols=3)
+                outputs = self.repart.read_field("out_u", ncols=3)
+            else:
+                inputs = self._read_own_field_block("in_u", 3)
+                outputs = self._read_own_field_block("out_u", 3)
             transfer_time = perf_counter() - ticc
-            outputs = outputs.reshape((-1, 3), order="F")
-
-            arr = self.solutionStream.inquire_variable("in_u")
-            count = self.N_list[self.rank] * 3
-            start = sum(self.N_list[: self.rank]) * 3
-            ticc = perf_counter()
-            inputs = self.solutionStream.read("in_u", [start], [count])
-            transfer_time += perf_counter() - ticc
-            inputs = inputs.reshape((-1, 3), order="F")
 
             self.solutionStream.end_step()
         self.timers["data"].append(perf_counter() - tic)

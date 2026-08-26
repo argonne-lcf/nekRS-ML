@@ -309,6 +309,16 @@ def inference_rollout(
                 os.makedirs(save_path)
             np.save(save_path + f"/x_{trainer.iteration}", x_gathered)
             np.save(save_path + f"/pos_{trainer.iteration}", pos_gathered)
+    elif cfg.client.backend == "adios":
+        # Only the locally-unique nodes are returned, tagged with their
+        # global ids: their union over ranks covers the mesh exactly once
+        # whatever the ML rank count, which the bare per-rank array cannot
+        # express once that count is decoupled from nekRS's.
+        client.put_array(
+            f"checkpt_u_rank_{RANK}_size_{SIZE}",
+            x[:n_nodes_local].to(torch.float32).numpy(),
+            global_ids=graph.global_ids[:n_nodes_local].cpu().numpy(),
+        )
     else:
         client.put_array(
             f"checkpt_u_rank_{RANK}_size_{SIZE}", x.to(torch.float32).numpy()

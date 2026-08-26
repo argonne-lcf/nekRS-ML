@@ -178,8 +178,17 @@ all offline loss-equality tests. Remaining:
      row-major .bin files), `global_ids` (int64), the two masks (int32),
      `edge_index` (int32, component-major per block [all nei, all own],
      block-LOCAL node ids), `Np` (int32, scalar; note defect: declared
-     start {1} not {0} — read it without a selection). graph.bp has NO
-     padding: N_w = Ne_w * Np exactly.
+     start {1} not {0} — CORRECTION, verified 2026-08-26: reading it
+     without a selection returns **0**, not Np. BP5 defaults the selection
+     to start=0/count=Shape, the block at start 1 fails the intersection
+     test (`BP5Deserializer.cpp:1476`), no read is issued, and the Python
+     binding returns its pre-zeroed buffer (`stream.py:379-380`). Only an
+     out-of-bounds `[1],[1]` selection returns the value. `client.py:166`
+     `int(stream.read("Np"))` therefore yields 0 today, silently.
+     `AdiosSource._resolve_np` tries both selections and takes the
+     candidate that is positive and divides every N_w, so it also keeps
+     working if the writer is ever fixed. graph.bp has NO padding:
+     N_w = Ne_w * Np exactly.
    - `in_u`/`out_u` (`trajGen.cpp:218-279`, SST `solutionStream`): per
      writer block `3 * fieldOffset_w` float64, component-major
      [u(0..fo-1), v, w], where fieldOffset_w = alignStride(N_w) =
@@ -321,6 +330,11 @@ all offline loss-equality tests. Remaining:
 - `client.py:81-86` `file_exists` returns None for adios; `put_array` no-op for adios
   (`inference.py:313-315` result is silently dropped).
 - `graph.bp` `Np` variable declared shape {1} start {1} (`gnn.cpp:303`) — off-by-one.
+  Consequence is not cosmetic: `client.py:166` reads 0, and `trainer.py:370-373`
+  then computes `poly = int(np.cbrt(0) - 1.0)` = -1 (the bare `except` never
+  fires), so online model checkpoints are named with the wrong polynomial
+  order. Worked around read-side; the one-character writer fix ({1}->{0}) is
+  still worth making, and the workaround survives it.
 - `checkpoint.bp` global shape is `_size * 3 * fieldOffset` (`adiosStreamer.cpp:165-168`)
   — assumes a UNIFORM fieldOffset across writer ranks; only true for uniform element
   counts. No per-rank block-size record exists in that file.
@@ -330,7 +344,7 @@ all offline loss-equality tests. Remaining:
 - Offline a-priori `inference()` uses `data["test"]` / `stats["mean"]` keys that
   `setup_data` never creates.
 
-## Progress log (updated 2026-08-21)
+## Progress log (updated 2026-08-26)
 
 - [x] Subsystem deep-read (6 parallel readers) and design (this doc).
 - [x] Core package `3rd_party/gnn/dist-gnn/repartition/` implemented:
@@ -496,3 +510,67 @@ Local reproduction notes: python env at ~/.venvs/nekrs-gnn-repart
 libnekrs → dlopen symbol errors); training locally needs
 `master_addr=localhost` and `halo_swap_mode=all_to_all` (gloo cannot do the
 unequal-size all_to_all_opt).
+
+### 2026-08-26 — Phase 2 item 1: online ADIOS path (reader side complete)
+
+Ground truth re-verified against the writers before any code was written;
+three layout facts drove the implementation, all confirmed at source:
+
+- `writeToFileBinary` (`gnn.cpp:49-56`, `index = j*nRows + i`) **transposes on
+  write**, so the `.bin` files are interleaved rows while the BP variables are
+  the raw component-major device buffers. `BinSource` and `AdiosSource` must
+  therefore reshape differently for the same data — `pos_node` and
+  `edge_index` need a per-writer-block `order="F"` reshape, and reshaping the
+  whole global array at once is wrong for any W > 1.
+- `in_u`/`out_u` stride by the padded `graph->fieldOffset = alignStride(N)`,
+  and their global offsets are a **true per-writer scan** (`trajGen.cpp:225-247`),
+  so heterogeneous element counts are handled correctly by the writer.
+  `client.py:233-234` sliced by unpadded `N` — correct only because the TGV
+  case has Np=512 and 512 % 32 == 0. Fixed.
+- `Np` reads back as 0 (see above).
+
+Done:
+- `repartition/sources.py`: `ElementSource` base + `AdiosSource` (robust `Np`,
+  `src_size` from `shape("N")[0]`, per-writer node/edge/fieldOffset scans,
+  component-major sub-reads, template from writer block 0), `align_stride`,
+  and `open_bp_read` (shared serial-adios2 fallback, exported).
+- `Repartitioner.read_field` needed no change: it already forwards the spec to
+  the source, so a variable name works wherever a path callable did.
+- `dist-gnn/client.py`: `get_graph_data_from_stream` now reads graph.bp through
+  `AdiosSource`, keeps the direct per-block read when W == M, and repartitions
+  when W != M; `get_train_data_from_stream` routes through the repartitioner or
+  the fieldOffset-correct block read; `put_array` has a real ADIOS branch
+  (one global array over the reader comm, component-major, plus
+  `<var>_global_ids`); `_wait_for_graph` waits for readable variables rather
+  than for the directory to appear.
+- `dist-gnn/inference.py`: the rollout result is no longer silently dropped
+  under adios; the locally-unique rows are returned tagged with global ids.
+
+Tests (all local, no nekRS needed):
+- `tests/bin_to_bp.py` — serial bin -> BP fixture converter derived line by
+  line from the C++ writers, reproducing the `Np` defect deliberately.
+- `tests/test_adios_equiv.py` — the acceptance gate: AdiosSource == BinSource
+  after repartitioning. Passes at M in {1,2,3,8} on an adversarial fixture
+  (`/tmp/synth_pad`: W=4, Np=27, N=[189,216,189,216], pads=[3,8,3,8] — both
+  non-uniform N and non-zero padding, neither of which the real TGV data has).
+- `tests/test_online_client.py` — the W == M client path against the `.bin`
+  files directly (not against another reader), including an assertion that the
+  pre-fix contiguous `N*3` read is demonstrably wrong on this fixture.
+- Five mutation negative controls run against the gate (interleaved pos read,
+  C-order edge reshape, unpadded field stride, no-selection `Np`, unblocked
+  global reshape); all five are detected, so the gate is not vacuously green.
+
+Not yet done / explicitly out of scope of this change:
+- **No validation against real nekRS BP output** — the local `gnn_outputs_*`
+  and trajectory directories under `/tmp` are empty, so every check above runs
+  on the synthetic fixture. This needs an HPC run and pairs naturally with
+  parRSB item (b).
+- `get_array` (checkpoint.bp) is untouched: it is written from the FINE mesh
+  with `nrs->fieldOffset` and a **uniform-fieldOffset global shape**
+  (`adiosStreamer.cpp:165-169`, no Allgather), which is simply wrong whenever
+  per-rank element counts differ. Fixing it properly is a writer-side change.
+- Driver knobs (`inferprocs`, `infer_cpu_bind`, ...) and the
+  `nrsrun_aurora:79` `ml_nodes: ${SIM_NODES}` bug.
+- New, unrelated, found while verifying: `smartRedis.cpp:149-150` copies
+  `o_P` into `U` instead of `P`, clobbering the u-component with pressure and
+  leaving `checkpt_p` all zeros. Affects the smartredis path only.
