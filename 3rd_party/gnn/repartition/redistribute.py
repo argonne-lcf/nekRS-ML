@@ -53,9 +53,7 @@ def redistribute_elements(elems, dest, comm):
     rcounts = np.empty(size, dtype=np.int64)
     comm.Alltoall(scounts, rcounts)
 
-    ords_recv = alltoallv(
-        elems.ordinals[send_order], scounts, rcounts, comm
-    )
+    ords_recv = alltoallv(elems.ordinals[send_order], scounts, rcounts, comm)
     recv_order = np.argsort(ords_recv, kind="stable")
 
     routing = Routing(

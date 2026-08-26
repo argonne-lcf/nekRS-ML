@@ -65,14 +65,14 @@ def _load():
         fn = lib.repartition_parrsb_part_mesh
         fn.restype = ctypes.c_int
         fn.argtypes = [
-            ctypes.POINTER(ctypes.c_int),       # part (out)
+            ctypes.POINTER(ctypes.c_int),  # part (out)
             ctypes.POINTER(ctypes.c_longlong),  # vtx
-            ctypes.POINTER(ctypes.c_double),    # xyz (may be NULL)
-            ctypes.c_int,                       # nel
-            ctypes.c_int,                       # nv
-            ctypes.c_int,                       # partitioner
-            ctypes.c_int,                       # verbose_level
-            ctypes.c_int,                       # MPI_Fint fcomm
+            ctypes.POINTER(ctypes.c_double),  # xyz (may be NULL)
+            ctypes.c_int,  # nel
+            ctypes.c_int,  # nv
+            ctypes.c_int,  # partitioner
+            ctypes.c_int,  # verbose_level
+            ctypes.c_int,  # MPI_Fint fcomm
         ]
         _lib = lib
     return _lib

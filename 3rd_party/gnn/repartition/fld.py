@@ -45,8 +45,7 @@ class FldHeader:
                 f"cannot determine endianness of {path}"
             )
         assert self.nelo == self.nelgo, (
-            "multi-file .f sets are not supported (nekRS writes single "
-            "files)"
+            "multi-file .f sets are not supported (nekRS writes single files)"
         )
         self.nxyz = self.nx * self.ny * self.nz
         self.data_start = 136 + 4 * self.nelo
@@ -213,9 +212,7 @@ class FldSource:
         o0, o1 = self.my_ordinal_range(comm)
         pos = self.hdr.read_field(self.mesh_file, "X", o0, o1)
         template = stencil_template(self.nq)
-        gids = assign_gids(
-            pos, template, self.Np, comm, periodic=self.periodic
-        )
+        gids = assign_gids(pos, template, self.Np, comm, periodic=self.periodic)
         elems = LocalElements(
             Np=self.Np,
             ordinals=np.arange(o0, o1, dtype=np.int64),

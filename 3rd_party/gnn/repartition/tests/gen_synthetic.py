@@ -61,12 +61,8 @@ def stencil_template(p):
     lin = (ii + jj * nq + kk * nq * nq).reshape(-1)
     edges = []
     for di, dj, dk in [(1, 0, 0), (0, 1, 0), (0, 0, 1)]:
-        src_ok = (
-            (ii + di < nq) & (jj + dj < nq) & (kk + dk < nq)
-        ).reshape(-1)
-        nbr = (
-            (ii + di) + (jj + dj) * nq + (kk + dk) * nq * nq
-        ).reshape(-1)
+        src_ok = ((ii + di < nq) & (jj + dj < nq) & (kk + dk < nq)).reshape(-1)
+        nbr = ((ii + di) + (jj + dj) * nq + (kk + dk) * nq * nq).reshape(-1)
         a = lin[src_ok]
         b = nbr[src_ok]
         edges.append(np.stack([a, b], axis=1))
@@ -116,9 +112,7 @@ def rank_arrays(pos, gids, template, np_pts, el_range, rank_of_gid):
     )
     rep = first_idx[inverse]
     # shared with another rank?
-    shared_uniq = np.array(
-        [len(rank_of_gid[g]) > 1 for g in uniq], dtype=bool
-    )
+    shared_uniq = np.array([len(rank_of_gid[g]) > 1 for g in uniq], dtype=bool)
     shared = shared_uniq[inverse]
     is_rep = np.arange(n) == rep
     local_mask = (is_rep & ~shared).astype(np.int32)

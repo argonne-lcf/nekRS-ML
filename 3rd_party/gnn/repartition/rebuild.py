@@ -76,9 +76,7 @@ def rebuild_graph_arrays(elems, template_edges, comm):
     # --- cross-rank sharing per unique gid (positive gids only)
     pos_sel = uniq > 0
     shared_uniq = np.zeros(uniq.shape[0], dtype=bool)
-    shared_uniq[pos_sel] = _shared_flags(
-        uniq[pos_sel].astype(np.int64), comm
-    )
+    shared_uniq[pos_sel] = _shared_flags(uniq[pos_sel].astype(np.int64), comm)
     shared_node = shared_uniq[inverse]
 
     is_rep = np.arange(n, dtype=np.int64) == rep
@@ -88,9 +86,7 @@ def rebuild_graph_arrays(elems, template_edges, comm):
     # --- edges: tile template over elements, map through representatives
     template_edges = np.asarray(template_edges, dtype=np.int64)
     offsets = np.arange(ne, dtype=np.int64) * np_pts
-    ei = (
-        template_edges[None, :, :] + offsets[:, None, None]
-    ).reshape(-1, 2)
+    ei = (template_edges[None, :, :] + offsets[:, None, None]).reshape(-1, 2)
     a = rep[ei[:, 0]]
     b = rep[ei[:, 1]]
     keep = a != b

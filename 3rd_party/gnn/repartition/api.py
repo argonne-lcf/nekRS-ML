@@ -25,9 +25,7 @@ class Repartitioner:
 
         elems_src, self.template = source.read_elements(comm)
         dest = partition_elements(elems_src, comm, method=method)
-        self.elems, self.routing = redistribute_elements(
-            elems_src, dest, comm
-        )
+        self.elems, self.routing = redistribute_elements(elems_src, dest, comm)
         self._arrays = None
 
     def graph_arrays(self):
@@ -40,9 +38,7 @@ class Repartitioner:
 
     def read_field(self, path_for_src_rank, ncols):
         """Read a source node-level field and route it to the new layout."""
-        local = self.source.read_node_field(
-            self.comm, path_for_src_rank, ncols
-        )
+        local = self.source.read_node_field(self.comm, path_for_src_rank, ncols)
         return self.routing.route_node_array(local, self.comm)
 
     @property

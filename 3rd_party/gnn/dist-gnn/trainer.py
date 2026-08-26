@@ -220,7 +220,6 @@ class Trainer:
             self.ckpt_path = cfg.ckpt_dir + "checkpoint.tar"
             self.model_path = cfg.model_dir + "model.tar"
 
-
         def _resolve_legacy(path):
             """Checkpoints written before the repartitioning work embedded
             the training world size in the name (POLY_p_SIZE_S_SEED_s);
@@ -866,9 +865,7 @@ class Trainer:
             sys.path.insert(0, pkg_parent)
         from repartition import BinSource, Repartitioner
 
-        src = BinSource(
-            self.cfg.gnn_outputs_path, src_size=src_size or None
-        )
+        src = BinSource(self.cfg.gnn_outputs_path, src_size=src_size or None)
         if src.src_size == SIZE and have_native:
             return None
         method = str(self.cfg.get("repartition_method", "rcb"))
@@ -895,9 +892,7 @@ class Trainer:
             src = self.repart.source.src_size
 
             def path_for(s, p=file_name):
-                return p.replace(
-                    f"_rank_0_size_{src}", f"_rank_{s}_size_{src}"
-                )
+                return p.replace(f"_rank_0_size_{src}", f"_rank_{s}_size_{src}")
 
             return self.repart.read_field(path_for, ncols=dim)
         return self.load_data(file_name, dtype=np.float64).reshape((-1, dim))
@@ -1304,9 +1299,7 @@ class Trainer:
         )
         for i in range(len(output_files)):
             tic = time.time()
-            data_x = self._load_snapshot(
-                input_files[i], self.cfg.input_fld_dim
-            )
+            data_x = self._load_snapshot(input_files[i], self.cfg.input_fld_dim)
             toc = time.time()
             if self.cfg.online:
                 self.online_timers["trainDataTime"].append(toc - tic)
@@ -1428,12 +1421,8 @@ class Trainer:
                 step_y_i = idx_y[i]
                 path_x_i = data_dir + f"/{traj_sub}/" + files[idx_x[i]]
                 path_y_i = data_dir + f"/{traj_sub}/" + files[idx_y[i]]
-                data_x_i = self._load_snapshot(
-                    path_x_i, self.cfg.input_fld_dim
-                )
-                data_y_i = self._load_snapshot(
-                    path_y_i, self.cfg.input_fld_dim
-                )
+                data_x_i = self._load_snapshot(path_x_i, self.cfg.input_fld_dim)
+                data_y_i = self._load_snapshot(path_y_i, self.cfg.input_fld_dim)
                 data_x_i = self.prepare_snapshot_data(data_x_i)
                 data_y_i = self.prepare_snapshot_data(data_y_i)
                 self.data_list.append({

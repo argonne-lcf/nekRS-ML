@@ -682,9 +682,12 @@ class NekRSMLOfflineRepartTest(NekRSMLOfflineTest):
         )
         lib = os.path.join(self.stagedir, "libparrsb_shim.so")
         return [
-            lst2cmd(
-                [f"NEKRS_HOME={self.nekrs_home}", "bash", script, self.stagedir]
-            ),
+            lst2cmd([
+                f"NEKRS_HOME={self.nekrs_home}",
+                "bash",
+                script,
+                self.stagedir,
+            ]),
             f"export PARRSB_SHIM_LIB={lib}",
         ]
 

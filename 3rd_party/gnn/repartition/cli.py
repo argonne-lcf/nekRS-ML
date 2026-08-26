@@ -52,9 +52,7 @@ def infer_ncols(path, n_nodes_src_rank):
         c
         for c in (1, 2, 3, 4, 6, 9)
         if items % c == 0
-        and n_nodes_src_rank
-        <= items // c
-        < n_nodes_src_rank + MAX_PAD_ROWS
+        and n_nodes_src_rank <= items // c < n_nodes_src_rank + MAX_PAD_ROWS
     ]
     if len(hits) != 1:
         raise RuntimeError(
@@ -77,9 +75,7 @@ def write_graph(rp, out_dir):
         os.path.join(out_dir, "halo_unique_mask" + sfx)
     )
     if RANK == 0:
-        with open(
-            os.path.join(out_dir, f"Np_rank_0_size_{SIZE}"), "w"
-        ) as f:
+        with open(os.path.join(out_dir, f"Np_rank_0_size_{SIZE}"), "w") as f:
             f.write(f"{rp.Np}\n")
 
 
@@ -110,9 +106,7 @@ def write_halo_files(rp, out_dir):
             arrs["halo_unique_mask"].astype(np.int64)
         ),
     )
-    data_full.edge_index = pyg_utils.remove_self_loops(
-        data_full.edge_index
-    )[0]
+    data_full.edge_index = pyg_utils.remove_self_loops(data_full.edge_index)[0]
     data_full.edge_index = pyg_utils.coalesce(data_full.edge_index)
     data_full.edge_index = pyg_utils.to_undirected(data_full.edge_index)
     data_full.local_ids = torch.arange(pos.shape[0])
@@ -147,9 +141,7 @@ def write_halo_files(rp, out_dir):
 
 def route_fld_files(rp, src, out_dir):
     n0 = int(src.ne_per_src[0]) * src.Np
-    pat = os.path.join(
-        src.src_dir, f"fld_*_rank_0_size_{src.src_size}.bin"
-    )
+    pat = os.path.join(src.src_dir, f"fld_*_rank_0_size_{src.src_size}.bin")
     for f0 in sorted(glob.glob(pat)):
         base = os.path.basename(f0)
         prefix = re.sub(rf"_rank_0_size_{src.src_size}\.bin$", "", base)
@@ -160,9 +152,7 @@ def route_fld_files(rp, src, out_dir):
             ),
             ncols=ncols,
         )
-        out = os.path.join(
-            out_dir, f"{prefix}_rank_{RANK}_size_{SIZE}.bin"
-        )
+        out = os.path.join(out_dir, f"{prefix}_rank_{RANK}_size_{SIZE}.bin")
         routed.tofile(out)
         if RANK == 0:
             print(f"routed {prefix} ({ncols} cols)", flush=True)
@@ -170,9 +160,7 @@ def route_fld_files(rp, src, out_dir):
 
 def route_traj_dir(rp, src, traj_dir, traj_out):
     n0 = int(src.ne_per_src[0]) * src.Np
-    src_sub = os.path.join(
-        traj_dir, f"data_rank_0_size_{src.src_size}"
-    )
+    src_sub = os.path.join(traj_dir, f"data_rank_0_size_{src.src_size}")
     out_sub = os.path.join(traj_out, f"data_rank_{RANK}_size_{SIZE}")
     if RANK == 0:
         os.makedirs(out_sub, exist_ok=True)
@@ -304,9 +292,7 @@ def main():
     if args.fld_mesh:
         if args.fld_traj:
             traj_out = args.fld_traj_out or out_dir
-            sub = os.path.join(
-                traj_out, f"data_rank_{RANK}_size_{SIZE}"
-            )
+            sub = os.path.join(traj_out, f"data_rank_{RANK}_size_{SIZE}")
             os.makedirs(sub, exist_ok=True)
             for i, path in enumerate(args.fld_traj):
                 routed = rp.read_field((path, "U"), ncols=3)

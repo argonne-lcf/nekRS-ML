@@ -290,9 +290,7 @@ class OnlineClient:
                 graph_data["global_ids"] = arrs["global_ids"].reshape(-1)
                 graph_data["local_unique_mask"] = arrs["local_unique_mask"]
                 graph_data["halo_unique_mask"] = arrs["halo_unique_mask"]
-                graph_data["edge_index"] = (
-                    arrs["edge_index"].astype(np.int64).T
-                )
+                graph_data["edge_index"] = arrs["edge_index"].astype(np.int64).T
         self.timers["data"].append(perf_counter() - tic)
         return graph_data
 
@@ -311,11 +309,12 @@ class OnlineClient:
         out = {}
         with self._open_bp_read("graph.bp") as stream:
             stream.begin_step()
-            out["pos"] = stream.read(
-                "pos_node", [n_off * 3], [n * 3]
-            ).reshape((-1, 3), order="F")
+            out["pos"] = stream.read("pos_node", [n_off * 3], [n * 3]).reshape(
+                (-1, 3), order="F"
+            )
             out["edge_index"] = (
-                stream.read("edge_index", [e_off * 2], [e * 2])
+                stream
+                .read("edge_index", [e_off * 2], [e * 2])
                 .reshape((-1, 2), order="F")
                 .T.astype(np.int64)
             )

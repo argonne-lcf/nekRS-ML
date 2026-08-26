@@ -136,9 +136,7 @@ def main():
         ref_keys = np.unique(
             ref_pairs[:, 0].astype(np.int64) * gmax + ref_pairs[:, 1]
         )
-        ok = union.shape == ref_keys.shape and np.array_equal(
-            union, ref_keys
-        )
+        ok = union.shape == ref_keys.shape and np.array_equal(union, ref_keys)
     else:
         ok = True
     check(ok, "global reduced edge set matches serial reference")
@@ -153,9 +151,7 @@ def main():
         local_unique_mask=torch.tensor(lum.astype(np.int64)),
         halo_unique_mask=torch.tensor(hum.astype(np.int64)),
     )
-    data_full.edge_index = pyg_utils.remove_self_loops(
-        data_full.edge_index
-    )[0]
+    data_full.edge_index = pyg_utils.remove_self_loops(data_full.edge_index)[0]
     data_full.edge_index = pyg_utils.coalesce(data_full.edge_index)
     data_full.edge_index = pyg_utils.to_undirected(data_full.edge_index)
     data_full.local_ids = torch.arange(n)
@@ -179,8 +175,7 @@ def main():
     eff = COMM.allreduce(float((1.0 / node_degree).sum()), op=MPI.SUM)
     check(
         abs(eff - n_unique_ref) < 1e-8 * n_unique_ref + 1e-6,
-        f"sum(1/node_degree) == global unique nodes ({eff} vs "
-        f"{n_unique_ref})",
+        f"sum(1/node_degree) == global unique nodes ({eff} vs {n_unique_ref})",
     )
 
     # -- check 4: one aggregation round with halo consistency

@@ -76,12 +76,10 @@ class BinSource(ElementSource):
         self.Np = np_pts
 
         # elements per source rank from the pos_node file sizes
-        self._set_element_counts(
-            [
-                os.path.getsize(self._path("pos_node", s)) // (self.Np * 24)
-                for s in range(src_size)
-            ]
-        )
+        self._set_element_counts([
+            os.path.getsize(self._path("pos_node", s)) // (self.Np * 24)
+            for s in range(src_size)
+        ])
 
     @staticmethod
     def detect_size(src_dir):
@@ -107,9 +105,7 @@ class BinSource(ElementSource):
     def _read_node_slices(self, o0, o1, path_fn, dtype, ncols):
         np_pts = self.Np
         parts = [
-            _read_slice(
-                path_fn(s), dtype, ncols, el0 * np_pts, nel * np_pts
-            )
+            _read_slice(path_fn(s), dtype, ncols, el0 * np_pts, nel * np_pts)
             for s, el0, nel in self._overlaps(o0, o1)
         ]
         if parts:
@@ -224,8 +220,9 @@ class AdiosSource(ElementSource):
     ``read("Np")`` returns 0, not Np. See _resolve_np.
     """
 
-    def __init__(self, graph_path="graph.bp", comm=None, np_pts=None,
-                 itemsize=8):
+    def __init__(
+        self, graph_path="graph.bp", comm=None, np_pts=None, itemsize=8
+    ):
         self.graph_path = graph_path
         self.comm = comm
         self.itemsize = itemsize
@@ -289,8 +286,7 @@ class AdiosSource(ElementSource):
             if arr.size:
                 cands.append(int(arr[0]))
         good = [
-            c for c in dict.fromkeys(cands)
-            if c > 0 and not np.any(n_list % c)
+            c for c in dict.fromkeys(cands) if c > 0 and not np.any(n_list % c)
         ]
         if len(good) == 1:
             return good[0]
@@ -299,8 +295,9 @@ class AdiosSource(ElementSource):
             f"N={n_list.tolist()}); pass np_pts explicitly"
         )
 
-    def _read_block_components(self, stream, name, base, stride, row0,
-                               nrows, ncols, dtype):
+    def _read_block_components(
+        self, stream, name, base, stride, row0, nrows, ncols, dtype
+    ):
         """Read ncols component-major sub-ranges out of one writer block.
 
         base is the block's global start, stride the per-component stride
@@ -331,8 +328,14 @@ class AdiosSource(ElementSource):
                 base = int(self.node_offsets[s])
                 pos_parts.append(
                     self._read_block_components(
-                        stream, "pos_node", base * 3, n_s,
-                        el0 * np_pts, nel * np_pts, 3, np.float64,
+                        stream,
+                        "pos_node",
+                        base * 3,
+                        n_s,
+                        el0 * np_pts,
+                        nel * np_pts,
+                        3,
+                        np.float64,
                     )
                 )
                 gid_parts.append(
@@ -407,8 +410,14 @@ class AdiosSource(ElementSource):
         np_pts = self.Np
         parts = [
             self._read_block_components(
-                stream, name, int(offsets[s]) * ncols, int(strides[s]),
-                el0 * np_pts, nel * np_pts, ncols, np.float64,
+                stream,
+                name,
+                int(offsets[s]) * ncols,
+                int(strides[s]),
+                el0 * np_pts,
+                nel * np_pts,
+                ncols,
+                np.float64,
             )
             for s, el0, nel in self._overlaps(o0, o1)
         ]

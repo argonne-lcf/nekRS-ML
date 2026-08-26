@@ -60,9 +60,9 @@ def load_bin_dir(src, src_size=None):
         src_size = int(re.search(r"_size_(\d+)\.bin$", hits[0]).group(1))
     np_pts = int(
         float(
-            open(
-                os.path.join(src, f"Np_rank_0_size_{src_size}")
-            ).read().split()[0]
+            open(os.path.join(src, f"Np_rank_0_size_{src_size}"))
+            .read()
+            .split()[0]
         )
     )
 
@@ -78,9 +78,13 @@ def load_bin_dir(src, src_size=None):
         hum = np.fromfile(path("halo_unique_mask", w), dtype=np.int32)
         assert pos.shape[0] == gid.shape[0] == lum.shape[0] == hum.shape[0]
         assert pos.shape[0] % np_pts == 0, "graph.bp blocks are never padded"
-        blocks.append(
-            {"pos": pos, "gid": gid, "ei": ei, "lum": lum, "hum": hum}
-        )
+        blocks.append({
+            "pos": pos,
+            "gid": gid,
+            "ei": ei,
+            "lum": lum,
+            "hum": hum,
+        })
     return src_size, np_pts, blocks
 
 
@@ -166,9 +170,7 @@ def main():
     src_size, np_pts, blocks = load_bin_dir(args.src, args.src_size)
     os.makedirs(args.out, exist_ok=True)
     N, E = write_graph_bp(os.path.join(args.out, "graph.bp"), np_pts, blocks)
-    print(
-        f"graph.bp: W={src_size} Np={np_pts} N={list(N)} num_edges={list(E)}"
-    )
+    print(f"graph.bp: W={src_size} Np={np_pts} N={list(N)} num_edges={list(E)}")
 
     if args.field:
         per_block = []

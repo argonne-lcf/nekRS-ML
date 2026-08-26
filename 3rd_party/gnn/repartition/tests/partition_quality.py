@@ -96,8 +96,15 @@ def main():
 
     if comm.Get_rank() == 0:
         print(f"world size M={comm.Get_size()}, src={args.src}")
-        cols = ["method", "halo_cls", "halo_cp", "nbr_max",
-                "nbr_mean", "ne_max", "ne_mean"]
+        cols = [
+            "method",
+            "halo_cls",
+            "halo_cp",
+            "nbr_max",
+            "nbr_mean",
+            "ne_max",
+            "ne_mean",
+        ]
         print(" ".join(f"{c:>9}" for c in cols))
         for method, q in results.items():
             hc, hcp, nm, nmean, nem, nemean = q

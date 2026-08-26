@@ -87,8 +87,10 @@ def main():
     os.chdir(args.bp)  # _read_own_graph_block opens "graph.bp" by name
     try:
         c, src = make_stub(args.bp)
-        check(src.Np == bsrc.Np, f"Np resolved past the start-{{1}} defect "
-                                 f"({src.Np}, not 0)")
+        check(
+            src.Np == bsrc.Np,
+            f"Np resolved past the start-{{1}} defect ({src.Np}, not 0)",
+        )
         blk = c._read_own_graph_block(src)
 
         n = c.N_list[RANK]
@@ -117,9 +119,14 @@ def main():
                 f"{'pos_node' if k == 'pos' else k}{suffix}",
             )
 
-        ei_ref = np.fromfile(
-            os.path.join(args.bin, "edge_index" + suffix), dtype=np.int32
-        ).reshape(-1, 2).T
+        ei_ref = (
+            np
+            .fromfile(
+                os.path.join(args.bin, "edge_index" + suffix), dtype=np.int32
+            )
+            .reshape(-1, 2)
+            .T
+        )
         check(
             blk["edge_index"].shape == ei_ref.shape
             and np.array_equal(blk["edge_index"], ei_ref),
@@ -164,16 +171,20 @@ def main():
         if HAS_MPI_ADIOS:
             gid = ref["global_ids"][:n].astype(np.int64)
             payload = u_ref.astype(np.float32)
-            c.put_array(f"checkpt_u_rank_{RANK}_size_{SIZE}", payload,
-                        global_ids=gid)
+            c.put_array(
+                f"checkpt_u_rank_{RANK}_size_{SIZE}", payload, global_ids=gid
+            )
             COMM.Barrier()
             counts = COMM.allgather(n)
             start, total = sum(counts[:RANK]), sum(counts)
             with adios2.Stream("checkpt_u.bp", "r", COMM) as st:
                 st.begin_step()
-                back = st.read(
-                    "checkpt_u", [start * 3], [n * 3]
-                ).reshape((3, -1)).T
+                back = (
+                    st
+                    .read("checkpt_u", [start * 3], [n * 3])
+                    .reshape((3, -1))
+                    .T
+                )
                 gback = st.read("checkpt_u_global_ids", [start], [n])
                 st.end_step()
             check(
