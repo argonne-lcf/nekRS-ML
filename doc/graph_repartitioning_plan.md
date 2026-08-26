@@ -164,8 +164,13 @@ snapshots, trajectories, .f-only reconstruction incl. periodic folding), and
 all offline loss-equality tests. Remaining:
 
 1. **Online ADIOS path — the 24-GPU shooting-workflow inference** (the
-   original motivating feature). IMPLEMENTATION SPEC, verified against the
-   writers by a reader agent 2026-08-21 (file:line refs checked at HEAD):
+   original motivating feature). **READER SIDE DONE 2026-08-26 (commit
+   29914874)** — see the Progress log entry and the HPC handoff section at
+   the end of this doc; validated only against a synthetic BP fixture, NOT
+   yet against real nekRS output. The driver-knob sub-item below is still
+   open. IMPLEMENTATION SPEC, verified against the writers by a reader
+   agent 2026-08-21 (file:line refs checked at HEAD), retained as the
+   layout reference:
 
    **Writer layouts (the ground truth the reader must honor):**
    - `graph.bp` (`gnn.cpp:249-330`, written on `_write_io` which has NO
