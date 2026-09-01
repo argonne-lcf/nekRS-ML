@@ -15,9 +15,10 @@ from omegaconf import DictConfig, OmegaConf
 
 try:
     import mpi4py.rc
+
     mpi4py.rc.initialize = False
     mpi4py.rc.threads = True
-    mpi4py.rc.thread_level = 'multiple'
+    mpi4py.rc.thread_level = "multiple"
     from mpi4py import MPI
 
     WITH_DDP = True
@@ -153,8 +154,7 @@ def gather_wrapper(temp: NDArray[np.float32]) -> NDArray[np.float32]:
 
 
 def inference(cfg: DictConfig) -> None:
-    """Perform 'a-priori' inference from a set of loaded input files
-    """
+    """Perform 'a-priori' inference from a set of loaded input files"""
     trainer = Trainer(cfg, COMM)
     trainer.writeGraphStatistics()
 
@@ -242,11 +242,11 @@ def inference(cfg: DictConfig) -> None:
     # Torch distributed cleanup
     trainer.cleanup()
 
-def inference_rollout(cfg: DictConfig,
-                      client: Optional[OnlineClient] = None
-    ) -> None:
-    """Perform 'a-posteriori' inference by rolling out in time an initial condition
-    """
+
+def inference_rollout(
+    cfg: DictConfig, client: Optional[OnlineClient] = None
+) -> None:
+    """Perform 'a-posteriori' inference by rolling out in time an initial condition"""
     trainer = Trainer(cfg, COMM, client=client)
     trainer.writeGraphStatistics()
 
@@ -316,7 +316,9 @@ def inference_rollout(cfg: DictConfig,
     trainer.cleanup()
 
     # Print performance stats
-    global_stats = utils.collect_stats(COMM, n_nodes_local, local_time, local_throughput)
+    global_stats = utils.collect_stats(
+        COMM, n_nodes_local, local_time, local_throughput
+    )
     if RANK == 0:
         log.info("Performance metrics:")
         log.info(f"\tTotal number of graph nodes: {global_stats['n_nodes']}")

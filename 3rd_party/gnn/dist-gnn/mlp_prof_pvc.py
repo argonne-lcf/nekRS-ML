@@ -13,7 +13,8 @@ from gnn import MLP
 
 log = logging.getLogger(__name__)
 
-class MLPReprod():
+
+class MLPReprod:
     def __init__(self, cfg: DictConfig):
         self.cfg = cfg
 
@@ -24,7 +25,7 @@ class MLPReprod():
         self.loss_fn = torch.nn.MSELoss()
         self.loss_fn.to(self.device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
-    
+
     def setup_torch(self):
         # Random seeds
         torch.manual_seed(self.cfg.seed)
@@ -33,16 +34,16 @@ class MLPReprod():
         self.with_cuda = torch.cuda.is_available()
         self.with_xpu = torch.xpu.is_available()
         if self.with_cuda:
-            self.device = torch.device('cuda')
+            self.device = torch.device("cuda")
             self.n_devices = torch.cuda.device_count()
             self.device_id = 0
         elif self.with_xpu:
-            self.device = torch.device('xpu')
+            self.device = torch.device("xpu")
             self.n_devices = torch.xpu.device_count()
             self.device_id = 0
         else:
-            self.device = torch.device('cpu')
-            self.device_id = 'cpu'
+            self.device = torch.device("cpu")
+            self.device_id = "cpu"
 
         # Set device and intra-op threads
         if self.with_cuda:
@@ -52,14 +53,16 @@ class MLPReprod():
         torch.set_num_threads(self.cfg.num_threads)
 
         # Precision
-        if self.cfg.precision == 'fp32':
+        if self.cfg.precision == "fp32":
             self.torch_dtype = torch.float32
-        elif self.cfg.precision == 'bf16':
+        elif self.cfg.precision == "bf16":
             self.torch_dtype = torch.bfloat16
-        elif self.cfg.precision == 'fp64':
+        elif self.cfg.precision == "fp64":
             self.torch_dtype = torch.float64
         else:
-            sys.exit('Only fp32, fp64 and bf16 data types are currently supported')
+            sys.exit(
+                "Only fp32, fp64 and bf16 data types are currently supported"
+            )
 
     def setup_data(self):
         self.num_nodes = 160_000
@@ -67,11 +70,14 @@ class MLPReprod():
 
     def build_model(self, layer_norm: Optional[bool] = False):
         self.model = MLP(
-                input_channels = self.cfg.hidden_channels,
-                hidden_channels = [self.cfg.hidden_channels]*(self.cfg.n_mlp_hidden_layers+1),
-                output_channels = self.cfg.hidden_channels,
-                activation_layer = torch.nn.ELU(),
-                norm_layer = torch.nn.LayerNorm(self.cfg.hidden_channels) if layer_norm else None
+            input_channels=self.cfg.hidden_channels,
+            hidden_channels=[self.cfg.hidden_channels]
+            * (self.cfg.n_mlp_hidden_layers + 1),
+            output_channels=self.cfg.hidden_channels,
+            activation_layer=torch.nn.ELU(),
+            norm_layer=torch.nn.LayerNorm(self.cfg.hidden_channels)
+            if layer_norm
+            else None,
         )
         self.model.to(self.torch_dtype)
         self.model.to(self.device)
@@ -92,30 +98,52 @@ class MLPReprod():
         self.optimizer.step()
         self.synchronize()
 
-    def train(self, graph_component: Optional[str] = 'nodes'):
+    def train(self, graph_component: Optional[str] = "nodes"):
         self.model.train()
 
-        if graph_component == 'nodes':
+        if graph_component == "nodes":
             N = self.num_nodes
-        elif graph_component == 'edges':
+        elif graph_component == "edges":
             N = self.num_edges
         else:
-            sys.exit('Invalid graph component')
-        log.info(f"Training with N={N}, hidden_channels={self.cfg.hidden_channels} and n_mlp_hidden_layers={self.cfg.n_mlp_hidden_layers}")
+            sys.exit("Invalid graph component")
+        log.info(
+            f"Training with N={N}, hidden_channels={self.cfg.hidden_channels} and n_mlp_hidden_layers={self.cfg.n_mlp_hidden_layers}"
+        )
 
-        # Warmup 
+        # Warmup
         for _ in range(1):
-            x = torch.randn(N, self.cfg.hidden_channels, dtype=self.torch_dtype, device=self.device)
-            y = torch.randn(N, self.cfg.hidden_channels, dtype=self.torch_dtype, device=self.device)
+            x = torch.randn(
+                N,
+                self.cfg.hidden_channels,
+                dtype=self.torch_dtype,
+                device=self.device,
+            )
+            y = torch.randn(
+                N,
+                self.cfg.hidden_channels,
+                dtype=self.torch_dtype,
+                device=self.device,
+            )
             self.train_step(x, y)
 
         # Performance test
         itt.resume()
         with torch.autograd.profiler.emit_itt():
-            torch.profiler.itt.range_push('training')
+            torch.profiler.itt.range_push("training")
             for _ in range(self.cfg.phase1_steps):
-                x = torch.randn(N, self.cfg.hidden_channels, dtype=self.torch_dtype, device=self.device)
-                y = torch.randn(N, self.cfg.hidden_channels, dtype=self.torch_dtype, device=self.device)
+                x = torch.randn(
+                    N,
+                    self.cfg.hidden_channels,
+                    dtype=self.torch_dtype,
+                    device=self.device,
+                )
+                y = torch.randn(
+                    N,
+                    self.cfg.hidden_channels,
+                    dtype=self.torch_dtype,
+                    device=self.device,
+                )
                 self.train_step(x, y)
             torch.profiler.itt.range_pop()
         itt.pause()
@@ -125,46 +153,58 @@ class MLPReprod():
         pred = self.model(x)
         self.synchronize()
 
-    def test(self, graph_component: Optional[str] = 'nodes'):
+    def test(self, graph_component: Optional[str] = "nodes"):
         self.model.eval()
 
-        if graph_component == 'nodes':
+        if graph_component == "nodes":
             N = self.num_nodes
-        elif graph_component == 'edges':
+        elif graph_component == "edges":
             N = self.num_edges
         else:
-            sys.exit('Invalid graph component')
-        log.info(f"Inference with N={N}, hidden_channels={self.cfg.hidden_channels} and n_mlp_hidden_layers={self.cfg.n_mlp_hidden_layers}")
+            sys.exit("Invalid graph component")
+        log.info(
+            f"Inference with N={N}, hidden_channels={self.cfg.hidden_channels} and n_mlp_hidden_layers={self.cfg.n_mlp_hidden_layers}"
+        )
 
-        # Warmup 
+        # Warmup
         for _ in range(1):
-            x = torch.randn(N, self.cfg.hidden_channels, dtype=self.torch_dtype, device=self.device)
+            x = torch.randn(
+                N,
+                self.cfg.hidden_channels,
+                dtype=self.torch_dtype,
+                device=self.device,
+            )
             self.test_step(x)
 
         # Performance test
         itt.resume()
         with torch.autograd.profiler.emit_itt():
-            torch.profiler.itt.range_push('inference')
+            torch.profiler.itt.range_push("inference")
             for _ in range(self.cfg.phase1_steps):
-                x = torch.randn(N, self.cfg.hidden_channels, dtype=self.torch_dtype, device=self.device)
+                x = torch.randn(
+                    N,
+                    self.cfg.hidden_channels,
+                    dtype=self.torch_dtype,
+                    device=self.device,
+                )
                 self.test_step(x)
             torch.profiler.itt.range_pop()
         itt.pause()
 
 
-@hydra.main(version_base=None, config_path='./conf', config_name='config')
+@hydra.main(version_base=None, config_path="./conf", config_name="config")
 def main(cfg: DictConfig) -> None:
-    log.info('\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
-    log.info('RUNNING WITH INPUTS:')
-    log.info(f'{OmegaConf.to_yaml(cfg)}') 
-    log.info('\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
+    log.info("\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+    log.info("RUNNING WITH INPUTS:")
+    log.info(f"{OmegaConf.to_yaml(cfg)}")
+    log.info("\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
 
     mlp_reprod = MLPReprod(cfg)
 
-    if cfg.model_task == 'train':
-        mlp_reprod.train(graph_component='edges')
-    elif cfg.model_task == 'inference':
-        mlp_reprod.test(graph_component='edges')
+    if cfg.model_task == "train":
+        mlp_reprod.train(graph_component="edges")
+    elif cfg.model_task == "inference":
+        mlp_reprod.test(graph_component="edges")
 
 
 if __name__ == "__main__":

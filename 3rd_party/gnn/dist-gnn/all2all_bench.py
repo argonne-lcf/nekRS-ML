@@ -13,6 +13,7 @@ import torch.distributed.nn as distnn
 TORCH_DTYPE = torch.float32
 
 from mpi4py import MPI
+
 SIZE = MPI.COMM_WORLD.Get_size()
 RANK = MPI.COMM_WORLD.Get_rank()
 COMM = MPI.COMM_WORLD
@@ -20,32 +21,35 @@ LOCAL_RANK = int(os.getenv("PALS_LOCAL_RANKID"))
 
 try:
     WITH_CUDA = torch.cuda.is_available()
-    if RANK == 0 and WITH_CUDA: print('Running on CUDA devices',flush=True)
+    if RANK == 0 and WITH_CUDA:
+        print("Running on CUDA devices", flush=True)
 except:
     WITH_CUDA = False
     pass
 
 try:
     WITH_XPU = torch.xpu.is_available()
-    if RANK == 0 and WITH_XPU: print('Running on XPU devices',flush=True)
+    if RANK == 0 and WITH_XPU:
+        print("Running on XPU devices", flush=True)
 except:
     WITH_XPU = False
     pass
 
 if WITH_CUDA:
-    DEVICE = torch.device('cuda')
+    DEVICE = torch.device("cuda")
     N_DEVICES = torch.cuda.device_count()
-    DEVICE_ID = LOCAL_RANK if N_DEVICES>1 else 0
+    DEVICE_ID = LOCAL_RANK if N_DEVICES > 1 else 0
     torch.cuda.set_device(DEVICE_ID)
 elif WITH_XPU:
-    DEVICE = torch.device('xpu')
+    DEVICE = torch.device("xpu")
     N_DEVICES = torch.xpu.device_count()
-    DEVICE_ID = LOCAL_RANK if N_DEVICES>1 else 0
+    DEVICE_ID = LOCAL_RANK if N_DEVICES > 1 else 0
     torch.xpu.set_device(DEVICE_ID)
 else:
-    DEVICE = torch.device('cpu')
-    DEVICE_ID = 'cpu'
-    if RANK == 0: print('Running on CPU devices',flush=True)
+    DEVICE = torch.device("cpu")
+    DEVICE_ID = "cpu"
+    if RANK == 0:
+        print("Running on CPU devices", flush=True)
 
 
 def init_process_group(

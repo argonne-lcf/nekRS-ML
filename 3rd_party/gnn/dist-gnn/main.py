@@ -1,6 +1,7 @@
 """
 PyTorch DDP training script for GNN-based surrogates from mesh data
 """
+
 import sys
 import os
 import logging
@@ -14,12 +15,13 @@ from omegaconf import DictConfig, OmegaConf
 
 try:
     import mpi4py.rc
+
     mpi4py.rc.initialize = False
     mpi4py.rc.threads = True
-    mpi4py.rc.thread_level = 'multiple'
+    mpi4py.rc.thread_level = "multiple"
     from mpi4py import MPI
 except ModuleNotFoundError as e:
-    sys.exit('MPI is required! Please install MPI and try again.')
+    sys.exit("MPI is required! Please install MPI and try again.")
 
 import torch
 
@@ -43,37 +45,37 @@ try:
     WITH_CUDA = torch.cuda.is_available()
 except:
     WITH_CUDA = False
-    if RANK == 0: log.warning('Found no CUDA devices')
+    if RANK == 0:
+        log.warning("Found no CUDA devices")
     pass
 
 try:
     WITH_XPU = torch.xpu.is_available()
 except:
     WITH_XPU = False
-    if RANK == 0: log.warning('Found no XPU devices')
+    if RANK == 0:
+        log.warning("Found no XPU devices")
     pass
 
 if WITH_CUDA:
-    DEVICE = torch.device('cuda')
+    DEVICE = torch.device("cuda")
     N_DEVICES = torch.cuda.device_count()
-    DEVICE_ID = LOCAL_RANK if N_DEVICES>1 else 0
+    DEVICE_ID = LOCAL_RANK if N_DEVICES > 1 else 0
 elif WITH_XPU:
-    DEVICE = torch.device('xpu')
+    DEVICE = torch.device("xpu")
     N_DEVICES = torch.xpu.device_count()
-    DEVICE_ID = LOCAL_RANK if N_DEVICES>1 else 0
+    DEVICE_ID = LOCAL_RANK if N_DEVICES > 1 else 0
 else:
-    DEVICE = torch.device('cpu')
-    DEVICE_ID = 'cpu'
+    DEVICE = torch.device("cpu")
+    DEVICE_ID = "cpu"
 
 
-def train(cfg: DictConfig,
-          client: Optional[OnlineClient] = None
-    ) -> None:
+def train(cfg: DictConfig, client: Optional[OnlineClient] = None) -> None:
     trainer = Trainer(cfg, COMM, client=client)
     trainer.writeGraphStatistics()
     n_nodes_local = trainer.data_reduced.n_nodes_local.item()
 
-    # Training loop: 
+    # Training loop:
     trainer.model.train()
     loss_window = deque(maxlen=10)
     local_time = []
@@ -176,7 +178,8 @@ def train(cfg: DictConfig,
 
     # Tell simulation to exit
     if cfg.online:
-        if RANK == 0: log.info(f"[RANK {RANK}] -- Telling NekRS to quit ...")
+        if RANK == 0:
+            log.info(f"[RANK {RANK}] -- Telling NekRS to quit ...")
         client.stop_nekRS()
     COMM.Barrier()
 
@@ -184,31 +187,67 @@ def train(cfg: DictConfig,
     trainer.cleanup()
 
     # Print performance stats
-    global_stats = utils.collect_stats(COMM, n_nodes_local, local_time, local_throughput)
+    global_stats = utils.collect_stats(
+        COMM, n_nodes_local, local_time, local_throughput
+    )
     if RANK == 0:
-        log.info('Performance metrics:')
-        log.info(f'\tTotal number of graph nodes: {global_stats["n_nodes"]}')
-        log.info(f'\tTotal number of iterations: {trainer.iteration-1}')
+        log.info("Performance metrics:")
+        log.info(f"\tTotal number of graph nodes: {global_stats['n_nodes']}")
+        log.info(f"\tTotal number of iterations: {trainer.iteration - 1}")
         min_val, max_val, avg_val = utils.min_max_avg(global_stats["time"])
-        log.info(f'\tStep time [sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
-        min_val, max_val, avg_val = utils.min_max_avg(global_stats["throughput"])
-        log.info(f'\tLocal step throughput [million nodes / sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
-        min_val, max_val, avg_val = utils.min_max_avg(global_stats["glob_throughput"])
-        log.info(f'\tParallel step throughput [million nodes / sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
+        log.info(
+            f"\tStep time [sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+        )
+        min_val, max_val, avg_val = utils.min_max_avg(
+            global_stats["throughput"]
+        )
+        log.info(
+            f"\tLocal step throughput [million nodes / sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+        )
+        min_val, max_val, avg_val = utils.min_max_avg(
+            global_stats["glob_throughput"]
+        )
+        log.info(
+            f"\tParallel step throughput [million nodes / sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+        )
     if cfg.online:
-        glob_online_stats = utils.collect_online_stats(COMM, trainer.online_timers['trainDataTime'],trainer.online_timers['trainDataThroughput'])
+        glob_online_stats = utils.collect_online_stats(
+            COMM,
+            trainer.online_timers["trainDataTime"],
+            trainer.online_timers["trainDataThroughput"],
+        )
         if RANK == 0:
-            min_val, max_val, avg_val = utils.min_max_avg(glob_online_stats["time"])
-            log.info(f'\tTransfer time per stream [sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
-            min_val, max_val, avg_val = utils.min_max_avg(glob_online_stats["tot_time"])
-            log.info(f'\tTotal transfer time [sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
-            min_val, max_val, avg_val = utils.min_max_avg(glob_online_stats["throughput"])
-            log.info(f'\tLocal transfer throughput [GB / sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
-            min_val, max_val, avg_val = utils.min_max_avg(glob_online_stats["glob_throughput"])
-            log.info(f'\tParallel transfer throughput [GB / sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
+            min_val, max_val, avg_val = utils.min_max_avg(
+                glob_online_stats["time"]
+            )
+            log.info(
+                f"\tTransfer time per stream [sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+            )
+            min_val, max_val, avg_val = utils.min_max_avg(
+                glob_online_stats["tot_time"]
+            )
+            log.info(
+                f"\tTotal transfer time [sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+            )
+            min_val, max_val, avg_val = utils.min_max_avg(
+                glob_online_stats["throughput"]
+            )
+            log.info(
+                f"\tLocal transfer throughput [GB / sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+            )
+            min_val, max_val, avg_val = utils.min_max_avg(
+                glob_online_stats["glob_throughput"]
+            )
+            log.info(
+                f"\tParallel transfer throughput [GB / sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+            )
 
     # Print FOM
-    gnn_fom = (global_stats["n_nodes"] / 1.0e6) * (trainer.iteration-1) / sum(local_time)
+    gnn_fom = (
+        (global_stats["n_nodes"] / 1.0e6)
+        * (trainer.iteration - 1)
+        / sum(local_time)
+    )
     gnn_fom_gather = COMM.gather(gnn_fom, root=0)
     if cfg.online:
         data_transfer_fom = glob_online_stats["glob_throughput"]
