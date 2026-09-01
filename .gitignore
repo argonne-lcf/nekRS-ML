@@ -14,7 +14,7 @@ logfile
 
 # ML related items
 __pycache__/
-_env/
+_env*/
 
 # SmartSim/SmartRedis outputs
 SmartSim/
@@ -28,3 +28,7 @@ SmartSim/
 # ML related artefacts
 __pycache__/
 
+# Reframe test data
+tests/test_data/
+.ruff_cache/
+.venv/

@@ -3,7 +3,7 @@ verbose: False
 timers: False
 postprocess: False
 seed: 12
-backend: nccl
+backend: null
 num_threads: 1
 logfreq: 10
 ckptfreq: 500
@@ -19,6 +19,10 @@ device_skip: 0 # temporary workaround to skip GPU on a node
 # Modeling task
 model_task: "train" # {train, inference}
 time_dependency: "time_independent" # {time_independent, time_dependent}
+input_fld_name: "u"
+output_fld_name: "p"
+input_fld_dim: 3
+output_fld_dim: 1
 consistency: True
 use_residual: False
 rollout_steps: 0
@@ -31,13 +35,21 @@ lr_phase12: 0.0001
 lr_phase23: 0.0001
 
 # model arch properties 
+model_name: "gnn" # {gnn, graph_transformer}
 hidden_channels: 32
 n_mlp_hidden_layers: 5
 n_messagePassing_layers: 4
+n_transformer_layers: 4
+num_heads: 4
 layer_norm: False
 
 # Halo swap mode 
 halo_swap_mode : none
+
+# transform directions (enforces periodicity in graph)
+transform_x: false
+transform_y: false
+transform_z: false
 
 # Correctness validation
 target_loss: 0

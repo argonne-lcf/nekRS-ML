@@ -65,25 +65,23 @@ def collect_online_stats(COMM, local_time: list, local_throughput: list) -> dict
     COMM.Allgather(np.array(local_throughput), gather_throughput)
     global_throughput = np.zeros(len(local_throughput))
     COMM.Allreduce(np.array(local_throughput), global_throughput, op=MPI.SUM)
-    return { 
-            'time':gather_time, 
-            'tot_time':gather_time_tot,
-            'throughput':gather_throughput, 
-            'glob_throughput':global_throughput
-            }
+    return {
+        "time": gather_time,
+        "tot_time": gather_time_tot,
+        "throughput": gather_throughput,
+        "glob_throughput": global_throughput,
+    }
 
-def min_max_avg(data: Union[list, np.ndarray]) -> Tuple[float,float,float]:
-    if isinstance(data,list):
+
+def min_max_avg(data: Union[list, np.ndarray]) -> Tuple[float, float, float]:
+    if isinstance(data, list):
         min_val = min(data)
         max_val = max(data)
         avg_val = sum(data) / len(data)
-    elif isinstance(data,np.ndarray):
+    elif isinstance(data, np.ndarray):
         min_val = np.amin(data)
         max_val = np.amax(data)
         avg_val = np.mean(data)
     else:
-        min_val = max_val = avg_val = 0.
+        min_val = max_val = avg_val = 0.0
     return min_val, max_val, avg_val
-
-
-    

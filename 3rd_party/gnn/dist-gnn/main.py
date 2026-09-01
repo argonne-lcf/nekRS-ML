@@ -79,52 +79,69 @@ def train(cfg: DictConfig,
     local_time = []
     local_throughput = []
     while True:
-        train_loader = trainer.data['train']['loader']
-        val_loader = trainer.data['validation']['loader']
+        train_loader = trainer.data["train"]["loader"]
+        val_loader = trainer.data["validation"]["loader"]
         for bidx, data in enumerate(train_loader):
             t_step = time.time()
             loss = trainer.train_step(data)
-            t_step = time.time() - t_step 
+            t_step = time.time() - t_step
             if trainer.iteration > 0:
                 local_time.append(t_step)
-                local_throughput.append(n_nodes_local/t_step/1.0e6)
-            trainer.loss_hist_train[trainer.iteration] = loss 
-            loss_window.append(loss)
+                local_throughput.append(n_nodes_local / t_step / 1.0e6)
+            trainer.loss_hist_train[trainer.iteration] = loss.item()
+            loss_window.append(loss.item())
             running_loss = sum(loss_window) / len(loss_window)
-            trainer.iteration += 1 
-            
-            # Calculate gradients  
-            if cfg.postprocess: postproc_out = trainer.postprocess()
+            trainer.iteration += 1
 
-            # Logging 
+            # Calculate gradients
+            if cfg.postprocess:
+                postproc_out = trainer.postprocess()
+
+            # Logging
             if RANK == 0:
-                summary_train = ' '.join([
-                    f'[STEP {trainer.iteration}]',
-                    f'loss={loss:.4e}',
-                    f'r_loss={running_loss:.4e}',   # Include average loss in your logging
-                    f't_step={t_step:.4g}sec',
-                    f"lr={trainer.optimizer.param_groups[0]['lr']:.3e}"
+                summary_train = " ".join([
+                    f"[STEP {trainer.iteration}]",
+                    f"loss={loss:.4e}",
+                    f"r_loss={running_loss:.4e}",  # Include average loss in your logging
+                    f"t_step={t_step:.4g}sec",
+                    f"lr={trainer.optimizer.param_groups[0]['lr']:.3e}",
                 ])
-                sepstr = '-' * len(summary_train)
+                sepstr = "-" * len(summary_train)
                 log.info(sepstr)
                 log.info(summary_train)
                 if cfg.timers:
-                    t_dataTransfer = trainer.timers['dataTransfer'][trainer.timer_step-1]
-                    t_bufferInit = trainer.timers['bufferInit'][trainer.timer_step-1]
-                    t_forwardPass = trainer.timers['forwardPass'][trainer.timer_step-1]
-                    t_loss = trainer.timers['loss'][trainer.timer_step-1]
-                    t_backwardPass = trainer.timers['backwardPass'][trainer.timer_step-1]
-                    t_optimizerStep = trainer.timers['optimizerStep'][trainer.timer_step-1]
-                    log.info(f"t_dataTransfer: {t_dataTransfer:.4g} sec") 
+                    t_dataTransfer = trainer.timers["dataTransfer"][
+                        trainer.timer_step - 1
+                    ]
+                    t_bufferInit = trainer.timers["bufferInit"][
+                        trainer.timer_step - 1
+                    ]
+                    t_forwardPass = trainer.timers["forwardPass"][
+                        trainer.timer_step - 1
+                    ]
+                    t_loss = trainer.timers["loss"][trainer.timer_step - 1]
+                    t_backwardPass = trainer.timers["backwardPass"][
+                        trainer.timer_step - 1
+                    ]
+                    t_optimizerStep = trainer.timers["optimizerStep"][
+                        trainer.timer_step - 1
+                    ]
+                    log.info(f"t_dataTransfer: {t_dataTransfer:.4g} sec")
                     log.info(f"t_bufferInit: {t_bufferInit:.4g} sec")
-                    log.info(f"t_forwardPass: {t_forwardPass:.4g} sec [{n_nodes_local/t_forwardPass:.4e} nodes/sec]")
-                    log.info(f"t_loss: {t_loss:.4g} sec [{n_nodes_local/t_loss:.4e} nodes/sec]")
-                    log.info(f"t_backwardPass: {t_backwardPass:.4g} sec [{n_nodes_local/t_backwardPass:.4e} nodes/sec]")
+                    log.info(
+                        f"t_forwardPass: {t_forwardPass:.4g} sec [{n_nodes_local / t_forwardPass:.4e} nodes/sec]"
+                    )
+                    log.info(
+                        f"t_loss: {t_loss:.4g} sec [{n_nodes_local / t_loss:.4e} nodes/sec]"
+                    )
+                    log.info(
+                        f"t_backwardPass: {t_backwardPass:.4g} sec [{n_nodes_local / t_backwardPass:.4e} nodes/sec]"
+                    )
                     log.info(f"t_optimizerStep: {t_optimizerStep:.4g} sec")
                 if cfg.postprocess:
                     log.info(f"grad norm: {postproc_out[0]:.6g}")
 
-            # Checkpoint  
+            # Checkpoint
             if trainer.iteration % cfg.ckptfreq == 0:
                 trainer.checkpoint()
 
@@ -137,20 +154,23 @@ def train(cfg: DictConfig,
             # Break loop over dataloader
             if trainer.iteration >= trainer.total_iterations:
                 break
-        
+
         # Break while loop
         if trainer.iteration >= trainer.total_iterations:
             break
-    
+
     # Correctness validation
     if cfg.target_loss != 0:
-        if math.isclose(cfg.target_loss,loss,rel_tol=0.001):
-            if RANK==0: print('\n\nSUCCESS! GNN training validated!\n\n')
+        if math.isclose(cfg.target_loss, loss.item(), rel_tol=0.001):
+            if RANK == 0:
+                print("\n\nSUCCESS! GNN training validated!\n\n")
         else:
-            if RANK==0: 
-                print('\n\nWARNING! GNN training failed validation!')
-                print(f'Target loss: {cfg.target_loss}, obtained loss: {loss}\n\n')
-    
+            if RANK == 0:
+                print("\n\nWARNING! GNN training failed validation!")
+                print(
+                    f"Target loss: {cfg.target_loss}, obtained loss: {loss.item()}\n\n"
+                )
+
     # Save model
     trainer.save_model()
 
@@ -193,36 +213,44 @@ def train(cfg: DictConfig,
     if cfg.online:
         data_transfer_fom = glob_online_stats["glob_throughput"]
     if RANK == 0:
-        log.info('FOM:')
+        log.info("FOM:")
         min_val, max_val, avg_val = utils.min_max_avg(gnn_fom_gather)
-        log.info(f'\tFOM_train [million graph nodes x train steps / train time]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
+        log.info(
+            f"\tFOM_train [million graph nodes x train steps / train time]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+        )
         if cfg.online:
             min_val, max_val, avg_val = utils.min_max_avg(data_transfer_fom)
-            log.info(f'\tFOM_transfer [GB / transfer time]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}')
+            log.info(
+                f"\tFOM_transfer [GB / transfer time]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+            )
 
 
-@hydra.main(version_base=None, config_path='./conf', config_name='config')
+@hydra.main(version_base=None, config_path="./conf", config_name="config")
 def main(cfg: DictConfig) -> None:
     if cfg.verbose:
-        log.info(f'Hello from rank {RANK}/{SIZE}, local rank {LOCAL_RANK}, on node {HOST_NAME} and device {DEVICE}:{DEVICE_ID+cfg.device_skip} out of {N_DEVICES}.')
-    
+        log.info(
+            f"Hello from rank {RANK}/{SIZE}, local rank {LOCAL_RANK}, on node {HOST_NAME} and device {DEVICE}:{DEVICE_ID + cfg.device_skip} out of {N_DEVICES}."
+        )
+
     if RANK == 0:
-        log.info('\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
-        log.info('RUNNING WITH INPUTS:')
-        log.info(f'{OmegaConf.to_yaml(cfg)}') 
-        log.info('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
+        log.info("\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
+        log.info("RUNNING WITH INPUTS:")
+        log.info(f"{OmegaConf.to_yaml(cfg)}")
+        log.info("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
 
     if not cfg.online:
         train(cfg)
     else:
         client = OnlineClient(cfg, COMM)
         COMM.Barrier()
-        if RANK == 0: print('Initialized Online Client!\n', flush=True)
+        if RANK == 0:
+            print("Initialized Online Client!\n", flush=True)
         train(cfg, client)
 
+    utils.cleanup()
     if RANK == 0:
-        log.info('Exiting ...')
+        log.info("Exiting ...")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
