@@ -35,7 +35,6 @@ mpi4py.rc.initialize = False
 from mpi4py import MPI
 
 # Local imports
-import utils
 from scheduler import ScheduledOptim
 import gnn
 import graph_transformer as gtr
@@ -549,7 +548,7 @@ class Trainer:
                         "For neighbor rank %d, the number of send nodes and the number of receive nodes do not match. Check to make sure graph is partitioned correctly."
                         % (i)
                     )
-                    utils.force_abort()
+                    sys.exit(1)
         return mask_send, mask_recv
 
     def build_buffers(self, n_features):
@@ -883,30 +882,30 @@ class Trainer:
         if self.cfg.transform_x:
             xmin_loc = np.amin(pos[:, 0])
             xmin_glob = np.zeros_like(xmin_loc)
-            COMM.Allreduce(xmin_loc, xmin_glob, op=MPI.MIN)
+            self.comm.Allreduce(xmin_loc, xmin_glob, op=MPI.MIN)
             xmax_loc = np.amax(pos[:, 0])
             xmax_glob = np.zeros_like(xmax_loc)
-            COMM.Allreduce(xmax_loc, xmax_glob, op=MPI.MAX)
+            self.comm.Allreduce(xmax_loc, xmax_glob, op=MPI.MAX)
             L_x = (xmax_glob - xmin_glob) / 2.0
             pos[:, 0] = np.abs((pos[:, 0] % L_x) - L_x / 2)  # piecewise linear
 
         if self.cfg.transform_y:
             ymin_loc = np.amin(pos[:, 1])
             ymin_glob = np.zeros_like(ymin_loc)
-            COMM.Allreduce(ymin_loc, ymin_glob, op=MPI.MIN)
+            self.comm.Allreduce(ymin_loc, ymin_glob, op=MPI.MIN)
             ymax_loc = np.amax(pos[:, 1])
             ymax_glob = np.zeros_like(ymax_loc)
-            COMM.Allreduce(ymax_loc, ymax_glob, op=MPI.MAX)
+            self.comm.Allreduce(ymax_loc, ymax_glob, op=MPI.MAX)
             L_y = (ymax_glob - ymin_glob) / 2.0
             pos[:, 1] = np.abs((pos[:, 1] % L_y) - L_y / 2)  # piecewise linear
 
         if self.cfg.transform_z:
             zmin_loc = np.amin(pos[:, 2])
             zmin_glob = np.zeros_like(zmin_loc)
-            COMM.Allreduce(zmin_loc, zmin_glob, op=MPI.MIN)
+            self.comm.Allreduce(zmin_loc, zmin_glob, op=MPI.MIN)
             zmax_loc = np.amax(pos[:, 2])
             zmax_glob = np.zeros_like(zmax_loc)
-            COMM.Allreduce(zmax_loc, zmax_glob, op=MPI.MAX)
+            self.comm.Allreduce(zmax_loc, zmax_glob, op=MPI.MAX)
             L_z = (zmax_glob - zmin_glob) / 2.0
             # pos[:,2] = np.cos(2.*np.pi*pos[:,2]/L_z) # cosine
             pos[:, 2] = np.abs((pos[:, 2] % L_z) - L_z / 2)  # piecewise linear
@@ -1192,19 +1191,19 @@ class Trainer:
             torch.zeros(n_features, dtype=self.torch_dtype, device=device)
             for _ in range(self.size)
         ]
-        data_mean_gather = utils.mpi_all_gather(data_mean_)
+        data_mean_gather = self.comm.allgather(data_mean_)
 
         data_var_gather = [
             torch.zeros(n_features, dtype=self.torch_dtype, device=device)
             for _ in range(self.size)
         ]
-        data_var_gather = utils.mpi_all_gather(data_var_)
+        data_var_gather = self.comm.allgather(data_var_)
 
         n_scale_gather = [
             torch.zeros(1, dtype=self.torch_dtype, device=device)
             for _ in range(self.size)
         ]
-        n_scale_gather = utils.mpi_all_gather(n_scale_)
+        n_scale_gather = self.comm.allgather(n_scale_)
 
         data_mean_gather = torch.stack(data_mean_gather)
         data_var_gather = torch.stack(data_var_gather)
