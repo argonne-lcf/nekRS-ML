@@ -37,8 +37,8 @@ thread_level = MPI.Init_thread(MPI.THREAD_MULTIPLE)
 COMM = MPI.COMM_WORLD
 SIZE = COMM.Get_size()
 RANK = COMM.Get_rank()
-LOCAL_RANK = int(os.getenv("PALS_LOCAL_RANKID"))
-LOCAL_SIZE = int(os.getenv("PALS_LOCAL_SIZE"))
+LOCAL_RANK = int(os.getenv("PALS_LOCAL_RANKID", default=RANK))
+LOCAL_SIZE = int(os.getenv("PALS_LOCAL_SIZE", default=SIZE))
 HOST_NAME = MPI.Get_processor_name()
 
 try:

@@ -1,3 +1,0 @@
-      real betaY, xLength, zLength 
-
-      common /casevars/ betaY, xLength, zLength
