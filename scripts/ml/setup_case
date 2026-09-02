@@ -279,7 +279,27 @@ function load_modules() {
   fi
 }
 
-function build_smartsim() {
+function install_parrsb() {
+  GSLIB_DIR=$(mktemp -d)
+  PARRSB_DIR=$(mktemp -d)
+
+  # Install gslib
+  git clone https://github.com/thilinarmtb/gslib.git -b general_graph ${GSLIB_DIR}
+  cmake -B ${GSLIB_DIR}/build -S ${GSLIB_DIR} -DCMAKE_INSTALL_PREFIX=${VENV}
+  cmake --build ${GSLIB_DIR}/build --target install
+
+  # Install parRSB
+  git clone https://github.com/thilinarmtb/parRSB.git ${PARRSB_DIR}
+  cmake -B ${PARRSB_DIR}/build -S ${PARRSB_DIR} -DCMAKE_INSTALL_PREFIX=${VENV} \
+    -Dgs_DIR=${VENV}/lib/cmake/gs
+  cmake --build ${PARRSB_DIR}/build --target install
+
+  # Install parRSB.py
+  pip install git+https://github.com/thilinarmtb/parRSB.py --prefix ${VENV} -vv \
+    -Ccmake.define.parRSB_DIR=${VENV}/lib/cmake/parRSB
+}
+
+function install_smartsim() {
   if [ "${SYSTEM}" == "polaris" ]; then
     export CC=cc
     export CXX=CC
@@ -324,7 +344,6 @@ function build_ensemblelauncher() {
 }
 
 function setup_venv() {
-  reuse=0
   if [ -d ${VENV_PATH} ]; then
     echo -e "\033[35mPython venv \"${VENV_PATH}\" already exists, reusing it ... \033[m"
     return 0
@@ -360,8 +379,9 @@ function setup_venv() {
   pip install pymech
 
   if [ "${CLIENT}" == "smartredis" ]; then
-    build_smartsim
+    install_smartsim
   fi
+  install_parrsb
 
   if [ "${ENSEMBLE}" == "el" ]; then
     build_ensemblelauncher
@@ -385,3 +405,4 @@ setup_case
 load_modules
 setup_venv
 generate_script
+echo -e "\033[35mExecute \"run.sh\" script from a compute node to run the example.\033[m"
