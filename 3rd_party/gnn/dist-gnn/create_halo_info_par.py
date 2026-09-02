@@ -42,23 +42,6 @@ def make_reduced_graph(
             SIZE,
         )
 
-
-def make_reduced_graph() -> Tuple[Data, Data, torch.Tensor]:
-    path_to_pos_full = main_path + "pos_node_rank_%d_size_%d" % (RANK, SIZE)
-    path_to_ei = main_path + "edge_index_rank_%d_size_%d" % (RANK, SIZE)
-    path_to_glob_ids = main_path + "global_ids_rank_%d_size_%d" % (RANK, SIZE)
-    path_to_unique = main_path + "local_unique_mask_rank_%d_size_%d" % (
-        RANK,
-        SIZE,
-    )
-    path_to_halo_ids = None
-    if SIZE > 1:
-        path_to_halo_ids = main_path + "halo_ids_rank_%d_size_%d" % (RANK, SIZE)
-        path_to_unique_halo = main_path + "halo_unique_mask_rank_%d_size_%d" % (
-            RANK,
-            SIZE,
-        )
-
     # ~~~~ Get positions and global node index
     # if args.LOG=='debug': print('[RANK %d]: Loading positions and global node index' %(RANK), flush=True)
     pos = np.fromfile(path_to_pos_full + ".bin", dtype=np.float64).reshape((

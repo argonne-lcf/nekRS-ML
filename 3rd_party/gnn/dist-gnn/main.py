@@ -286,7 +286,6 @@ def main(cfg: DictConfig) -> None:
             print("Initialized Online Client!\n", flush=True)
         train(cfg, client)
 
-    utils.cleanup()
     if RANK == 0:
         log.info("Exiting ...")
 

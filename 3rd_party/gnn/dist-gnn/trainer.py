@@ -332,7 +332,6 @@ class Trainer:
         if self.rank == 0:
             log.info("In build_model...")
 
-        sample = self.data["train"]["example"]
         graph = self.data["graph"]
 
         # Get the polynomial order -- for naming the model
@@ -343,9 +342,9 @@ class Trainer:
             poly = 0
 
         # Full model
-        input_node_channels = sample["x"].shape[1]
+        input_node_channels = self.cfg.input_fld_dim
         hidden_channels = self.cfg.hidden_channels
-        output_node_channels = sample["y"].shape[1]
+        output_node_channels = self.cfg.output_fld_dim
         halo_swap_mode = self.cfg.halo_swap_mode
         if self.cfg.model_name == "gnn":
             input_edge_channels = graph.edge_attr.shape[1]
@@ -1737,22 +1736,19 @@ class Trainer:
             shuffle=False,
         )
 
-        self.data = {
-            "train": {
-                "loader": train_loader,
-                "example": data["train"][0],
-            },
-            "validation": {
-                "loader": valid_loader,
-                "example": data["validation"][0],
-            },
-            "stats": {
-                "x_mean": stats["x"][0],
-                "x_std": stats["x"][1],
-                "y_mean": stats["y"][0],
-                "y_std": stats["y"][1],
-            },
-            "graph": data_graph,
+        self.data['train'] =  {
+            'loader': train_loader,
+            'example': data['train'][0],
+        }
+        self.data['validation'] =  {
+            'loader': valid_loader,
+            'example': data['validation'][0],
+        }
+        self.data['stats'] = {
+            'x_mean': stats['x'][0],
+            'x_std': stats['x'][1],
+            'y_mean': stats['y'][0],
+            'y_std': stats['y'][1],
         }
 
     def update_data(self) -> None:
