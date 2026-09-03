@@ -344,14 +344,13 @@ class Trainer:
         # Full model
         input_node_channels = self.cfg.input_fld_dim
         hidden_channels = self.cfg.hidden_channels
-        output_node_channels = self.cfg.output_fld_dim
+        output_node_channels = self.cfg.input_fld_dim if self.cfg.time_dependency == "time_dependent" else self.cfg.output_fld_dim
         halo_swap_mode = self.cfg.halo_swap_mode
         if self.cfg.model_name == "gnn":
             input_edge_channels = graph.edge_attr.shape[1]
             n_mlp_hidden_layers = self.cfg.n_mlp_hidden_layers
             n_messagePassing_layers = self.cfg.n_messagePassing_layers
             layer_norm = self.cfg.layer_norm
-            # name = 'POLY_%d_RANK_%d_SIZE_%d_SEED_%d' %(poly,self.rank,self.size,self.cfg.seed)
             name = "POLY_%d_SIZE_%d_SEED_%d" % (poly, self.size, self.cfg.seed)
             if self.cfg.use_residual:
                 name += "_RESID"
