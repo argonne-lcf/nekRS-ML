@@ -105,7 +105,7 @@ void UDF_Setup0(MPI_Comm comm, setupAide &options)
 void UDF_Setup()
 {
   // Initialize ADIOS client
-  client = new adios_client_t(platform->comm.mpiComm, nrs);
+  client = new adios_client_t(platform->comm.mpiComm);
 
   // gnn plugin
   graph = new gnn_t(nrs);
