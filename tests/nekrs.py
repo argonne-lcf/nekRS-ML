@@ -489,16 +489,19 @@ class NekRSMLOfflineTest(NekRSMLTest):
         return cmds
 
     def generate_sr_gnn_data_cmd(self):
-        return lst2cmd([
-            "python",
-            os.path.join(self.gnn_dir, "nek_to_pt.py"),
-            f"--case_path {self.stagedir}",
-            "--target_snap_list ${target_list}",
-            "--input_snap_list ${input_list}",
-            f"--target_poly_order {self.sim_order}",
-            f"--input_poly_order {self.gnn_order}",
-            f"--n_element_neighbors {self.ml_args['n_element_neighbors']}",
-        ])
+        return lst2cmd(
+            self.mpiexec
+            + [
+                "python",
+                os.path.join(self.gnn_dir, "nek_to_pt.py"),
+                f"--case_path {self.stagedir}",
+                "--target_snap_list ${target_list}",
+                "--input_snap_list ${input_list}",
+                f"--target_poly_order {self.sim_order}",
+                f"--input_poly_order {self.gnn_order}",
+                f"--n_element_neighbors {self.ml_args['n_element_neighbors']}",
+            ]
+        )
 
     def set_prerun_cmds(self):
         self.prerun_cmds += [
