@@ -241,6 +241,7 @@ include(cmake/adios.cmake)
 if (ENABLE_ADIOS)
   add_adios()
 endif()
+set(CMAKE_BUILD_TYPE RelWithDebInfo)
 
 if (ENABLE_SMARTREDIS)
   find_library(SR_LIB smartredis PATHS ${SMARTREDIS_INSTALL_DIR}/lib NO_DEFAULT_PATH REQUIRED)
@@ -400,6 +401,11 @@ if (ENABLE_SMARTREDIS)
 
 install(DIRECTORY scripts/ DESTINATION bin
   FILE_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+
+# Fix ADIOS2 CMake target files if ADIOS2 was built from source
+if (ENABLE_ADIOS AND ADIOS2_BUILT_FROM_SOURCE)
+  install(SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/cmake/fix_adios2_targets.cmake)
+endif()
 
 # Examples will follow a different policy -- only copy if source tree is newer than install tree
 file(GLOB_RECURSE EXAMPLE_FILES ${CMAKE_CURRENT_SOURCE_DIR}/examples/*)

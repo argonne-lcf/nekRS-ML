@@ -1,96 +1,210 @@
+import sys
 import os
+import socket
+from typing import Optional, Union, Callable
+import logging
 import numpy as np
-from adios2 import Stream, Adios
-from time import sleep
+import time
+from omegaconf import DictConfig, OmegaConf
 
-from mpi4py import MPI
+import torch
+import torch.distributed as dist
+from torch.utils.data import DataLoader
+from torch.cuda.amp.grad_scaler import GradScaler
+import torch.nn as nn
+import torch.optim as optim
 
-# MPI
-comm = MPI.COMM_WORLD
-rank = comm.Get_rank()
-size = comm.Get_size()
+# PyTorch Geometric
+# import torch_geometric
+# from torch_geometric.data import Data
+# import torch_geometric.utils as pyg_utils
 
-color = 3230
-app_comm = comm.Split(color, rank)
-asize = app_comm.Get_size()
-arank = app_comm.Get_rank()
+# Local imports
+from client import OnlineClient
 
-# ADIOS MPI Communicator
-adios = Adios(app_comm)
+log = logging.getLogger(__name__)
+Tensor = torch.Tensor
+NP_FLOAT_DTYPE = np.float32
+SMALL = 1e-12
+GB_SIZE = 1024**3
 
-# ADIOS IO
-sstIO = adios.declare_io("solutionStream")
-sstIO.set_engine("SST")
-parameters = {
-    "DataTransport": "WAN",  # options: MPI, WAN,  UCX, RDMA
-    "OpenTimeoutSecs": "600",  # number of seconds SST is to wait for a peer connection on Open()
-}
-sstIO.set_parameters(parameters)
 
-# Read the graph data
-while True:
-    if os.path.exists("./graph.bp"):
-        sleep(5)
-        break
-    else:
-        sleep(5)
-with Stream("graph.bp", "r", comm) as stream:
-    stream.begin_step()
+class Trainer:
+    def __init__(
+        self,
+        cfg: DictConfig,
+        COMM,
+        scaler: Optional[GradScaler] = None,
+        client: Optional[OnlineClient] = None,
+    ) -> None:
+        self.cfg = cfg
+        self.client = client
 
-    arr = stream.inquire_variable("N")
-    N = stream.read("N", [rank], [1])
-    N_list = comm.allgather(N)
+        # ~~~ Get MPI info
+        self.comm = COMM
+        self.rank = self.comm.Get_rank()
+        self.size = self.comm.Get_size()
+        self.local_rank = int(os.getenv("PALS_LOCAL_RANKID"))
+        self.local_size = int(os.getenv("PALS_LOCAL_SIZE"))
+        # self.host_name = MPI.Get_processor_name()
 
-    arr = stream.inquire_variable("num_edges")
-    num_edges = stream.read("num_edges", [rank], [1])
-    num_edges_list = comm.allgather(num_edges)
+        # ~~~~ Init torch stuff
+        self.setup_torch()
 
-    arr = stream.inquire_variable("pos_node")
-    count = N * 3
-    start = sum(N_list[:rank]) * 3
-    pos = stream.read("pos_node", [start], [count]).reshape((-1, 3), order="F")
+        # ~~~~ Setup local graph
+        self.pos, graph_read_time = self.load_graph_data()
+        self.comm.Barrier()
+        if self.rank == 0:
+            print(f"[Trainer] Read graph in {graph_read_time:.4f} seconds", flush=True)
 
-    arr = stream.inquire_variable("edge_index")
-    count = num_edges * 2
-    start = sum(num_edges_list[:rank]) * 2
-    edge_index = (
-        stream.read("edge_index", [start], [count]).reshape((-1, 2), order="F").T
-    )
+        # ~~~~ Setup training data
+        self.load_trajectory()
+        self.comm.Barrier()
 
-    stream.end_step()
+        # ~~~ Initialize torch distributed and wrap model in DDP
+        self.init_process_group(self.cfg.master_addr, self.cfg.master_port)
 
-comm.Barrier()
-if rank == 0:
-    print("Done reading graph data", flush=True)
+    def init_process_group(self, master_addr: str, master_port: int):
+        os.environ["RANK"] = str(self.rank)
+        os.environ["WORLD_SIZE"] = str(self.size)
+        if master_addr == "none":
+            MASTER_ADDR = socket.gethostname() if self.rank == 0 else None
+            MASTER_ADDR = self.comm.bcast(MASTER_ADDR, root=0)
+        else:
+            MASTER_ADDR = str(master_addr)
+        os.environ["MASTER_ADDR"] = MASTER_ADDR
+        os.environ["MASTER_PORT"] = str(master_port)
 
-# Receive training data
-workflow_steps = 5
-try:
-    if rank == 0:
-        print("[ML] Opening stream ... ", flush=True)
-    stream = Stream(sstIO, "solutionStream", "r", comm)
-    for step in range(workflow_steps):
-        sleep(5)
-        if rank == 0:
-            print("[ML] Reading solution data for step ", step, flush=True)
-        stream.begin_step()
-        var = stream.inquire_variable("U")
-        count = N * 3
-        start = sum(N_list[:rank]) * 3
-        train_data = stream.read("U", [start], [count]).reshape((-1, 3), order="F")
-        stream.end_step()
-        comm.Barrier()
-        if rank == 0:
-            print("[ML] Done reading solution data for step ", step, flush=True)
-    stream.close()
-except Exception as e:
-    print(e)
+        if torch.cuda.is_available():
+            backend = "nccl"
+        elif torch.xpu.is_available():
+            backend = "xccl"
+        else:
+            backend = "gloo"
+        dist.init_process_group(
+            backend,
+            rank=int(self.rank),
+            world_size=int(self.size),
+            init_method="env://",
+        )
 
-MLrun = 0
-with Stream("check-run.bp", "w", comm) as stream:
-    if rank == 0:
-        stream.write("check-run", np.int32([MLrun]))
+    def cleanup(self):
+        dist.destroy_process_group()
 
-comm.Barrier()
-if rank == 0:
-    print("Trainer is done!")
+    def setup_torch(self):
+        # Set device
+        self.with_cuda = torch.cuda.is_available()
+        self.with_xpu = torch.xpu.is_available()
+        if self.with_cuda:
+            self.device = torch.device("cuda")
+            self.n_devices = torch.cuda.device_count()
+            self.device_id = self.local_rank if self.n_devices > 1 else 0
+        elif self.with_xpu:
+            self.device = torch.device("xpu")
+            self.n_devices = torch.xpu.device_count()
+            self.device_id = self.local_rank if self.n_devices > 1 else 0
+        else:
+            self.device = torch.device("cpu")
+            self.device_id = "cpu"
+
+        # Device and intra-op threads
+        if self.with_cuda:
+            torch.cuda.set_device(self.device_id)
+        elif self.with_xpu:
+            torch.xpu.set_device(self.device_id)
+        torch.set_num_threads(self.cfg.num_threads)
+
+        # Precision
+        if self.cfg.precision == "fp32":
+            self.torch_dtype = torch.float32
+        elif self.cfg.precision == "bf16":
+            self.torch_dtype = torch.bfloat16
+        elif self.cfg.precision == "fp64":
+            self.torch_dtype = torch.float64
+        else:
+            sys.exit("Only fp32, fp64 and bf16 data types are currently supported")
+
+    def load_data(
+        self,
+        file_name,
+        dtype: Optional[type] = np.float64,
+        extension: Optional[str] = "",
+    ):
+        data = self.client.get_array(file_name).astype(dtype)
+        return data
+
+    def load_graph_data(self):
+        """
+        Load in the local graph
+        """
+        if self.rank == 0:
+            print("[Trainer] Reading the graph ...", flush=True)
+
+        if self.cfg.client.backend == "adios":
+            path = (
+                "/tmp/datascience/balin/graph.bp"
+                if self.cfg.io_mode == "daos"
+                else "./graph.bp"
+            )
+            graph_data, read_time = self.client.get_graph_data_from_stream(path)
+            self.N = graph_data["N"]
+            pos = graph_data["pos"]
+        else:
+            path_to_pos_full = f"pos_node_rank_{self.rank}_size_{self.size}"
+
+            # Polynomial order
+            self.Np = np.array([0], dtype=np.float32)
+            if self.rank == 0:
+                path_to_Np = f"Np_rank_{self.rank}_size_{self.size}"
+                self.Np = self.load_data(path_to_Np, dtype=np.float32)
+            self.comm.Bcast(self.Np, root=0)
+
+            # Node positions
+            if self.cfg.verbose:
+                log.info(
+                    "[RANK %d]: Loading positions and global node index" % (self.rank)
+                )
+            pos = self.load_data(path_to_pos_full, extension=".bin")
+
+        return pos, read_time
+
+    def load_trajectory(self):
+        """Load a solution trajectory"""
+        self.comm.Barrier()  # sync helps here
+        if self.rank == 0:
+            print(f"[Trainer] Reading trajectory data ...", flush=True)
+        # read files
+        if self.cfg.client.backend == "smartredis":
+            # Get the file list
+            tic = time.time()
+            output_files = self.client.get_file_list(
+                f"outputs_rank_{self.rank}"
+            )  # outputs must come first
+            input_files = self.client.get_file_list(f"inputs_rank_{self.rank}")
+            self.online_timers["metaData"].append(time.time() - tic)
+
+            # Load files
+            if self.cfg.verbose:
+                log.info(
+                    f"[RANK {self.rank}]: Found {len(output_files)} trajectory files in DB"
+                )
+            for i in range(len(output_files)):
+                tic = time.time()
+                data_x_i = (
+                    self.client.get_array(input_files[i]).astype(NP_FLOAT_DTYPE).T
+                )
+                toc = time.time()
+
+                tic = time.time()
+                data_y_i = (
+                    self.client.get_array(output_files[i]).astype(NP_FLOAT_DTYPE).T
+                )
+                toc = time.time()
+        elif self.cfg.client.backend == "adios":
+            data_x_i, data_y_i, ttime = self.client.get_train_data_from_stream()
+        return data_x_i, data_y_i, ttime
+
+    def train_step(self) -> Tensor:
+        time.sleep(5)
+        data_x_i, data_y_i, ttime = self.load_trajectory()
+        return data_x_i, data_y_i, ttime

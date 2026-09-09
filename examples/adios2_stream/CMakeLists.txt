@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.12)
-project(WorkflowExample)
+project(ADIOS2Example)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -g -march=native -mtune=native -ftree-vectorize")
 
 if(NOT TARGET adios2_core)
   set(_components CXX)
@@ -15,7 +20,6 @@ if(NOT TARGET adios2_core)
   find_package(ADIOS2 REQUIRED COMPONENTS ${_components})
 endif()
 
-add_executable(sim sim.cpp)
-target_link_libraries(sim adios2::cxx11_mpi MPI::MPI_CXX)
-
-install(TARGETS sim RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+add_executable(sim_adios2 sim_adios2.cpp)
+target_link_libraries(sim_adios2 adios2::cxx11_mpi MPI::MPI_CXX)
+#install(TARGETS sim_adios2 RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

@@ -2,6 +2,7 @@
 PyTorch DDP training script for GNN-based surrogates from mesh data
 """
 
+import sys
 import os
 import logging
 from collections import deque
@@ -13,24 +14,16 @@ import math
 from omegaconf import DictConfig, OmegaConf
 
 try:
-    # import mpi4py
-    # mpi4py.rc.initialize = False
-    from mpi4py import MPI
+    import mpi4py.rc
 
-    WITH_DDP = True
+    mpi4py.rc.initialize = False
+    mpi4py.rc.threads = True
+    mpi4py.rc.thread_level = "multiple"
+    from mpi4py import MPI
 except ModuleNotFoundError as e:
-    WITH_DDP = False
-    pass
+    sys.exit("MPI is required! Please install MPI and try again.")
 
 import torch
-# try:
-#    import intel_extension_for_pytorch as ipex
-# except Exception as e:
-#    pass
-# try:
-#    import oneccl_bindings_for_pytorch as ccl
-# except Exception as e:
-#    pass
 
 # Local imports
 import utils
@@ -40,65 +33,45 @@ from client import OnlineClient
 log = logging.getLogger(__name__)
 
 # Get MPI:
-if WITH_DDP:
-    COMM = MPI.COMM_WORLD
-    SIZE = COMM.Get_size()
-    RANK = COMM.Get_rank()
-    LOCAL_RANK = int(os.getenv("PALS_LOCAL_RANKID", default=RANK))
-    LOCAL_SIZE = int(os.getenv("PALS_LOCAL_SIZE", default=SIZE))
-    HOST_NAME = MPI.Get_processor_name()
+thread_level = MPI.Init_thread(MPI.THREAD_MULTIPLE)
+COMM = MPI.COMM_WORLD
+SIZE = COMM.Get_size()
+RANK = COMM.Get_rank()
+LOCAL_RANK = int(os.getenv("PALS_LOCAL_RANKID", default=RANK))
+LOCAL_SIZE = int(os.getenv("PALS_LOCAL_SIZE", default=SIZE))
+HOST_NAME = MPI.Get_processor_name()
 
-    try:
-        WITH_CUDA = torch.cuda.is_available()
-    except:
-        WITH_CUDA = False
-        if RANK == 0:
-            log.warn("Found no CUDA devices")
-        pass
+try:
+    WITH_CUDA = torch.cuda.is_available()
+except:
+    WITH_CUDA = False
+    if RANK == 0:
+        log.warning("Found no CUDA devices")
+    pass
 
-    try:
-        WITH_XPU = torch.xpu.is_available()
-    except:
-        WITH_XPU = False
-        if RANK == 0:
-            log.warn("Found no XPU devices")
-        pass
+try:
+    WITH_XPU = torch.xpu.is_available()
+except:
+    WITH_XPU = False
+    if RANK == 0:
+        log.warning("Found no XPU devices")
+    pass
 
-    if WITH_CUDA:
-        DEVICE = torch.device("cuda")
-        N_DEVICES = torch.cuda.device_count()
-        DEVICE_ID = LOCAL_RANK if N_DEVICES > 1 else 0
-    elif WITH_XPU:
-        DEVICE = torch.device("xpu")
-        N_DEVICES = torch.xpu.device_count()
-        DEVICE_ID = LOCAL_RANK if N_DEVICES > 1 else 0
-    else:
-        DEVICE = torch.device("cpu")
-        DEVICE_ID = "cpu"
-
-    ## pytorch will look for these
-    # os.environ['RANK'] = str(RANK)
-    # os.environ['WORLD_SIZE'] = str(SIZE)
-    ## -----------------------------------------------------------
-    ## NOTE: Get the hostname of the master node, and broadcast
-    ## it to all other nodes It will want the master address too,
-    ## which we'll broadcast:
-    ## -----------------------------------------------------------
-    # MASTER_ADDR = socket.gethostname() if RANK == 0 else None
-    # MASTER_ADDR = MPI.COMM_WORLD.bcast(MASTER_ADDR, root=0)
-    # os.environ['MASTER_ADDR'] = MASTER_ADDR
-    # os.environ['MASTER_PORT'] = str(2345)
-
+if WITH_CUDA:
+    DEVICE = torch.device("cuda")
+    N_DEVICES = torch.cuda.device_count()
+    DEVICE_ID = LOCAL_RANK if N_DEVICES > 1 else 0
+elif WITH_XPU:
+    DEVICE = torch.device("xpu")
+    N_DEVICES = torch.xpu.device_count()
+    DEVICE_ID = LOCAL_RANK if N_DEVICES > 1 else 0
 else:
-    SIZE = 1
-    RANK = 0
-    LOCAL_RANK = 0
-    MASTER_ADDR = "localhost"
-    log.warning("MPI Initialization failed!")
+    DEVICE = torch.device("cpu")
+    DEVICE_ID = "cpu"
 
 
 def train(cfg: DictConfig, client: Optional[OnlineClient] = None) -> None:
-    trainer = Trainer(cfg, client=client)
+    trainer = Trainer(cfg, COMM, client=client)
     trainer.writeGraphStatistics()
     n_nodes_local = trainer.data_reduced.n_nodes_local.item()
 
@@ -210,9 +183,12 @@ def train(cfg: DictConfig, client: Optional[OnlineClient] = None) -> None:
         client.stop_nekRS()
     COMM.Barrier()
 
+    # Clean up
+    trainer.cleanup()
+
     # Print performance stats
     global_stats = utils.collect_stats(
-        n_nodes_local, local_time, local_throughput
+        COMM, n_nodes_local, local_time, local_throughput
     )
     if RANK == 0:
         log.info("Performance metrics:")
@@ -236,6 +212,7 @@ def train(cfg: DictConfig, client: Optional[OnlineClient] = None) -> None:
         )
     if cfg.online:
         glob_online_stats = utils.collect_online_stats(
+            COMM,
             trainer.online_timers["trainDataTime"],
             trainer.online_timers["trainDataThroughput"],
         )
@@ -309,7 +286,6 @@ def main(cfg: DictConfig) -> None:
             print("Initialized Online Client!\n", flush=True)
         train(cfg, client)
 
-    utils.cleanup()
     if RANK == 0:
         log.info("Exiting ...")
 

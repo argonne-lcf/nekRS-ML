@@ -161,75 +161,35 @@ class OnlineClient:
         self.timers["meta_data"].append(perf_counter() - tic)
         return list_length
 
-    def get_graph_data_from_stream(self) -> dict:
+    def get_graph_data_from_stream(self, path: str) -> dict:
         """Get the entire set of graph datasets from a stream"""
-        tic = perf_counter()
         graph_data = {}
         if self.backend == "adios":
             if self.rank == 0:
-                while not os.path.exists("./graph.bp"):
+                while not os.path.exists(path):
                     sleep(2)
             self.comm.Barrier()
 
-            # with Stream(self.client, 'graphStream', 'r', self.comm) as stream:
-            with Stream(self._create_bp_io(), "graph.bp", "r") as stream:
+            tic = perf_counter()
+            with Stream(self._create_bp_io(), path, "r") as stream:
                 stream.begin_step()
-
-                graph_data["Np"] = int(stream.read("Np"))
 
                 arr = stream.inquire_variable("N")
                 N = stream.read("N", [self.rank], [1])
+                graph_data["N"] = N[0]
                 self.N_list = self.comm.allgather(N)
-
-                arr = stream.inquire_variable("num_edges")
-                num_edges = stream.read("num_edges", [self.rank], [1])
-                self.num_edges_list = self.comm.allgather(num_edges)
-
-                arr = stream.inquire_variable("field_offset")
-                field_offset = stream.read("field_offset", [self.rank], [1])
-                self.field_offset_list = self.comm.allgather(field_offset)
+                # if self.rank == 0: log.info(f'N_list: {self.N_list}')
 
                 arr = stream.inquire_variable("pos_node")
-                count = N * 3
-                start = sum(self.N_list[: self.rank]) * 3
-                graph_data["pos"] = stream.read(
-                    "pos_node", [start], [count]
-                ).reshape((-1, 3), order="F")
-
-                arr = stream.inquire_variable("edge_index")
-                count = num_edges * 2
-                start = sum(self.num_edges_list[: self.rank]) * 2
-                graph_data["edge_index"] = (
-                    stream
-                    .read("edge_index", [start], [count])
-                    .reshape((-1, 2), order="F")
-                    .T
-                )
-
-                arr = stream.inquire_variable("global_ids")
                 count = N
                 start = sum(self.N_list[: self.rank])
-                graph_data["global_ids"] = stream.read(
-                    "global_ids", [start], [count]
-                )
-
-                arr = stream.inquire_variable("local_unique_mask")
-                count = N
-                start = sum(self.N_list[: self.rank])
-                graph_data["local_unique_mask"] = stream.read(
-                    "local_unique_mask", [start], [count]
-                )
-
-                arr = stream.inquire_variable("halo_unique_mask")
-                count = N
-                start = sum(self.N_list[: self.rank])
-                graph_data["halo_unique_mask"] = stream.read(
-                    "halo_unique_mask", [start], [count]
-                )
+                graph_data["pos"] = stream.read("pos_node", [start], [count])
 
                 stream.end_step()
-        self.timers["data"].append(perf_counter() - tic)
-        return graph_data
+            self.comm.Barrier()
+            toc = perf_counter()
+            read_time = toc - tic
+        return graph_data, read_time
 
     def get_train_data_from_stream(self) -> Tuple[np.ndarray, np.ndarray]:
         """Get the solution from a stream"""
@@ -238,33 +198,36 @@ class OnlineClient:
         if self.backend == "adios":
             if self.solutionStream is None:
                 if self.rank == 0:
-                    log.info("Opening ADIOS2 solutionStream ...")
+                    print(
+                        "[Trainer Client] Opening ADIOS2 solutionStream ...", flush=True
+                    )
                 self.solutionStream = Stream(
                     self.client, "solutionStream", "r", self.comm
                 )
+                self.comm.Barrier()
+                if self.rank == 0:
+                    print(f"[Trainer Client] Opened ADIOS2 solutionStream", flush=True)
 
             # Status options are: bindings.StepStatus.OtherError, bindings.StepStatus.NotReady, bindings.StepStatus.EndOfStream, bindings.StepStatus.OK
             # status = self.solutionStream.step_status()
 
             self.solutionStream.begin_step()
 
-            arr = self.solutionStream.inquire_variable("in_u")
-            count = self.field_offset_list[self.rank] * 3
-            start = sum(self.field_offset_list[: self.rank]) * 3
+            arr = self.solutionStream.inquire_variable("Uin")
+            count = self.N_list[self.rank]
+            start = sum(self.N_list[: self.rank])
             # stream.read() gets data now, Mode.Sync is default
             # see
             #   - https://github.com/ornladios/ADIOS2/blob/67f771b7a2f88ce59b6808cc4356159d86255f1d/python/adios2/stream.py#L331
             #   - https://github.com/ornladios/ADIOS2/blob/67f771b7a2f88ce59b6808cc4356159d86255f1d/python/adios2/engine.py#L123)
             ticc = perf_counter()
-            inputs = self.solutionStream.read("in_u", [start], [count])
+            inputs = self.solutionStream.read("Uin", [start], [count])
             transfer_time = perf_counter() - ticc
-            inputs = inputs.reshape((-1, 3), order="F")
 
-            arr = self.solutionStream.inquire_variable("out_u")
+            arr = self.solutionStream.inquire_variable("Uout")
             ticc = perf_counter()
-            outputs = self.solutionStream.read("out_u", [start], [count])
+            outputs = self.solutionStream.read("Uout", [start], [count])
             transfer_time += perf_counter() - ticc
-            outputs = outputs.reshape((-1, 3), order="F")
 
             self.solutionStream.end_step()
         self.timers["data"].append(perf_counter() - tic)

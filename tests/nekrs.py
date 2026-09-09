@@ -252,12 +252,25 @@ class NekRSMLTest(RunOnlyTest):
     def sim_order(self):
         return self.order("polynomialOrder")
 
+    # How the allocation is divided between the simulation and the ML trainer
+    # depends on the deployment:
+    #   offline    the two run as separate, sequential steps, so each one gets
+    #              the whole allocation.
+    #   colocated  the two run concurrently on the same nodes, so every node's
+    #              ranks are split between them.
+    #   clustered  the two run concurrently on disjoint nodes, so each one takes
+    #              all the ranks of the nodes it is given.
+
     @property
     def ml_rpn(self):
-        return int(self.rpn / 2) if self.deployment == "colocated" else self.rpn
+        if self.deployment == "colocated":
+            return int(self.rpn / 2)
+        return self.rpn
 
     @property
     def sim_rpn(self):
+        if self.deployment == "offline":
+            return self.rpn
         return self.rpn - self.ml_rpn
 
     @property
@@ -266,15 +279,15 @@ class NekRSMLTest(RunOnlyTest):
 
     @property
     def ml_nn(self):
-        return self.nn if self.deployment == "colocated" else int(self.nn / 2)
+        if self.deployment == "clustered":
+            return int(self.nn / 2)
+        return self.nn
 
     @property
     def sim_nn(self):
-        return (
-            self.nn
-            if self.deployment == "colocated"
-            else (self.nn - self.ml_nn)
-        )
+        if self.deployment in ("offline", "colocated"):
+            return self.nn
+        return self.nn - self.ml_nn
 
     @property
     def db_nn(self):
@@ -489,16 +502,19 @@ class NekRSMLOfflineTest(NekRSMLTest):
         return cmds
 
     def generate_sr_gnn_data_cmd(self):
-        return lst2cmd([
-            "python",
-            os.path.join(self.gnn_dir, "nek_to_pt.py"),
-            f"--case_path {self.stagedir}",
-            "--target_snap_list ${target_list}",
-            "--input_snap_list ${input_list}",
-            f"--target_poly_order {self.sim_order}",
-            f"--input_poly_order {self.gnn_order}",
-            f"--n_element_neighbors {self.ml_args['n_element_neighbors']}",
-        ])
+        return lst2cmd(
+            self.mpiexec
+            + [
+                "python",
+                os.path.join(self.gnn_dir, "nek_to_pt.py"),
+                f"--case_path {self.stagedir}",
+                "--target_snap_list ${target_list}",
+                "--input_snap_list ${input_list}",
+                f"--target_poly_order {self.sim_order}",
+                f"--input_poly_order {self.gnn_order}",
+                f"--n_element_neighbors {self.ml_args['n_element_neighbors']}",
+            ]
+        )
 
     def set_prerun_cmds(self):
         self.prerun_cmds += [
@@ -552,20 +568,23 @@ class NekRSMLOfflineTest(NekRSMLTest):
 
         self.postrun_cmds += [
             "export model=${PWD}/`ls saved_models/*.tar`",
-            lst2cmd([
-                "python",
-                os.path.join(self.gnn_dir, "postprocess.py"),
-                "--model_path ${model}",
-                f"--case_path {self.stagedir}",
-                f"--output_name {self.case}",
-                f"--target_snap_list",
-                f"{self.case}_p{self.sim_order * 10}.f00000",
-                f"--input_snap_list",
-                f"{self.case}_p{self.gnn_order * 10}.f00000",
-                f"--target_poly_order {self.sim_order}",
-                f"--input_poly_order {self.gnn_order}",
-                f"--n_element_neighbors {self.ml_args['n_element_neighbors']}",
-            ]),
+            lst2cmd(
+                self.mpiexec
+                + [
+                    "python",
+                    os.path.join(self.gnn_dir, "postprocess.py"),
+                    "--model_path ${model}",
+                    f"--case_path {self.stagedir}",
+                    f"--output_name {self.case}",
+                    f"--target_snap_list",
+                    f"{self.case}_p{self.sim_order * 10}.f00000",
+                    f"--input_snap_list",
+                    f"{self.case}_p{self.gnn_order * 10}.f00000",
+                    f"--target_poly_order {self.sim_order}",
+                    f"--input_poly_order {self.gnn_order}",
+                    f"--n_element_neighbors {self.ml_args['n_element_neighbors']}",
+                ]
+            ),
         ]
 
     @run_before("run")

@@ -1,10 +1,12 @@
 function(add_adios)
 
 if(NOT "${ADIOS2_INSTALL_DIR}" STREQUAL "")
+  message(STATUS "ADIOS2_INSTALL_DIR is set, looking for installation in ${ADIOS2_INSTALL_DIR}")
   find_package(adios2 PATHS ${ADIOS2_INSTALL_DIR} NO_DEFAULT_PATH)
 endif()
 
 if (NOT ADIOS2_FOUND) 
+  message(STATUS "Could not find ADIOS2, building from source")
   set(BUILD_SHARED_LIBS ON)
   set(ADIOS2_USE_MPI "TRUE")
   set(ADIOS2_HAVE_MPI_CLIENT_SERVER "TRUE")
@@ -24,6 +26,9 @@ if (NOT ADIOS2_FOUND)
   set(Python_INCLUDE_DIRS "${Python_INCLUDE_DIRS}")
   add_subdirectory(3rd_party/adios)
   set(ADIOS2_INSTALL_DIR ${CMAKE_INSTALL_PREFIX} PARENT_SCOPE)
+  set(ADIOS2_BUILT_FROM_SOURCE TRUE PARENT_SCOPE)
+else()
+  set(ADIOS2_BUILT_FROM_SOURCE FALSE PARENT_SCOPE)
 endif()
 
 endfunction()

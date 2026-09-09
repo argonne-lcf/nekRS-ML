@@ -12,12 +12,6 @@ import mpi4py
 mpi4py.rc.initialize = False
 from mpi4py import MPI
 
-if not MPI.Is_initialized():
-    MPI.Init()
-COMM = MPI.COMM_WORLD
-RANK = COMM.Get_rank()
-SIZE = COMM.Get_size()
-
 import torch
 from torch_geometric.data import Data
 import torch_geometric.utils as utils
@@ -30,7 +24,9 @@ def cantor_pair(k1: torch.Tensor, k2: torch.Tensor) -> torch.Tensor:
     return (0.5 * s * (s + 1) + k2.to(torch.float64)).to(torch.int64)
 
 
-def make_reduced_graph() -> Tuple[Data, Data, torch.Tensor]:
+def make_reduced_graph(
+    COMM: MPI.COMM_WORLD, RANK: int, SIZE: int
+) -> Tuple[Data, Data, torch.Tensor]:
     path_to_pos_full = main_path + "pos_node_rank_%d_size_%d" % (RANK, SIZE)
     path_to_ei = main_path + "edge_index_rank_%d_size_%d" % (RANK, SIZE)
     path_to_glob_ids = main_path + "global_ids_rank_%d_size_%d" % (RANK, SIZE)
@@ -154,7 +150,9 @@ def make_reduced_graph() -> Tuple[Data, Data, torch.Tensor]:
 
 
 # ~~~~ Get the new halo_ids
-def get_reduced_halo_ids(data_reduced) -> torch.Tensor:
+def get_reduced_halo_ids(
+    COMM: MPI.COMM_WORLD, RANK: int, SIZE: int, data_reduced: Data
+) -> torch.Tensor:
     idx_halo_unique = torch.tensor([], dtype=torch.int64)
     halo_ids = torch.tensor([], dtype=torch.int64)
     halo_ids_full = torch.tensor([], dtype=torch.int64)
@@ -204,7 +202,13 @@ def get_reduced_halo_ids(data_reduced) -> torch.Tensor:
 
 
 # Prepares the halo_info matrix for halo swap
-def get_halo_info(data_reduced, halo_ids_full) -> list:
+def get_halo_info(
+    COMM: MPI.COMM_WORLD,
+    RANK: int,
+    SIZE: int,
+    data_reduced: Data,
+    halo_ids_full: torch.Tensor,
+) -> list:
     if SIZE == 1:
         halo_info_glob = [torch.tensor([], dtype=torch.int64)]
     else:
@@ -311,7 +315,13 @@ def get_halo_info(data_reduced, halo_ids_full) -> list:
 
 
 # Prepares the halo_info matrix for halo swap
-def get_halo_info_fast(data_reduced, halo_ids_full):
+def get_halo_info_fast(
+    COMM: MPI.COMM_WORLD,
+    RANK: int,
+    SIZE: int,
+    data_reduced: Data,
+    halo_ids_full: torch.Tensor,
+) -> list:
     if SIZE == 1:
         return [torch.zeros((0, 4), dtype=torch.int64)]
     # — 1) sort by global_id and extract the three columns into separate vectors
@@ -380,7 +390,13 @@ def get_halo_info_fast(data_reduced, halo_ids_full):
 
 
 # ~~~~ Get node degree from halo_info
-def get_node_degree(data_reduced, halo_info_rank) -> torch.Tensor:
+def get_node_degree(
+    COMM: MPI.COMM_WORLD,
+    RANK: int,
+    SIZE: int,
+    data_reduced: Data,
+    halo_info_rank: torch.Tensor,
+) -> torch.Tensor:
     if SIZE == 1:
         return torch.ones(data_reduced.pos.shape[0])
     else:
@@ -396,7 +412,13 @@ def get_node_degree(data_reduced, halo_info_rank) -> torch.Tensor:
 
 
 # ~~~~ Get edge weights to account for duplicate edges
-def get_edge_weights(data_reduced, halo_info_glob) -> torch.Tensor:
+def get_edge_weights(
+    COMM: MPI.COMM_WORLD,
+    RANK: int,
+    SIZE: int,
+    data_reduced: Data,
+    halo_info_glob: list,
+) -> torch.Tensor:
     if SIZE == 1:
         return torch.ones(data_reduced.edge_index.shape[1])
     else:
@@ -504,6 +526,13 @@ def get_edge_weights(data_reduced, halo_info_glob) -> torch.Tensor:
 
 
 if __name__ == "__main__":
+    # Init MPI
+    if not MPI.Is_initialized():
+        MPI.Init()
+    COMM = MPI.COMM_WORLD
+    RANK = COMM.Get_rank()
+    SIZE = COMM.Get_size()
+
     parser = argparse.ArgumentParser(
         description="Process command line arguments."
     )
@@ -531,10 +560,10 @@ if __name__ == "__main__":
     main_path = args.PATH + "/"
 
     # Make graph and reduced graph
-    data, data_reduced, idx_keep = make_reduced_graph()
+    data, data_reduced, idx_keep = make_reduced_graph(COMM, RANK, SIZE)
 
     # Get halo_ids for reduced graph
-    halo_ids_full = get_reduced_halo_ids(data_reduced)
+    halo_ids_full = get_reduced_halo_ids(COMM, RANK, SIZE, data_reduced)
 
     # Compute the halo_info
     if RANK == 0:
@@ -542,7 +571,9 @@ if __name__ == "__main__":
     COMM.Barrier()
     t_start = MPI.Wtime()
     # halo_info_glob = get_halo_info(data_reduced, halo_ids_full)
-    halo_info_glob = get_halo_info_fast(data_reduced, halo_ids_full)
+    halo_info_glob = get_halo_info_fast(
+        COMM, RANK, SIZE, data_reduced, halo_ids_full
+    )
     t_end = MPI.Wtime()
     local_time = t_end - t_start
     max_time = np.array([0.0])
@@ -555,7 +586,9 @@ if __name__ == "__main__":
         print("Computing node_degree ...", flush=True)
     COMM.Barrier()
     t_start = MPI.Wtime()
-    node_degree = get_node_degree(data_reduced, halo_info_glob[RANK])
+    node_degree = get_node_degree(
+        COMM, RANK, SIZE, data_reduced, halo_info_glob[RANK]
+    )
     t_end = MPI.Wtime()
     local_time = t_end - t_start
     max_time = np.array([0.0])
@@ -568,7 +601,9 @@ if __name__ == "__main__":
         print("Computing edge_weights ...", flush=True)
     COMM.Barrier()
     t_start = MPI.Wtime()
-    edge_weights = get_edge_weights(data_reduced, halo_info_glob)
+    edge_weights = get_edge_weights(
+        COMM, RANK, SIZE, data_reduced, halo_info_glob
+    )
     t_end = MPI.Wtime()
     local_time = t_end - t_start
     max_time = np.array([0.0])

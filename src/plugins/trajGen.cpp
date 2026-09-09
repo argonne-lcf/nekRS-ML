@@ -32,9 +32,6 @@ trajGen_t::trajGen_t(gnn_t *graph_, int dt_factor_, int skip_, dfloat time_init_
     irank = "_rank_" + std::to_string(rank);
     nranks = "_size_" + std::to_string(size);
 
-    // allocate memory 
-    //dlong N = mesh->Nelements * mesh->Np; // total number of nodes
-
     if (verbose) printf("\n[RANK %d] -- Finished instantiating trajGen_t object\n", rank);
     if (verbose) printf("[RANK %d] -- The number of elements is %d \n", rank, mesh->Nelements);
 }
@@ -195,7 +192,7 @@ void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
     MPI_Comm &comm = platform->comm.mpiComm;
 #if defined(NEKRS_ENABLE_ADIOS)
     dlong num_dim = mesh->dim;
-    dlong field_offset = graph->fieldOffset;
+    hlong field_offset = graph->fieldOffset;
     bool store_inputs = false;
     bool send_data = false;
 
@@ -221,21 +218,6 @@ void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
         U = new dfloat[num_dim * field_offset]();
 
 #if defined(NEKRS_ENABLE_ADIOS)
-        // Get global size of data
-        hlong global = field_offset;
-        MPI_Allreduce(MPI_IN_PLACE, &global, 1, MPI_HLONG, MPI_SUM, comm);
-        client->_field_offset = field_offset;
-        client->_global_field_offset = global;
-
-        // Gather size of data
-        int* gathered = new int[size];
-        hlong offset = 0;
-        MPI_Allgather(&field_offset, 1, MPI_INT, gathered, 1, MPI_INT, MPI_COMM_WORLD);
-        for (int i=0; i<rank; i++) {
-            offset += gathered[i];
-        }
-        client->_offset_field_offset = offset;
-
         // Define ADIOS variables
         client->uIn = client->_stream_io.DefineVariable<dfloat>("in_u", 
                                                         {client->_global_field_offset * client->_num_dim}, // global dim
@@ -253,7 +235,7 @@ void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
 
     if (send_data) {
         if (field_name == "velocity") {
-            graph->interpolateField(nrs, nrs->o_U, U, graph->mesh->dim);
+            graph->interpolateField(nrs, nrs->o_U, U, num_dim);
         }
 
 #if defined(NEKRS_ENABLE_ADIOS)
@@ -278,7 +260,7 @@ void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
     }
 
     if (store_inputs) {
-        graph->interpolateField(nrs, nrs->o_U, previous_U, graph->mesh->dim);
+        graph->interpolateField(nrs, nrs->o_U, previous_U, num_dim);
     }
 #else
     if (rank == 0) printf("[RANK %d] -- Error: Adios is not enabled!\n", rank);
