@@ -13,9 +13,10 @@ import time
 import math
 from omegaconf import DictConfig, OmegaConf
 
+import torch
+
 try:
     import mpi4py.rc
-
     mpi4py.rc.initialize = False
     mpi4py.rc.threads = True
     mpi4py.rc.thread_level = "multiple"
@@ -25,8 +26,6 @@ try:
 except ModuleNotFoundError as e:
     WITH_DDP = False
     pass
-
-import torch
 
 # Local imports
 import utils

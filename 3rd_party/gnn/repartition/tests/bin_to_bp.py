@@ -37,6 +37,10 @@ from adios2 import Stream
 #   edge_index   int32   shape {2*sum(E)}     start {2*eoff_w}   count {2*E_w}
 #                        component-major: [nei(0..E_w-1), own(...)],
 #                        node ids are block-LOCAL
+#   field_offset int64   shape {W}            start {w}          count {1}
+#                        alignStride(N_w) as the writer computed it
+#                        (gnn.cpp:300); the reader prefers this to
+#                        recomputing align_stride(N_w) itself.
 #   No padding anywhere in graph.bp: N_w == Ne_w * Np exactly.
 #
 # solution stream (in_u/out_u), per writer rank w:
@@ -92,6 +96,7 @@ def write_graph_bp(out, np_pts, blocks):
     W = len(blocks)
     N = np.array([b["pos"].shape[0] for b in blocks], dtype=np.int32)
     E = np.array([b["ei"].shape[0] for b in blocks], dtype=np.int32)
+    FO = np.array([align_stride(int(n)) for n in N], dtype=np.int64)
     noff = np.concatenate([[0], np.cumsum(N.astype(np.int64))])
     eoff = np.concatenate([[0], np.cumsum(E.astype(np.int64))])
     ntot, etot = int(noff[-1]), int(eoff[-1])
@@ -108,6 +113,7 @@ def write_graph_bp(out, np_pts, blocks):
         for w, b in enumerate(blocks):
             s.write("N", N[w : w + 1], [W], [w], [1])
             s.write("num_edges", E[w : w + 1], [W], [w], [1])
+            s.write("field_offset", FO[w : w + 1], [W], [w], [1])
 
             n = int(N[w])
             s.write(
@@ -155,6 +161,17 @@ def write_solution_bp(out, name, blocks, fields):
     return fo
 
 
+def write_checkpoint_bp(out, blocks, per_block):
+    """checkpoint.bp: identical layout to in_u/out_u, one 'checkpoint' var.
+
+    adiosStreamer.cpp:154-176 defines it {global_fo*dim},{offset_fo*dim},
+    {fo*dim}, and the offsets there are the true per-writer scan of
+    fieldOffset built in gnn.cpp:256-274 -- so writer blocks may differ in
+    size and the layout still holds.
+    """
+    return write_solution_bp(out, "checkpoint", blocks, {"checkpoint": per_block})
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--src", required=True, help="gnn_outputs_* directory")
@@ -187,6 +204,11 @@ def main():
             {"in_u": per_block, "out_u": per_block},
         )
         print(f"solution.bp: in_u/out_u fieldOffset={fo} (N={list(N)})")
+
+        write_checkpoint_bp(
+            os.path.join(args.out, "checkpoint.bp"), blocks, per_block
+        )
+        print(f"checkpoint.bp: checkpoint fieldOffset={fo}")
 
 
 if __name__ == "__main__":

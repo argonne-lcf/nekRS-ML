@@ -100,11 +100,18 @@ class OnlineClient:
         return io
 
     def file_exists(self, file_name: str) -> bool:
-        """Check if a file (or key) exists"""
+        """Check if a file (or key) exists.
+
+        Only smartredis has a key namespace to interrogate; the ADIOS path
+        publishes graph and solution data as named variables inside known
+        files, never as free-standing per-rank keys, so the answer there is
+        always False (callers then compute the quantity themselves).
+        """
         tic = perf_counter()
         if self.backend == "smartredis":
             return self.client.key_exists(file_name)
         self.timers["meta_data"].append(perf_counter() - tic)
+        return False
 
     def get_array(self, file_name) -> np.ndarray:
         """Get an array frpm staging area / simulation"""
@@ -236,13 +243,13 @@ class OnlineClient:
 
         return open_bp_read(path, self.comm)
 
-    def _wait_for_graph(self, path: str = "graph.bp", timeout: float = 600.0):
-        """Block until nekRS has finished writing graph.bp.
+    def _wait_for_bp(self, path: str, need: set, timeout: float = 600.0):
+        """Block until nekRS has finished writing a BP file.
 
-        gnn.cpp writes the file in a single step and closes it, so waiting
-        for the directory to appear is not enough -- the metadata may not be
-        flushed yet. Opening it and requiring the variables we need is the
-        cheapest reliable completion test.
+        The writer produces the file in a single step and closes it, so
+        waiting for the directory to appear is not enough -- the metadata may
+        not be flushed yet. Opening it and requiring the variables we need is
+        the cheapest reliable completion test.
         """
         tic = perf_counter()
         while True:
@@ -252,7 +259,7 @@ class OnlineClient:
                         stream.begin_step()
                         have = set(stream.available_variables())
                         stream.end_step()
-                    if {"N", "num_edges", "pos_node"} <= have:
+                    if need <= have:
                         return
                 except Exception:
                     pass
@@ -261,6 +268,9 @@ class OnlineClient:
                     f"{path} did not become readable within {timeout:.0f}s"
                 )
             sleep(1)
+
+    def _wait_for_graph(self, path: str = "graph.bp", timeout: float = 600.0):
+        self._wait_for_bp(path, {"N", "num_edges", "pos_node"}, timeout)
 
     def get_graph_data_from_stream(self, method: str = "rcb") -> dict:
         """Get the entire set of graph datasets from a stream.
@@ -342,24 +352,65 @@ class OnlineClient:
             stream.end_step()
         return out
 
-    def _read_own_field_block(self, name: str, ncols: int) -> np.ndarray:
-        """Read writer block self.rank of a solution variable (W == M).
+    def _read_own_field_block(
+        self, name: str, ncols: int, stream=None
+    ) -> np.ndarray:
+        """Read writer block self.rank of a node field (W == M).
 
-        in_u/out_u are component-major with a per-writer stride of
-        fieldOffset = alignStride(N), not N, so the N rows of each component
-        must be read separately; a single contiguous N*ncols read silently
-        picks up padding and shears the components whenever N % 32 != 0.
+        in_u/out_u and checkpoint are component-major with a per-writer
+        stride of fieldOffset = alignStride(N), not N, so the N rows of each
+        component must be read separately; a single contiguous N*ncols read
+        silently picks up padding and shears the components whenever
+        N % 32 != 0.
         """
+        if stream is None:
+            stream = self.solutionStream
         r = self.rank
         n = self.N_list[r]
         fo = self.fieldOffset_list[r]
         base = sum(self.fieldOffset_list[:r]) * ncols
         out = np.empty((n, ncols), dtype=np.float64)
         for c in range(ncols):
-            out[:, c] = self.solutionStream.read(
-                name, [base + c * fo], [n]
-            ).reshape(-1)
+            out[:, c] = stream.read(name, [base + c * fo], [n]).reshape(-1)
         return out
+
+    def get_checkpoint_from_file(
+        self,
+        path: str = "checkpoint.bp",
+        var: str = "checkpoint",
+        ncols: int = 3,
+        timeout: float = 600.0,
+    ) -> np.ndarray:
+        """Read the nekRS solution checkpoint onto this communicator.
+
+        checkpoint.bp has exactly the layout of the in_u/out_u solution
+        stream -- W component-major writer blocks of stride fieldOffset,
+        globally offset by the true per-writer scan of fieldOffset
+        (adiosStreamer.cpp:154-176, gnn.cpp:256-274) -- and it is written
+        from the coarse GNN mesh via graph->interpolateField, so its rows
+        correspond one-to-one with the graph.bp nodes.
+
+        That makes the size-agnostic read possible: the same element routing
+        that placed the graph on this rank places the checkpoint rows on it,
+        so inference can run at a rank count the writer never knew about.
+        The naive shape[0]/size split get_array() uses is component-blind and
+        padding-blind and cannot be used here.
+        """
+        if self.N_list is None:
+            raise RuntimeError(
+                "get_graph_data_from_stream() must run before "
+                f"reading {path}: its blocks are the writer's, whose sizes "
+                "only graph.bp announces"
+            )
+        self._wait_for_bp(path, {var}, timeout)
+        with self._open_bp_read(path) as stream:
+            stream.begin_step()
+            if self.repart is not None:
+                arr = self.repart.read_field((stream, var), ncols)
+            else:
+                arr = self._read_own_field_block(var, ncols, stream=stream)
+            stream.end_step()
+        return arr
 
     def get_train_data_from_stream(self) -> Tuple[np.ndarray, np.ndarray]:
         """Get the solution from a stream"""

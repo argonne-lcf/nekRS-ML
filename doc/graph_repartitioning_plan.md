@@ -10,6 +10,17 @@ number of ranks as the nekRS simulation that produced the graph (`gnn_outputs_po
 half the available GPUs. More generally it prevents training on archived data at an
 arbitrary rank count.
 
+**Scope boundary (set 2026-09-09).** This work covers the forward direction only:
+
+    nekRS (N/2 nodes) --> online training (N/2 nodes) --> inference (N nodes)
+
+Everything nekRS produces -- `graph.bp`, the `in_u`/`out_u` SST stream,
+`checkpoint.bp` -- is repartitioned on read, so the ML side runs at any rank count.
+The return direction, inference --> nekRS, is **explicitly deferred**: the rolled-out
+solution in `checkpt_u.bp` is written but nothing reads it back, and closing that loop
+is not required for this change to be done. See "Deferred: the inference --> nekRS
+return path" below for what it would take.
+
 ## Verified facts the design rests on (from source reading)
 
 1. **Graph nodes are the GLL points of whole elements**, stored element-major in blocks
@@ -201,11 +212,11 @@ all offline loss-equality tests. Remaining:
      to 31 trailing pad doubles PER COMPONENT. Global block offsets use
      fieldOffset strides, NOT N. No step/time variable — the ADIOS step
      counter is the only cadence signal.
-   - `checkpoint.bp` (`adiosStreamer.cpp:155-176`): one variable
-     `checkpoint`, per-block `3 * _nrs->fieldOffset` component-major —
-     the FINE-mesh fieldOffset (nrs->fieldOffset), not the GNN coarse
-     graph->fieldOffset; global shape assumes uniform fieldOffset across
-     writers (pre-existing; see Latent issues).
+   - `checkpoint.bp` (`adiosStreamer.cpp:155-172`): one variable
+     `checkpoint`, per-block `3 * fieldOffset_w` component-major —
+     the COARSE GNN-mesh fieldOffset, globally offset by the true
+     per-writer scan. Layout-identical to `in_u`/`out_u`, so one reader
+     serves both. (This changed in `b4ce824b`; see Corrected above.)
 
    **AdiosSource (new, in repartition/):** mirror BinSource's surface —
    `Np`, `src_size` (= W = shape("N")[0]), `read_elements(comm)`,
@@ -240,8 +251,9 @@ all offline loss-equality tests. Remaining:
    `get_array`/checkpoint (client.py:104-115 + trainer.py:1591): the
    naive shape/size split ALSO reshapes C-order against a
    component-major writer (existing bug) — replace with block-aware
-   fine-mesh reads; note the fine-vs-coarse mesh mismatch when
-   gnnPolynomialOrder < nekrs order (shooting workflow uses gnn p=2).
+   reads. The fine-vs-coarse mismatch noted here does not arise: post
+   `b4ce824b` the checkpoint is interpolated to the coarse GNN mesh
+   before it is written (see Corrected), so it routes with the graph.
    ALSO: `client.put_array` is a no-op under adios and
    `inference.py:313` pushes the rollout result through it — the adios
    shooting loop currently DROPS the inference result; an adios return
@@ -322,13 +334,48 @@ all offline loss-equality tests. Remaining:
    Progress log; udf writes .f checkpoints only (writeCheckpoint), no
    gnn_outputs/traj needed.
 
+## Corrected: two `checkpoint.bp` issues this plan raised are now fixed upstream
+
+Both were real when this plan was written (`92f70b24`, 2026-08-26) and were fixed by
+`b4ce824b` (Merge ALCF-4 benchmark changes, PR #81), which landed after it. They are
+recorded here rather than deleted, because the plan's reader-side reasoning was built
+on the pre-`b4ce824b` layout and the conclusions change.
+
+1. **The checkpoint is on the COARSE GNN mesh, not the fine mesh.** The plan said
+   `checkpoint.bp` is written from the fine mesh with `nrs->fieldOffset` and no
+   interpolation, so an inference IC read would be silently truncated whenever
+   `gnnPolynomialOrder != polynomialOrder` (2 vs 7 in the shooting example). That was
+   true of the old no-argument `checkpoint()`, which did `o_U.copyTo(U, dim *
+   nrs->fieldOffset)` itself. It now takes the field as an argument, and
+   `turbChannel.udf:120-124` allocates `dim * graph->fieldOffset` and calls
+   `graph->interpolateField(nrs, nrs->o_U, U, dim)` first — which interpolates
+   fine->coarse when `gnnMeshPOrder < nekMeshPOrder` (`gnn.cpp:986-997`).
+
+   Consequence: the checkpoint rows correspond **one-to-one with the graph.bp nodes**.
+   That is what makes the size-agnostic read possible at all — the same element routing
+   that places the graph on a rank places the checkpoint rows on it, so inference can
+   run at a rank count nekRS never knew about. No truncation, no writer-side fix needed.
+
+2. **The global shape is a true per-writer scan, not a uniform-fieldOffset assumption.**
+   The plan said the global shape `_size * 3 * fieldOffset` assumes every writer has the
+   same `fieldOffset`, which only holds for uniform element counts, and that no per-rank
+   block-size record exists in the file. Both were true of the old declaration. It is now
+   `{_global_field_offset * dim}, {_offset_field_offset * dim}, {_field_offset * dim}`
+   (`adiosStreamer.cpp:162-166`), where `_global_field_offset` is an `MPI_Allreduce(SUM)`
+   and `_offset_field_offset` a genuine `MPI_Allgather` + prefix scan
+   (`gnn.cpp:249,266-274`). The layout is block-correct for heterogeneous element counts.
+
+   Related, and not mentioned anywhere in this plan: `graph.bp` now publishes a per-writer
+   `field_offset` variable, `{W},{rank},{1}` (`gnn.cpp:300`). `AdiosSource` reads it
+   instead of recomputing `align_stride(N_w)`, which keeps the reader correct across a
+   build with a different `dfloat` size or `ALIGN_SIZE_BYTES`; the recomputation remains
+   as a fallback for older files and for the pre-existing test fixtures.
+
+The standing caveat on both: verified by reading `b4ce824b` and the current sources, not
+by running against real nekRS BP output. That validation is still open.
+
 ## Latent issues found while reading (pre-existing, not caused by this work)
 
-- `checkpoint.bp` is written from the FINE mesh (`nrs->fieldOffset`, no interpolation,
-  `adiosStreamer.cpp:155-175`) while graph/training data live on the coarse GNN mesh
-  (`gnnPolynomialOrder=2` vs `polynomialOrder=7` in the shooting example) — inference IC
-  reads it truncated to the coarse node count (`trainer.py:1080-1082`). Looks wrong
-  unless orders match; verify with the workflow owner.
 - Stream offsets: writer uses `fieldOffset=alignStride(N)` (`trajGen.cpp:256`), reader
   slices by `N` (`client.py:233-246`) — only consistent when padding is zero.
 - `trainer.py:1518` reshapes checkpoint C-order; stream reads use `order="F"`.
@@ -340,16 +387,66 @@ all offline loss-equality tests. Remaining:
   fires), so online model checkpoints are named with the wrong polynomial
   order. Worked around read-side; the one-character writer fix ({1}->{0}) is
   still worth making, and the workaround survives it.
-- `checkpoint.bp` global shape is `_size * 3 * fieldOffset` (`adiosStreamer.cpp:165-168`)
-  — assumes a UNIFORM fieldOffset across writer ranks; only true for uniform element
-  counts. No per-rank block-size record exists in that file.
 - shooting `nrsrun_aurora:79` emits `ml_nodes: ${SIM_NODES}` (should be TRAIN_NODES);
   `INFERENCE_CPU_BIND_LIST` (line 17) is defined but never consumed.
 - `inference.py:49-50` crashes off-PALS (`PALS_LOCAL_RANKID` no default).
 - Offline a-priori `inference()` uses `data["test"]` / `stats["mean"]` keys that
   `setup_data` never creates.
 
-## Progress log (updated 2026-08-26)
+## Deferred: the inference --> nekRS return path
+
+Decision 2026-09-09 (user): **out of scope for now.** Focus is
+nekRS + online training --> inference. Reading the rollout result back into nekRS to
+actually shoot the solution forward comes later. Recorded here so the next person does
+not mistake it for an oversight, and so the part that IS already done is not redone.
+
+### What already works
+
+`client.put_array` under adios (`client.py:147-200`) writes one global BP array over the
+ML communicator -- the `_rank_R_size_S` suffix is stripped, blocks concatenate in ML-rank
+order, component-major, unpadded. Given `global_ids` it writes a companion
+`<var>_global_ids` with the same block decomposition.
+
+`inference.py:315-319` passes `x[:n_nodes_local]` and `graph.global_ids[:n_nodes_local]`.
+The slice is the point: `n_nodes_local` is the OWNED node count, halo rows excluded
+(`trainer.py:1177`, `data_reduced.pos.shape[0]`). So the union over ML ranks covers each
+mesh node exactly once -- no halo duplicates, no gaps.
+
+The consequence worth keeping: `checkpt_u.bp` is already a complete, self-describing,
+ML-rank-count-independent representation of the rolled-forward solution. **The data model
+is settled**; a future consumer is not blocked on a format change, only on being written.
+This predates the repartitioning work and was verified, not assumed.
+
+### What is missing (three gaps, increasing size)
+
+1. **No nekRS-side reader.** `adios_client_t` needs a `restart(dfloat*, int)` mirroring
+   `checkpoint()`. Not a straight inverse: `checkpoint.bp` is in WRITER-block layout
+   (strided by `fieldOffset`, offset by the per-writer scan) while `checkpt_u.bp` is in
+   ML-rank layout, unpadded. A nekRS rank cannot select its rows by offset arithmetic --
+   it must match on `global_ids`.
+
+2. **That match is a distributed scatter.** nekRS rank r knows its own nodes' global ids
+   (`gnn_t` computed them) and needs the rows carrying them, which sit in arbitrary blocks
+   from arbitrary ML ranks. It is a gather-by-key -- the same rendezvous pattern
+   `repartition/rebuild.py` already implements for the mask computation. The pieces exist
+   in Python; nothing equivalent exists in C++.
+
+3. **Coarse->fine prolongation does not exist.** `gnn_t::interpolateField`
+   (`gnn.cpp:986-997`) handles `gnnMeshPOrder == nekMeshPOrder` (copy) and
+   `gnnMeshPOrder < nekMeshPOrder` (fine->coarse). There is no `else` -- the coarse->fine
+   direction silently leaves the buffer as passed. The shooting workflow is gnn p=2 vs
+   nekRS p=7, so a restart needs a prolongation operator that is not written. Largest of
+   the three and the easiest to miss, because the function exists and compiles.
+
+### Related: the workflow does not currently loop
+
+`driver.py:runner()` does `fineTune()` then `rollout()` and stops. There is no second
+nekRS launch picking the solution back up, which the example README describes as the
+point ("picked back up by nekRS for more model fine-tuning"). So gap (1) is not merely an
+unwired function -- it is the step that would make the loop a loop. Whether the current
+one-shot form is intentional for the benchmark configuration is unconfirmed.
+
+## Progress log (updated 2026-09-09)
 
 - [x] Subsystem deep-read (6 parallel readers) and design (this doc).
 - [x] Core package `3rd_party/gnn/dist-gnn/repartition/` implemented:
@@ -413,6 +510,23 @@ all offline loss-equality tests. Remaining:
       rank count hits 2.7161e-04. Validated locally end-to-end (nekRS at 4
       ranks, training at 2 and 3). Run scripts default to
       SIM_RANKS_PER_NODE=2, ML_RANKS_PER_NODE=4 to showcase the decoupling.
+      **VERIFIED ON AURORA 2026-09-09** (user-run, nekRS at 2 ranks ->
+      repartition + train at 4): the first HPC validation of the
+      repartitioner. Two portability fixes were needed to get there, both
+      unrelated to the repartitioning math itself:
+      (a) torch must be imported before `from mpi4py import MPI`
+      initializes MPI, or the Aurora frameworks torch fails to load —
+      the import now sits at the top of `repartition/__init__.py` (the
+      module that actually runs first under `python -m repartition.cli`,
+      ahead of the mpi4py-importing `.api` chain) and ahead of the
+      mpi4py import in each standalone entry point (cli.py, tests/*.py);
+      (b) the merge with main (`acd4b5a5`) changed the four
+      `create_halo_info_par` halo functions to take `COMM, RANK, SIZE`
+      explicitly instead of reading module globals; `trainer.py` was
+      updated in that merge but `repartition/cli.py` and
+      `tests/test_consistency.py` were not. All 8 call sites fixed and
+      checked by AST arity/order comparison; a repo-wide scan of
+      3rd_party/gnn finds no remaining mismatches.
 - [x] ReFrame coverage (Phase 2 item 3): `TGVOfflineRepart` (variant a —
       nekRS at fixed nekrs_ranks=2 writes gnn_outputs, CLI repartitions
       graph + fld data with `--src-dir ... --fld`) and `TGVOfflineFld`
@@ -423,8 +537,9 @@ all offline loss-equality tests. Remaining:
       fine). Shared machinery in `NekRSMLOfflineRepartTest` (tests/nekrs.py):
       decoupled-rank nekRS launch (mpiexec_n), PYTHONPATH export for the
       installed repartition package, CLI step, trainer opts. Validated
-      locally via `reframe --system generic -l` (instantiation only; the
-      run stage needs PBS + Lmod). Also added nrsrun_crux to the
+      locally via `reframe --system generic -l` (INSTANTIATION ONLY —
+      these have still never been RUN on Aurora; see the open ReFrame
+      task at the end of this log). Also added nrsrun_crux to the
       tgv_gnn_offline_fld example (mirrors tgv_gnn_offline's Crux script).
 - [x] parRSB wrapper (Phase 2 item 4), branch worktree-parrsb-wrapper:
       `parrsb_shim.c` (one exported function wrapping `parrsb_part_mesh`
@@ -505,6 +620,23 @@ all offline loss-equality tests. Remaining:
       M=3 against the installed copy, and a clean-prefix install with a
       stale 293056 B copy planted in the source tree still ships the
       311632 B CMake artifact to both destinations.
+- [ ] **IMPORTANT — run the full ReFrame suite on Aurora.** No ReFrame
+      test has ever been executed on ALCF CI; all 22 checks are
+      instantiation-verified only (`reframe -C sites.py --system generic
+      -l`), and the 6 repartitioning variants (TGVOfflineRepart x4,
+      TGVOfflineFld x2) are the acceptance gate for this whole work item.
+      BLOCKED as of 2026-09-09, for an environment reason unrelated to the
+      code: the work is being done against the upcoming Aurora image/SDK,
+      which is available on compute nodes but NOT on login nodes. ReFrame
+      builds nekRS on the login node and runs on compute nodes, so the
+      build would link against the old environment and the run would fail.
+      Unblocks when the login- and compute-node environments are matched;
+      the user will run it then. Expect two first-run snags: the parrsb
+      shim build needs `MPICC=cc` if the Cray wrapper is not `mpicc`, and
+      these tests predate the `create_halo_info_par` signature drift fixed
+      2026-09-09 (CLI is fixed; a green run is what confirms it).
+      Commands: `./tests/run.sh -t tgv_offline_repart` and
+      `./tests/run.sh -t tgv_offline_fld` (add `-b` on the first run).
 - [ ] Remaining: see Phase 2 tasks (online ADIOS path — implementation,
       spec is done; parRSB items b/d: HPC validation, optional
       distributed quality metric).
@@ -515,6 +647,47 @@ Local reproduction notes: python env at ~/.venvs/nekrs-gnn-repart
 libnekrs → dlopen symbol errors); training locally needs
 `master_addr=localhost` and `halo_swap_mode=all_to_all` (gloo cannot do the
 unequal-size all_to_all_opt).
+
+### 2026-09-09 — Phase 2 items 1-2: checkpoint read + driver knobs (written, UNVALIDATED)
+
+Scope fixed with the user this session: forward direction only, nekRS + online training
+--> inference. The inference --> nekRS return path is deferred (see "Deferred" above).
+
+Written, **none of it executed** — no adios2 is importable on the Aurora login node
+(`frameworks` ships none; the nekRS-built copy needs GLIBC 2.32, the compute-node image).
+Static checks only: `ast.parse` on every touched Python file, `bash -n` on both run
+scripts, ruff 186 -> 186 on the touched files (large pre-existing baseline, no regression).
+
+- `client.get_checkpoint_from_file()` — reads `checkpoint.bp` through the same element
+  routing that placed the graph, so it is rank-count-agnostic. Possible only because of
+  correction (1) above: the checkpoint is on the coarse mesh, 1:1 with graph.bp nodes.
+  Supporting changes: `_wait_for_graph` generalized to `_wait_for_bp(path, need)`;
+  `_read_own_field_block` takes an optional `stream=`; `file_exists` returns an explicit
+  `False` under adios instead of falling off the end returning `None`.
+- `trainer.load_initial_condition` uses it; `load_graph_data` now honors
+  `cfg.repartition_method` instead of hardcoding rcb.
+- `AdiosSource` reads the writer-published `field_offset` (`gnn.cpp:300`) instead of
+  recomputing `align_stride(N_w)`, falling back for older files and the existing fixtures.
+- Driver knobs: `assignNodes()` slices inference nodes; `launchInference()` uses
+  `inferprocs` / `inferprocs_pn` / `infer_cpu_bind`, read straight off the config.
+  No backward-compatible fallback — decision 2026-09-09 (user): `config.yaml` is always
+  generated by `nrsrun_<system>`, both of which emit all four keys, so a `runArg()`
+  shim was dead weight. `infer_nodes` outside the job's node count is a hard exit. Also
+  `skip = 0` unconditionally — inference runs alone, so no device skip even under a
+  colocated deployment; the old code inherited the colocated skip and would have stranded
+  half the GPUs.
+- `nrsrun_aurora` + `nrsrun_polaris`: new `INFER_NODES` (0 => all job nodes) and
+  `INFER_RANKS_PER_NODE`; fixed `ml_nodes: ${SIM_NODES}` -> `${TRAIN_NODES}`; consumed the
+  previously-dead `INFERENCE_CPU_BIND_LIST`. Third bug found in passing: the colocated
+  branch set `SIM_NODES=$nodes` before `nrsqsub_utils` defines `nodes`, so both were the
+  empty string — changed to `$2`.
+- `tests/bin_to_bp.py` emits `field_offset` and a `checkpoint.bp` fixture. **No test
+  asserts against them yet** — that gate is still to be written.
+
+Open, in priority order: (a) online ADIOS end-to-end on Aurora at W != M, the whole point
+and never yet run; (b) a `checkpoint.bp` assertion in `test_online_client.py`; (c) the
+full ReFrame suite, blocked on the login/compute image mismatch; (d) parRSB validation at
+a few hundred ranks.
 
 ### 2026-08-26 — Phase 2 item 1: online ADIOS path (reader side complete)
 
@@ -570,12 +743,14 @@ Not yet done / explicitly out of scope of this change:
   and trajectory directories under `/tmp` are empty, so every check above runs
   on the synthetic fixture. This needs an HPC run and pairs naturally with
   parRSB item (b).
-- `get_array` (checkpoint.bp) is untouched: it is written from the FINE mesh
-  with `nrs->fieldOffset` and a **uniform-fieldOffset global shape**
-  (`adiosStreamer.cpp:165-169`, no Allgather), which is simply wrong whenever
-  per-rank element counts differ. Fixing it properly is a writer-side change.
+- `get_array` (checkpoint.bp) is untouched. The reason given here — a fine-mesh
+  write with a uniform-fieldOffset global shape, needing a writer-side fix — no
+  longer holds after `b4ce824b` (see Corrected above), so the read is now doable
+  purely reader-side. `get_array` itself is still component-blind and
+  padding-blind; the checkpoint no longer goes through it.
 - Driver knobs (`inferprocs`, `infer_cpu_bind`, ...) and the
-  `nrsrun_aurora:79` `ml_nodes: ${SIM_NODES}` bug.
+  `nrsrun_aurora:79` `ml_nodes: ${SIM_NODES}` bug. **Done 2026-09-09** (written,
+  not yet run — see the 2026-09-09 log entry).
 - New, unrelated, found while verifying: `smartRedis.cpp:149-150` copies
   `o_P` into `U` instead of `P`, clobbering the u-component with pressure and
   leaving `checkpt_p` all zeros. Affects the smartredis path only.

@@ -795,7 +795,9 @@ class Trainer:
                 return repart_arrays
 
         if self.cfg.client.backend == "adios":
-            graph_data = self.client.get_graph_data_from_stream()
+            graph_data = self.client.get_graph_data_from_stream(
+                method=self.cfg.repartition_method
+            )
             self.Np = graph_data["Np"]
             pos = graph_data["pos"]
 
@@ -1650,11 +1652,15 @@ class Trainer:
             path_x = data_dir + f"/{traj_sub}/" + file
             data_x = self._load_snapshot(path_x, 3)
         else:
-            if self.cfg.client.backend == "smartredis":
+            if self.cfg.client.backend == "adios":
+                # checkpoint.bp is laid out in the nekRS writers' blocks, so
+                # it is read through the same element routing that placed the
+                # graph on this rank -- which is what lets inference run at a
+                # rank count nekRS never saw.
+                data_x = self.client.get_checkpoint_from_file(ncols=3)
+            else:
                 file = f"checkpt_u_rank_{self.rank}_size_{self.size}"
-            elif self.cfg.client.backend == "adios":
-                file = "checkpoint.bp"
-            data_x = self.client.get_array(file).reshape((-1, 3))
+                data_x = self.client.get_array(file).reshape((-1, 3))
         data_x = self.prepare_snapshot_data(data_x)
         self.data_list.append({"x": data_x, "y": data_x})
         data = {"train": [self.data_list[0]], "validation": [{}]}

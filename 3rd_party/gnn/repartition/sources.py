@@ -239,6 +239,7 @@ class AdiosSource(ElementSource):
                 stream.read("num_edges", [0], [w]), dtype=np.int64
             ).reshape(-1)
             self.Np = self._resolve_np(stream, n_list, np_pts)
+            fo_list = self._read_field_offsets(stream, w)
             stream.end_step()
 
         self.n_per_src = n_list
@@ -254,10 +255,16 @@ class AdiosSource(ElementSource):
         self.edge_offsets = np.zeros(self.src_size + 1, dtype=np.int64)
         np.cumsum(self.num_edges_per_src, out=self.edge_offsets[1:])
 
-        # per-writer padded stride of the in_u/out_u solution stream
-        self.fo_per_src = np.array(
-            [align_stride(n, itemsize) for n in n_list], dtype=np.int64
-        )
+        # Per-writer padded stride of the in_u/out_u solution stream and of
+        # checkpoint.bp. The writer publishes it (gnn.cpp:300); recomputing
+        # it from N is only a fallback for fixtures that predate that
+        # variable, and would be wrong for a build whose dfloat is not the
+        # itemsize assumed here.
+        if fo_list is None:
+            fo_list = np.array(
+                [align_stride(n, itemsize) for n in n_list], dtype=np.int64
+            )
+        self.fo_per_src = fo_list
         self.fo_offsets = np.zeros(self.src_size + 1, dtype=np.int64)
         np.cumsum(self.fo_per_src, out=self.fo_offsets[1:])
 
@@ -294,6 +301,28 @@ class AdiosSource(ElementSource):
             f"cannot determine Np from graph.bp (candidates {cands}, "
             f"N={n_list.tolist()}); pass np_pts explicitly"
         )
+
+    @staticmethod
+    def _read_field_offsets(stream, w):
+        """Per-writer fieldOffset as published by the writer, or None.
+
+        gnn.cpp:300 declares ``field_offset`` as {W},{rank},{1}, one hlong
+        per writer, holding ``alignStride(Np * Nelements)``. Reading it beats
+        recomputing align_stride(N_w) because it stays correct for a build
+        with a different dfloat size or a changed ALIGN_SIZE_BYTES. Older
+        graph.bp files (and the pre-existing test fixtures) do not have it.
+        """
+        try:
+            if "field_offset" not in stream.available_variables():
+                return None
+            fo = np.asarray(
+                stream.read("field_offset", [0], [w]), dtype=np.int64
+            ).reshape(-1)
+        except Exception:
+            return None
+        if fo.size != w or np.any(fo <= 0):
+            return None
+        return fo
 
     def _read_block_components(
         self, stream, name, base, stride, row0, nrows, ncols, dtype
