@@ -17,6 +17,7 @@ import torch
 
 try:
     import mpi4py.rc
+
     mpi4py.rc.initialize = False
     mpi4py.rc.threads = True
     mpi4py.rc.thread_level = "multiple"
