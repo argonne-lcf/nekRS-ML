@@ -46,13 +46,16 @@ echo "export MPICH_MPIIO_STATS=0" >>$RFILE
 echo "export MPICH_GPU_SUPPORT_ENABLED=0" >> $RFILE
 echo "export MPICH_OFI_NIC_POLICY=NUMA" >> $RFILE
 
-echo -e "\n# Run nekRS (writes the tgv0.f00000 checkpoint, nothing else)" >>$RFILE
+echo -e "\n# Build nekRS cache" >>$RFILE
+echo "mpiexec -n 4 -ppn 4 --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND} --build-only 4" >> $RFILE
+
+echo -e "\n# Run nekRS" >>$RFILE
 echo "mpiexec -n ${SIM_RANKS} -ppn ${SIM_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND}" >> $RFILE
 
 echo -e "\n# Reconstruct the graph and training data from the .f file at the ML rank count" >>$RFILE
-echo "mpiexec -n ${ML_RANKS} -ppn ${ML_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python -m repartition.cli --fld-mesh tgv0.f00000 --out-dir ./gnn_from_fld --method rcb --periodic xyz" >> $RFILE
+echo "mpiexec -n ${ML_RANKS} -ppn ${ML_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python -m repartition.cli --fld-mesh tgv0.f00000 --out-dir ./gnn_outputs_poly_3 --method rcb --periodic xyz" >> $RFILE
 
 echo -e "\n# Train the GNN" >>$RFILE
 echo "head_node=\`head -1 \$PBS_NODEFILE | cut -d'.' -f1\`" >>$RFILE
-echo "mpiexec -n ${ML_RANKS} -ppn ${ML_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/dist-gnn/main.py master_addr=\$head_node halo_swap_mode=all_to_all_opt layer_norm=True gnn_outputs_path=${PWD}/gnn_from_fld target_loss=2.7161e-04 transform_x=true transform_y=true transform_z=true" >> $RFILE
+echo "mpiexec -n ${ML_RANKS} -ppn ${ML_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/dist-gnn/main.py master_addr=\$head_node halo_swap_mode=all_to_all_opt layer_norm=True gnn_outputs_path=${PWD}/gnn_outputs_poly_3 target_loss=2.7161e-04 transform_x=true transform_y=true transform_z=true" >> $RFILE
 chmod u+x $RFILE

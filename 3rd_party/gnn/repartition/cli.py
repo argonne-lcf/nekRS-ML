@@ -25,6 +25,13 @@ import re
 import sys
 
 import numpy as np
+
+# torch is imported here, sometimes torch before mpi import matters
+try:
+    import torch  # noqa: F401
+except ImportError:
+    pass
+
 from mpi4py import MPI
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -118,11 +125,17 @@ def write_halo_files(rp, out_dir):
     # is wrong)
     gcon.update_global_ids(data_full, data_reduced, idx_f2r)
 
-    halo_ids = chip.get_reduced_halo_ids(data_reduced)
-    halo_info_glob = chip.get_halo_info_fast(data_reduced, halo_ids)
+    halo_ids = chip.get_reduced_halo_ids(COMM, RANK, SIZE, data_reduced)
+    halo_info_glob = chip.get_halo_info_fast(
+        COMM, RANK, SIZE, data_reduced, halo_ids
+    )
     halo_info = halo_info_glob[RANK]
-    node_degree = chip.get_node_degree(data_reduced, halo_info)
-    edge_freq = chip.get_edge_weights(data_reduced, halo_info_glob)
+    node_degree = chip.get_node_degree(
+        COMM, RANK, SIZE, data_reduced, halo_info
+    )
+    edge_freq = chip.get_edge_weights(
+        COMM, RANK, SIZE, data_reduced, halo_info_glob
+    )
 
     sfx = f"_rank_{RANK}_size_{SIZE}.npy"
     np.save(

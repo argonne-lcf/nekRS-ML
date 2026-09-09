@@ -28,6 +28,13 @@ import os
 import sys
 
 import numpy as np
+
+# torch is imported here, sometimes torch before mpi import matters
+try:
+    import torch
+except ImportError:
+    pass
+
 from mpi4py import MPI
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -38,7 +45,6 @@ sys.path.insert(0, HERE)
 
 import create_halo_info_par as chip
 import graph_connectivity as gcon
-import torch
 import torch_geometric.utils as pyg_utils
 from gen_synthetic import (
     field_fn,
@@ -163,12 +169,18 @@ def main():
         "reduced<->full round trip",
     )
 
-    halo_ids = chip.get_reduced_halo_ids(data_reduced)
-    halo_info_glob = chip.get_halo_info_fast(data_reduced, halo_ids)
+    halo_ids = chip.get_reduced_halo_ids(COMM, RANK, SIZE, data_reduced)
+    halo_info_glob = chip.get_halo_info_fast(
+        COMM, RANK, SIZE, data_reduced, halo_ids
+    )
     halo_info = halo_info_glob[RANK].numpy().astype(np.int64)
-    node_degree = chip.get_node_degree(data_reduced, torch.tensor(halo_info))
+    node_degree = chip.get_node_degree(
+        COMM, RANK, SIZE, data_reduced, torch.tensor(halo_info)
+    )
     node_degree = np.asarray(node_degree, dtype=np.float64)
-    edge_freq = chip.get_edge_weights(data_reduced, halo_info_glob)
+    edge_freq = chip.get_edge_weights(
+        COMM, RANK, SIZE, data_reduced, halo_info_glob
+    )
     edge_freq = np.asarray(edge_freq, dtype=np.float64)
 
     # -- check 3: effective node count

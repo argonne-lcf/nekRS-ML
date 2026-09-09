@@ -20,6 +20,12 @@ Design notes (verified against src/plugins/gnn.cpp and gnn_connectivity.cpp):
 - Both uniqueness masks are pure functions of (global_ids, partition).
 """
 
+# torch is imported here, sometimes torch before mpi import matters
+try:
+    import torch  # noqa: F401
+except ImportError:
+    pass
+
 from .api import Repartitioner
 from .sources import AdiosSource, BinSource, open_bp_read
 

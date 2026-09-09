@@ -2,7 +2,7 @@
 set -e
 
 #--------------------------------------
-: ${QUEUE:="lustre_scaling"}
+: ${QUEUE:="debug"}
 : ${NEKRS_GPU_MPI:=0}
 : ${NEKRS_BACKEND:="dpcpp"}
 : ${RANKS_PER_NODE:=4}

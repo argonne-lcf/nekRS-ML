@@ -2,7 +2,7 @@
 set -e
 
 #--------------------------------------
-: ${QUEUE:="lustre_scaling"}
+: ${QUEUE:="debug"}
 : ${NEKRS_GPU_MPI:=0}
 : ${NEKRS_BACKEND:="dpcpp"}
 : ${SIM_RANKS_PER_NODE:=2}
@@ -50,13 +50,16 @@ echo "export UR_L0_USE_COPY_ENGINE=0" >> $RFILE
 
 echo -e "\nexport CCL_ALLTOALLV_MONOLITHIC_KERNEL=0" >> $RFILE
 
-echo -e "\n# Run nekRS (writes the tgv0.f00000 checkpoint, nothing else)" >>$RFILE
+echo -e "\n# Build nekRS cache" >>$RFILE
+echo "mpiexec -n 12 -ppn 12 --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND} --build-only 12" >> $RFILE
+
+echo -e "\n# Run nekRS" >>$RFILE
 echo "mpiexec -n ${SIM_RANKS} -ppn ${SIM_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND}" >> $RFILE
 
 echo -e "\n# Reconstruct the graph and training data from the .f file at the ML rank count" >>$RFILE
-echo "mpiexec -n ${ML_RANKS} -ppn ${ML_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python -m repartition.cli --fld-mesh tgv0.f00000 --out-dir ./gnn_from_fld --method rcb --periodic xyz" >> $RFILE
+echo "mpiexec -n ${ML_RANKS} -ppn ${ML_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python -m repartition.cli --fld-mesh tgv0.f00000 --out-dir ./gnn_outputs_poly_3 --method rcb --periodic xyz" >> $RFILE
 
 echo -e "\n# Train the GNN" >>$RFILE
 echo "head_node=\`head -1 \$PBS_NODEFILE | cut -d'.' -f1\`" >>$RFILE
-echo "mpiexec -n ${ML_RANKS} -ppn ${ML_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/dist-gnn/main.py master_addr=\$head_node halo_swap_mode=all_to_all_opt layer_norm=True gnn_outputs_path=${PWD}/gnn_from_fld target_loss=2.7161e-04 transform_x=true transform_y=true transform_z=true" >> $RFILE
+echo "mpiexec -n ${ML_RANKS} -ppn ${ML_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/dist-gnn/main.py master_addr=\$head_node halo_swap_mode=all_to_all_opt layer_norm=True gnn_outputs_path=${PWD}/gnn_outputs_poly_3 target_loss=2.7161e-04 transform_x=true transform_y=true transform_z=true" >> $RFILE
 chmod u+x $RFILE

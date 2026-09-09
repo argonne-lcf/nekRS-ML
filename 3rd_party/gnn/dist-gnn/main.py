@@ -13,6 +13,8 @@ import time
 import math
 from omegaconf import DictConfig, OmegaConf
 
+import torch
+
 try:
     import mpi4py.rc
 
@@ -22,8 +24,6 @@ try:
     from mpi4py import MPI
 except ModuleNotFoundError as e:
     sys.exit("MPI is required! Please install MPI and try again.")
-
-import torch
 
 # Local imports
 import utils

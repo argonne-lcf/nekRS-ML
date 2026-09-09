@@ -19,6 +19,13 @@ import os
 import sys
 
 import numpy as np
+
+# torch is imported here, sometimes torch before mpi import matters
+try:
+    import torch  # noqa: F401
+except ImportError:
+    pass
+
 from mpi4py import MPI
 
 HERE = os.path.dirname(os.path.abspath(__file__))
