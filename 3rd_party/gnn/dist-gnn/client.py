@@ -15,7 +15,7 @@ except ModuleNotFoundError:
 
 # Import ADIOS2
 try:
-    from adios2 import Stream, Adios
+    from adios2 import Stream, Adios, bindings
 except ModuleNotFoundError:
     pass
 
@@ -67,8 +67,9 @@ class OnlineClient:
         elif self.backend == "adios":
             self.engine = cfg.client.adios_engine
             self.transport = cfg.client.adios_transport
-            adios = Adios(self.comm)
-            self.client = adios.declare_io("streamIO")
+            self.adios = Adios(self.comm)
+            self._bp_io_counter = 0
+            self.client = self.adios.declare_io("streamIO")
             self.client.set_engine(self.engine)
             parameters = {
                 "DataTransport": self.transport,  # options: MPI, WAN, UCX, RDMA
@@ -84,6 +85,19 @@ class OnlineClient:
         self.num_edges_list = None
         self.fieldOffset_list = None
         self.timers["init"].append(perf_counter() - tic)
+
+    def _create_bp_io(self) -> "IO":
+        """Create a uniquely-named IO configured for BP5 file access.
+
+        The path-based Stream(path, mode, comm) constructor defaults to
+        engine type 'File', which is no longer registered in newer ADIOS2
+        builds.  This helper creates an IO with engine explicitly set to
+        'BP5' so it can be passed to the IO-based Stream constructor.
+        """
+        self._bp_io_counter += 1
+        io = self.adios.declare_io(f"bp_io_{self._bp_io_counter}")
+        io.set_engine("BP5")
+        return io
 
     def file_exists(self, file_name: str) -> bool:
         """Check if a file (or key) exists"""
@@ -110,7 +124,7 @@ class OnlineClient:
                 array = file_name.get_tensor("data")
         if self.backend == "adios":
             var_name = file_name.split(".")[0]
-            with Stream(file_name, "r", self.comm) as stream:
+            with Stream(self._create_bp_io(), file_name, "r") as stream:
                 stream.begin_step()
                 arr = stream.inquire_variable(var_name)
                 shape = arr.shape()
@@ -366,7 +380,11 @@ class OnlineClient:
                     "graph.bp announces"
                 )
 
+            # Status options are: bindings.StepStatus.OtherError, bindings.StepStatus.NotReady, bindings.StepStatus.EndOfStream, bindings.StepStatus.OK
+            # status = self.solutionStream.step_status()
+
             self.solutionStream.begin_step()
+            
             # stream.read() gets data now, Mode.Sync is default
             # see
             #   - https://github.com/ornladios/ADIOS2/blob/67f771b7a2f88ce59b6808cc4356159d86255f1d/python/adios2/stream.py#L331
@@ -397,12 +415,12 @@ class OnlineClient:
                 if self.rank == 0:
                     self.put_array("check-run", np.int32(np.array([MLrun])))
         elif self.backend == "adios":
+            # Communicate to nekRS to stop
+            with Stream(self._create_bp_io(), "check-run.bp", "w") as stream:
+                if self.rank == 0:
+                    stream.write("check-run", np.int32([MLrun]))
+
             # Close solution stream
             if self.solutionStream is not None:
                 self.solutionStream.close()
-
-            # Communicate to nekRS to stop
-            with Stream("check-run.bp", "w", self.comm) as stream:
-                if self.rank == 0:
-                    stream.write("check-run", np.int32([MLrun]))
         self.timers["meta_data"].append(perf_counter() - tic)

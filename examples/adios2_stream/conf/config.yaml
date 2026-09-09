@@ -1,0 +1,15 @@
+num_threads: 1
+precision: fp32
+master_addr: none
+master_port: 2345
+io_mode: "posix"
+workflow_steps: 2
+
+# Online configuration
+online: True
+client: 
+    backend: "adios"
+    db_nodes: 1
+    adios_engine: 'SST'
+    adios_transport: 'RDMA' # WAN, MPI, UCX, RDMA
+

@@ -9,7 +9,7 @@
 class adios_client_t
 {
 public:
-  adios_client_t(MPI_Comm& comm, nrs_t *nrs);
+  adios_client_t(MPI_Comm& comm);
   ~adios_client_t();
 
 #if defined(NEKRS_ENABLE_ADIOS)
@@ -20,17 +20,17 @@ public:
   adios2::Engine _solWriter;
 
   // solution variables and array sizes
-  unsigned long _num_dim;
-  unsigned long _N, _num_edges;
-  unsigned long _global_N, _global_num_edges;
-  unsigned long _offset_N, _offset_num_edges;
-  unsigned long _field_offset, _global_field_offset, _offset_field_offset;
+  unsigned long long _num_dim;
+  unsigned long long _N, _num_edges;
+  unsigned long long _global_N, _global_num_edges;
+  unsigned long long _offset_N, _offset_num_edges;
+  unsigned long long _field_offset, _global_field_offset, _offset_field_offset;
   // adios objects
   adios2::Variable<dfloat> uIn, uOut;
 
   // member functions
   int check_run();
-  void checkpoint();
+  void checkpoint(dfloat *field, int num_dim);
   void openStream();
   void closeStream();
 
@@ -44,7 +44,7 @@ private:
   adios2::Params _params;
 
   // nekrs objects 
-  nrs_t *_nrs;
+  //nrs_t *_nrs;
 #endif
 
   // MPI stuff

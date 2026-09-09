@@ -14,8 +14,11 @@ import math
 from omegaconf import DictConfig, OmegaConf
 
 try:
-    # import mpi4py
-    # mpi4py.rc.initialize = False
+    import mpi4py.rc
+
+    mpi4py.rc.initialize = False
+    mpi4py.rc.threads = True
+    mpi4py.rc.thread_level = "multiple"
     from mpi4py import MPI
 
     WITH_DDP = True
@@ -24,15 +27,6 @@ except ModuleNotFoundError as e:
     pass
 
 import torch
-
-try:
-    import intel_extension_for_pytorch as ipex
-except ModuleNotFoundError as e:
-    pass
-try:
-    import oneccl_bindings_for_pytorch as ccl
-except ModuleNotFoundError as e:
-    pass
 
 # Local imports
 import utils
@@ -43,6 +37,7 @@ log = logging.getLogger(__name__)
 
 # Get MPI:
 if WITH_DDP:
+    thread_level = MPI.Init_thread(MPI.THREAD_MULTIPLE)
     COMM = MPI.COMM_WORLD
     SIZE = COMM.Get_size()
     RANK = COMM.Get_rank()
@@ -160,7 +155,7 @@ def gather_wrapper(temp: NDArray[np.float32]) -> NDArray[np.float32]:
 
 def inference(cfg: DictConfig) -> None:
     """Perform 'a-priori' inference from a set of loaded input files"""
-    trainer = Trainer(cfg)
+    trainer = Trainer(cfg, COMM)
     trainer.writeGraphStatistics()
 
     if RANK == 0:
@@ -244,12 +239,15 @@ def inference(cfg: DictConfig) -> None:
                     pos_gathered,
                 )
 
+    # Torch distributed cleanup
+    trainer.cleanup()
+
 
 def inference_rollout(
     cfg: DictConfig, client: Optional[OnlineClient] = None
 ) -> None:
     """Perform 'a-posteriori' inference by rolling out in time an initial condition"""
-    trainer = Trainer(cfg, client=client)
+    trainer = Trainer(cfg, COMM, client=client)
     trainer.writeGraphStatistics()
 
     dataloader = trainer.data["train"]["loader"]
@@ -324,9 +322,12 @@ def inference_rollout(
             f"checkpt_u_rank_{RANK}_size_{SIZE}", x.to(torch.float32).numpy()
         )
 
+    # Torch distributed cleanup
+    trainer.cleanup()
+
     # Print performance stats
     global_stats = utils.collect_stats(
-        n_nodes_local, local_time, local_throughput
+        COMM, n_nodes_local, local_time, local_throughput
     )
     if RANK == 0:
         log.info("Performance metrics:")
@@ -386,7 +387,6 @@ def main(cfg: DictConfig) -> None:
             print("Initialized Online Client!\n", flush=True)
         inference_rollout(cfg, client)
 
-    utils.cleanup()
     if RANK == 0:
         log.info("Exiting ...")
 

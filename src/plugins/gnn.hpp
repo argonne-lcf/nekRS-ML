@@ -42,7 +42,7 @@ public:
 
     // attributes 
     mesh_t *mesh;
-    int fieldOffset;
+    dlong fieldOffset;
     std::string writePath;
 
     // member functions 

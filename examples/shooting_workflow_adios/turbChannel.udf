@@ -83,7 +83,7 @@ void UDF_Setup0(MPI_Comm comm, setupAide &options)
 void UDF_Setup()
 {
   // Initialize ADIOS client
-  client = new adios_client_t(platform->comm.mpiComm, nrs);
+  client = new adios_client_t(platform->comm.mpiComm);
 
   // GNN plugin
   graph = new gnn_t(nrs);
@@ -117,7 +117,11 @@ void UDF_ExecuteStep(double time, int tstep)
   }
 
   if (nrs->lastStep) {
-    client->checkpoint();
+    dlong num_dim = graph->mesh->dim;
+    dlong field_offset = graph->fieldOffset;
+    dfloat *U = new dfloat[num_dim * field_offset]();
+    graph->interpolateField(nrs, nrs->o_U, U, num_dim);
+    client->checkpoint(U, num_dim);
     delete tgen;
     delete graph;
   }

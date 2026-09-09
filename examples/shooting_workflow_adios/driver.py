@@ -98,6 +98,8 @@ class ShootingWorkflow:
         )
         if self.cfg.sim.affinity:
             cmd += f"{self.cfg.sim.affinity} {self.cfg.run_args.simprocs_pn} "
+        if self.cfg.debug and self.cfg.system == "aurora":
+            cmd += "gdb-oneapi -batch -ex run -ex bt --args "
         cmd += f"{self.cfg.sim.executable} {self.cfg.sim.arguments}"
         print("Launching nekRS ...")
         self.nekrs_proc["process"] = subprocess.Popen(
@@ -129,6 +131,8 @@ class ShootingWorkflow:
         )
         if self.cfg.train.affinity:
             cmd += f"{self.cfg.train.affinity} {self.cfg.run_args.simprocs_pn} {skip} "
+        if self.cfg.debug and self.cfg.system == "aurora":
+            cmd += "gdb-oneapi -batch -ex run -ex bt --args "
         cmd += f"python {self.cfg.train.executable} {self.cfg.train.arguments}"
         cmd += f" master_addr={self.train_nodes.split(',')[0]}"
         print("Launching GNN training ...")
@@ -247,7 +251,9 @@ class ShootingWorkflow:
 
     def compute_fom_nekrs(self) -> float:
         """Compute the nekRS FOM from reading input and log files"""
-        with open(f"{self.log_dir}/nekrs_0.out", "r") as fh:
+        with open(
+            f"{self.log_dir}/nekrs_0.out", "r", encoding="utf-8", errors="ignore"
+        ) as fh:
             for l in fh:
                 if "unique number of gridpoints" in l:
                     num_nodes = int(l.split(":")[-1].strip())

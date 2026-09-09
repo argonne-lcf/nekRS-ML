@@ -145,7 +145,7 @@ class TGVOfflineTrajGT(NekRSMLOfflineTest):
 
 
 @rfm.simple_test
-class TurbChannelOffline(NekRSMLOfflineTest):
+class TurbChannelSRGNN(NekRSMLOfflineTest):
     num_nodes = parameter([1])
     ranks_per_node = parameter([12])
 
@@ -161,7 +161,7 @@ class TurbChannelOffline(NekRSMLOfflineTest):
             n_messagePassing_layers=6,
             time_dependency="time_independent",
         )
-        self.tags |= {"turbchannel_offline"}
+        self.tags |= {"turbchannel_srgnn"}
 
 
 @rfm.simple_test

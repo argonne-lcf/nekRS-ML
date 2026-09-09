@@ -104,7 +104,7 @@ function parse_args() {
     esac
   done
 
-  # If nodes was not set, check if available from interactive session PBVS env
+  # If nodes was not set, check if available from interactive session PBS env
   if [ -z "${NODES}" ]; then
     if [ ! -z "${PBS_NODEFILE}" ]; then
       NODES=$(cat ${PBS_NODEFILE} | wc -l)
@@ -350,11 +350,12 @@ function setup_venv() {
 
   if [ "${MODEL}" == "sr-gnn" ] && [ "${SYSTEM}" == "aurora" ]; then
     cwd=${PWD}
-    git clone https://github.com/rusty1s/pytorch_cluster.git ${VENV_PATH}/pytorch_cluster
-    cd ${VENV_PATH}/pytorch_cluster
-    # Need to force the install to not link with OpenMP, change lines 53-54 to if False:
-    sed -i 's/fopenmp/lgomp/' setup.py
-    CXX=$(which dpcpp) python setup.py install
+    git clone https://github.com/pyg-team/pyg-lib ${VENV_PATH}/pyg-lib
+    cd ${VENV_PATH}/pyg-lib
+    git submodule update --init --recursive
+    export CFLAGS="-fPIC"
+    export CXXFLAGS="-fPIC"
+    pip install --no-build-isolation .
     cd ${cwd}
   fi
   
