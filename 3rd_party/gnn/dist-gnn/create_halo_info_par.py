@@ -7,8 +7,11 @@ import numpy as np
 from typing import Tuple
 import time
 
-import mpi4py
+import torch
+from torch_geometric.data import Data
+import torch_geometric.utils as utils
 
+import mpi4py
 mpi4py.rc.initialize = False
 from mpi4py import MPI
 
@@ -17,10 +20,6 @@ if not MPI.Is_initialized():
 COMM = MPI.COMM_WORLD
 RANK = COMM.Get_rank()
 SIZE = COMM.Get_size()
-
-import torch
-from torch_geometric.data import Data
-import torch_geometric.utils as utils
 
 
 # helper Cantor-pairing on two 1D int64 tensors

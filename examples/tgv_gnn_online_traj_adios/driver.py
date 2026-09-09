@@ -10,10 +10,9 @@ from typing import Optional, Tuple
 from statistics import harmonic_mean
 
 
-class ShootingWorkflow:
-    """Class for the solution shooting workflow alternating between
-    fine-tuning a surrogate from an ongoing simulation and deploying
-    the surrogate to shoot the solution forward
+class OnlineTrainWorkflow:
+    """Class for the online training workflow to perform 
+    fine-tuning a surrogate from an ongoing simulation
     """
 
     def __init__(self, cfg: DictConfig) -> None:
@@ -22,17 +21,10 @@ class ShootingWorkflow:
         self.num_nodes = 1
         self.sim_nodes = ""
         self.train_nodes = ""
-        self.inference_nodes = ""
         self.fine_tune_iter = -1
-        self.inference_iter = -1
         self.nekrs_proc = {"name": "nekRS", "process": None, "status": "not running"}
         self.train_proc = {
             "name": "GNN training",
-            "process": None,
-            "status": "not running",
-        }
-        self.infer_proc = {
-            "name": "GNN inference",
             "process": None,
             "status": "not running",
         }
@@ -69,19 +61,15 @@ class ShootingWorkflow:
                     + self.cfg.run_args.ml_nodes
                 ]
             )
-            self.inference_nodes = str(self.train_nodes)
             print(f"nekRS running on {self.cfg.run_args.sim_nodes} nodes:")
             print(self.sim_nodes)
             print(f"Training running on {self.cfg.run_args.ml_nodes} nodes:")
             print(self.train_nodes)
-            print(f"Inference running on {self.cfg.run_args.ml_nodes} nodes:")
-            print(self.inference_nodes, "\n", flush=True)
         else:
             self.sim_nodes = ",".join(self.nodelist)
             self.train_nodes = str(self.sim_nodes)
-            self.inference_nodes = str(self.sim_nodes)
             print(
-                f"nekRS, training and inference running on {self.cfg.run_args.sim_nodes} nodes:"
+                f"nekRS, training running on {self.cfg.run_args.sim_nodes} nodes:"
             )
             print(self.sim_nodes, "\n", flush=True)
 
@@ -145,41 +133,6 @@ class ShootingWorkflow:
         self.train_proc["status"] = "running"
         print("Done\n", flush=True)
 
-    def launchInference(self) -> None:
-        """Launch the GNN model for inference"""
-        skip = (
-            0 if self.cfg.deployment == "clustered" else self.cfg.run_args.simprocs_pn
-        )
-        cmd = (
-            f"mpiexec "
-            + f"-n {self.cfg.run_args.mlprocs} "
-            + f"--ppn {self.cfg.run_args.mlprocs_pn} "
-            + f"--cpu-bind {self.cfg.run_args.ml_cpu_bind} "
-            + f"--hosts {self.train_nodes} "
-        )
-        if self.cfg.train.affinity:
-            cmd += f"{self.cfg.train.affinity} {self.cfg.run_args.simprocs_pn} {skip} "
-        cmd += (
-            f"python {self.cfg.inference.executable} "
-            + f"{self.cfg.inference.arguments} model_dir={self.run_dir}/saved_models/"
-            + f" master_addr={socket.gethostname()}"
-        )
-        print("\nLaunching GNN inference ...")
-        self.infer_proc["process"] = subprocess.Popen(
-            cmd,
-            executable="/bin/bash",
-            shell=True,
-            stdout=open(
-                os.path.join(self.log_dir, f"infer_{self.inference_iter}.out"), "wb"
-            ),
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL,
-            cwd=self.run_dir,
-            env=os.environ.copy(),
-        )
-        self.infer_proc["status"] = "running"
-        print("Done\n", flush=True)
-
     def kill_processes(self, processes: list) -> None:
         """Kill processes"""
         for proc in processes:
@@ -230,28 +183,15 @@ class ShootingWorkflow:
         self.launchTrainer()
         self.poll_processes([self.nekrs_proc, self.train_proc])
 
-    def rollout(self) -> None:
-        """Roll-out the surrogate model and advance the solution"""
-        self.inference_iter += 1
-        self.launchInference()
-        self.poll_processes([self.infer_proc])
-
-    def runner(self) -> None:
-        """Runner function for the workflow responsible for alternating
-        between fine-tuning and inference and deploying the components
-        """
-        # Fine-tune model
-        self.fineTune()
-
 
 ## Main function
 @hydra.main(version_base=None, config_path="./", config_name="config")
 def main(cfg: DictConfig):
     # Initialize workflow class
-    workflow = ShootingWorkflow(cfg)
+    workflow = OnlineTrainWorkflow(cfg)
 
     # Run the workflow
-    workflow.runner()
+    workflow.fineTune()
 
     # Quit
     print("Quitting")
