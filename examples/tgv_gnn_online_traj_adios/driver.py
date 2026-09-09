@@ -11,7 +11,7 @@ from statistics import harmonic_mean
 
 
 class OnlineTrainWorkflow:
-    """Class for the online training workflow to perform 
+    """Class for the online training workflow to perform
     fine-tuning a surrogate from an ongoing simulation
     """
 
@@ -68,9 +68,7 @@ class OnlineTrainWorkflow:
         else:
             self.sim_nodes = ",".join(self.nodelist)
             self.train_nodes = str(self.sim_nodes)
-            print(
-                f"nekRS, training running on {self.cfg.run_args.sim_nodes} nodes:"
-            )
+            print(f"nekRS, training running on {self.cfg.run_args.sim_nodes} nodes:")
             print(self.sim_nodes, "\n", flush=True)
 
     def launchNekRS(self) -> None:

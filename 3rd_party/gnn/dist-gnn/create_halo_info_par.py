@@ -12,6 +12,7 @@ from torch_geometric.data import Data
 import torch_geometric.utils as utils
 
 import mpi4py
+
 mpi4py.rc.initialize = False
 from mpi4py import MPI
 

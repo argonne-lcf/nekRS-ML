@@ -384,7 +384,7 @@ class OnlineClient:
             # status = self.solutionStream.step_status()
 
             self.solutionStream.begin_step()
-            
+
             # stream.read() gets data now, Mode.Sync is default
             # see
             #   - https://github.com/ornladios/ADIOS2/blob/67f771b7a2f88ce59b6808cc4356159d86255f1d/python/adios2/stream.py#L331
