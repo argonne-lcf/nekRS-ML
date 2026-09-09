@@ -349,7 +349,7 @@ function setup_venv() {
 
   if [ "${MODEL}" == "sr-gnn" ] && [ "${SYSTEM}" == "aurora" ]; then
     cwd=${PWD}
-    git clone https://github.com/pyg-team/pyg-lib
+    git clone https://github.com/pyg-team/pyg-lib ${VENV_PATH}/pyg-lib
     cd ${VENV_PATH}/pyg-lib
     git submodule update --init --recursive
     export CFLAGS="-fPIC"
