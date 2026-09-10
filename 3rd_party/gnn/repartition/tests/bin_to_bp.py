@@ -169,7 +169,9 @@ def write_checkpoint_bp(out, blocks, per_block):
     fieldOffset built in gnn.cpp:256-274 -- so writer blocks may differ in
     size and the layout still holds.
     """
-    return write_solution_bp(out, "checkpoint", blocks, {"checkpoint": per_block})
+    return write_solution_bp(
+        out, "checkpoint", blocks, {"checkpoint": per_block}
+    )
 
 
 def main():

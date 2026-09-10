@@ -92,9 +92,7 @@ class ShootingWorkflow:
         else:
             self.sim_nodes = ",".join(self.nodelist)
             self.train_nodes = str(self.sim_nodes)
-            print(
-                f"nekRS and training running on {self.cfg.run_args.sim_nodes} nodes:"
-            )
+            print(f"nekRS and training running on {self.cfg.run_args.sim_nodes} nodes:")
             print(self.sim_nodes, "\n", flush=True)
 
         # Inference takes the first infer_nodes nodes of the job
