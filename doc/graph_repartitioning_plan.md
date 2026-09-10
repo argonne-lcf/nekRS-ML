@@ -161,7 +161,9 @@ Everything below must reproduce those same losses.
      generated from the header's nx) and the training data (velocity/pressure records)
      from .f files, trains at arbitrary M, and hits the same target_loss.
    - Then `tgv_gnn_offline_traj` the same way (sequence of .f files as the trajectory).
-5. **Aurora**: shooting workflow with inference on 24 ranks (user-run).
+5. **Aurora**: shooting workflow with inference on 24 ranks (user-run). **DONE
+   2026-09-09** — 2 nodes, online training against a 12-rank nekRS, inference on all 24
+   ranks, graph and checkpoint repartitioned W=12 -> M=24.
 
 ## Task breakdown & model assignment
 
@@ -648,15 +650,37 @@ libnekrs → dlopen symbol errors); training locally needs
 `master_addr=localhost` and `halo_swap_mode=all_to_all` (gloo cannot do the
 unequal-size all_to_all_opt).
 
-### 2026-09-09 — Phase 2 items 1-2: checkpoint read + driver knobs (written, UNVALIDATED)
+### 2026-09-09 — VALIDATED on Aurora: the motivating W != M shooting run
+
+**The main open item of this whole plan is closed.** `shooting_workflow_adios` ran
+end-to-end on 2 Aurora nodes: online training against a 12-rank nekRS, then inference on
+all 24 ranks of the same 2 nodes, with `graph.bp` and `checkpoint.bp` repartitioned from
+W=12 onto M=24 on read.
+
+This is the first time any of the online ADIOS path has met a real `graph.bp` and a real
+SST stream -- everything before this was the synthetic fixture. It exercises, at once:
+
+- `AdiosSource` against a real writer, including the `Np` start-{1} workaround and the
+  writer-published `field_offset`;
+- `get_graph_data_from_stream` repartitioning at W != M;
+- `get_checkpoint_from_file` -- the coarse-mesh, block-offset checkpoint read;
+- the driver knobs (`infer_nodes` / `inferprocs` / `inferprocs_pn` / `infer_cpu_bind`)
+  and the `INFER_NODES` derivation in `nrsrun_aurora`;
+- the three run-script bug fixes, since the generated `config.yaml` was consumed for real.
+
+Scale caveat, recorded so it is not mistaken for full coverage: 2 nodes, W=12 -> M=24, a
+clustered deployment, one system. Untested at the scales the design is aimed at, and the
+colocated branch and Polaris are still unexercised.
+
+### 2026-09-09 — Phase 2 items 1-2: checkpoint read + driver knobs (written)
 
 Scope fixed with the user this session: forward direction only, nekRS + online training
 --> inference. The inference --> nekRS return path is deferred (see "Deferred" above).
 
-Written, **none of it executed** — no adios2 is importable on the Aurora login node
-(`frameworks` ships none; the nekRS-built copy needs GLIBC 2.32, the compute-node image).
-Static checks only: `ast.parse` on every touched Python file, `bash -n` on both run
-scripts, ruff 186 -> 186 on the touched files (large pre-existing baseline, no regression).
+Written on a login node where nothing could be executed (no importable adios2:
+`frameworks` ships none, the nekRS-built copy needs GLIBC 2.32 from the compute image), so
+this entry was originally recorded as unvalidated with static checks only — `ast.parse`,
+`bash -n`, ruff 186 -> 186. **Validated on Aurora the same day**; see the entry above.
 
 - `client.get_checkpoint_from_file()` — reads `checkpoint.bp` through the same element
   routing that placed the graph, so it is rank-count-agnostic. Possible only because of
@@ -684,10 +708,10 @@ scripts, ruff 186 -> 186 on the touched files (large pre-existing baseline, no r
 - `tests/bin_to_bp.py` emits `field_offset` and a `checkpoint.bp` fixture. **No test
   asserts against them yet** — that gate is still to be written.
 
-Open, in priority order: (a) online ADIOS end-to-end on Aurora at W != M, the whole point
-and never yet run; (b) a `checkpoint.bp` assertion in `test_online_client.py`; (c) the
-full ReFrame suite, blocked on the login/compute image mismatch; (d) parRSB validation at
-a few hundred ranks.
+Open, in priority order: (a) a `checkpoint.bp` assertion in `test_online_client.py`;
+(b) the full ReFrame suite, blocked on the login/compute image mismatch; (c) parRSB
+validation at a few hundred ranks. Item (a) of the original list -- online ADIOS
+end-to-end on Aurora -- was closed the same day, see below.
 
 ### 2026-08-26 — Phase 2 item 1: online ADIOS path (reader side complete)
 
@@ -742,7 +766,9 @@ Not yet done / explicitly out of scope of this change:
 - **No validation against real nekRS BP output** — the local `gnn_outputs_*`
   and trajectory directories under `/tmp` are empty, so every check above runs
   on the synthetic fixture. This needs an HPC run and pairs naturally with
-  parRSB item (b).
+  parRSB item (b). **Closed 2026-09-09**: the shooting workflow ran on 2 Aurora
+  nodes at W=12 -> M=24 (see the log entry). The synthetic-fixture caveat still
+  applies to the automated gate, which has not itself been run against real BP.
 - `get_array` (checkpoint.bp) is untouched. The reason given here — a fine-mesh
   write with a uniform-fieldOffset global shape, needing a writer-side fix — no
   longer holds after `b4ce824b` (see Corrected above), so the read is now doable
