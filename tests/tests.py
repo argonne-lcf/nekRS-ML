@@ -4,6 +4,7 @@ from nekrs import (
     NekRSMLOfflineFldTest,
     NekRSMLOfflineRepartTest,
     NekRSMLOfflineTest,
+    NekRSMLOfflineTrajBpTest,
     NekRSMLOnlineTest,
     EnsembleTest,
 )
@@ -123,6 +124,26 @@ class TGVOfflineTraj(NekRSMLOfflineTest):
             extra_opts=TGV_TRANSFORM_OPTS,
         )
         self.tags |= {"tgv_offline_traj"}
+
+
+@rfm.simple_test
+class TGVOfflineTrajBp(NekRSMLOfflineTrajBpTest):
+    num_nodes = parameter([1])
+    ranks_per_node = parameter([2, 4])
+
+    def __init__(self):
+        super().__init__(
+            case="tgv",
+            directory="tgv_gnn_offline_traj_adios",
+            nn=self.num_nodes,
+            rpn=self.ranks_per_node,
+            nekrs_ranks=2,
+            repartition_method="parrsb",
+            time_dependency="time_dependent",
+            target_loss=6.6139e-01,
+            extra_opts=TGV_TRANSFORM_OPTS,
+        )
+        self.tags |= {"tgv_offline_traj_bp"}
 
 
 @rfm.simple_test

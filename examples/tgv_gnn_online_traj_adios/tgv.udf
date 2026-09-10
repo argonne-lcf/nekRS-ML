@@ -168,5 +168,6 @@ void UDF_ExecuteStep(double time, int tstep)
   if (nrs->lastStep || numSteps == 0) {
     delete tgen;
     delete graph;
+    delete client;
   }
 }

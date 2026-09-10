@@ -778,6 +778,48 @@ class NekRSMLOfflineFldTest(NekRSMLOfflineRepartTest):
         ]
 
 
+class NekRSMLOfflineTrajBpTest(NekRSMLOfflineRepartTest):
+    """Offline dist-gnn trajectory training through ADIOS2 BP5 files only.
+
+    nekRS runs at its own, fixed rank count (nekrs_ranks) and writes the
+    graph to graph.bp and the trajectory to a multi-step trainingData.bp
+    (one ADIOS step per snapshot) instead of the one-file-per-rank
+    binaries used by NekRSMLOfflineTest. The repartition package reads
+    both through AdiosSource and materializes them at the test's rank
+    count. Running the test at rpn == nekrs_ranks and rpn != nekrs_ranks
+    against the same target_loss checks that the loss is independent of
+    the partitioning.
+    """
+
+    @property
+    def repart_graph_dir(self):
+        return os.path.join(self.stagedir, "gnn_from_bp")
+
+    @property
+    def repart_traj_dir(self):
+        return os.path.join(self.stagedir, "traj_from_bp")
+
+    def repartition_cli_opts(self):
+        return [
+            "--graph-bp",
+            os.path.join(self.stagedir, "graph.bp"),
+            "--train-bp",
+            os.path.join(self.stagedir, "trainingData.bp"),
+            "--train-bp-mode",
+            "traj",
+            "--traj-out",
+            self.repart_traj_dir,
+        ]
+
+    def set_executable_options(self):
+        # NekRSMLOfflineRepartTest omits traj_data_path (its fld/field
+        # flavours do not need one); a trajectory run does.
+        super().set_executable_options()
+        self.executable_opts.append(
+            f"traj_data_path={self.repart_traj_dir}"
+        )
+
+
 class NekRSMLOnlineTest(NekRSMLTest):
     def __init__(self, **kwargs):
         kwargs["test_type"] = "online"

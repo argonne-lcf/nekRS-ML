@@ -122,7 +122,9 @@ void UDF_ExecuteStep(double time, int tstep)
     dfloat *U = new dfloat[num_dim * field_offset]();
     graph->interpolateField(nrs, nrs->o_U, U, num_dim);
     client->checkpoint(U, num_dim);
+    delete[] U;
     delete tgen;
     delete graph;
+    delete client;
   }
 }

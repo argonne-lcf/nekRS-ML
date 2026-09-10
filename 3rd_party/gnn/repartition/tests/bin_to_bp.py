@@ -161,6 +161,58 @@ def write_solution_bp(out, name, blocks, fields):
     return fo
 
 
+def write_training_bp(out, blocks, snapshots, mode="traj"):
+    """trainingData.bp: the multi-step file written by adios_client_t.
+
+    One ADIOS step per snapshot (trajGen.cpp trajGenWriteBP /
+    gnn.cpp writeToFileBP). Field variables use exactly the padded
+    component-major layout of in_u/out_u, so the same reader path applies.
+
+    Every step carries BOTH rank-0 scalars -- int 'tstep' and f8 'time' --
+    written at start {0} (NOT the start-{1} defect that Np has in graph.bp),
+    because writeToFileBP puts both unconditionally: the reader takes
+    whichever suits its dist-gnn time-dependency mode.
+
+    snapshots is a list of (scalar, {varname: [per-writer (n, ncols) array]}).
+    `mode` says which scalar `scalar` is; the other is derived so the file
+    still carries the pair the real writer emits.
+    """
+    N = [b["pos"].shape[0] for b in blocks]
+    fo = [align_stride(n) for n in N]
+    foff = np.concatenate([[0], np.cumsum(np.array(fo, dtype=np.int64))])
+    tot = int(foff[-1])
+
+    shutil.rmtree(out, ignore_errors=True)
+    with Stream(out, "w") as s:
+        for scalar, fields in snapshots:
+            s.begin_step()
+            for var, per_block in fields.items():
+                ncols = per_block[0].shape[1]
+                for w, arr in enumerate(per_block):
+                    n, f = N[w], fo[w]
+                    assert arr.shape == (n, ncols), (
+                        f"{var} block {w}: {arr.shape}"
+                    )
+                    blk = np.zeros(ncols * f, dtype=np.float64)
+                    for c in range(ncols):
+                        blk[c * f : c * f + n] = arr[:, c]
+                    s.write(
+                        var,
+                        blk,
+                        [ncols * tot],
+                        [ncols * int(foff[w])],
+                        [ncols * f],
+                    )
+            if mode == "traj":
+                tstep, t = int(scalar), 0.01 * float(scalar)
+            else:
+                tstep, t = round(float(scalar) * 100), float(scalar)
+            s.write("tstep", np.array([tstep], dtype=np.int32), [1], [0], [1])
+            s.write("time", np.array([t], dtype=np.float64), [1], [0], [1])
+            s.end_step()
+    return fo
+
+
 def write_checkpoint_bp(out, blocks, per_block):
     """checkpoint.bp: identical layout to in_u/out_u, one 'checkpoint' var.
 
@@ -211,6 +263,20 @@ def main():
             os.path.join(args.out, "checkpoint.bp"), blocks, per_block
         )
         print(f"checkpoint.bp: checkpoint fieldOffset={fo}")
+
+        # multi-step trajectory file: 3 snapshots, each a distinct scaling of
+        # the field so a mis-stepped read is detectable
+        snaps = [
+            (
+                10 * (k + 1),
+                {"u": [(k + 1) * rows for rows in per_block]},
+            )
+            for k in range(3)
+        ]
+        write_training_bp(
+            os.path.join(args.out, "trainingData.bp"), blocks, snaps
+        )
+        print(f"trainingData.bp: 3 steps of u, fieldOffset={fo}")
 
 
 if __name__ == "__main__":

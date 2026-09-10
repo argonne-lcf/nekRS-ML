@@ -40,8 +40,10 @@ DISTGNN = os.path.join(PKG_PARENT, "dist-gnn")
 sys.path.insert(0, PKG_PARENT)
 
 from repartition import (
+    AdiosSource,
     BinSource,
     Repartitioner,
+    open_bp_read,
 )
 
 COMM = MPI.COMM_WORLD
@@ -218,6 +220,63 @@ def route_fld_snapshots(rp, snapshot_files, field_map, out_dir):
                 )
 
 
+def route_train_bp(rp, src, train_bp, mode, var_specs, out_dir, traj_out):
+    """Route the multi-step BP5 training data file written by the nekRS
+    adios_client_t (trajGenWriteBP / writeToFileBP).
+
+    Each ADIOS step is one snapshot. Field variables are padded
+    component-major blocks with the same layout as in_u/out_u, so
+    AdiosSource.read_node_field(padded=True) reads them unchanged; the
+    routing plan built from graph.bp is reused for every step.
+
+    mode="traj" writes <traj_out>/data_rank_R_size_M/u_step_<tstep>.bin;
+    mode="fld" writes fld_<name>_time_<t:.1f>_rank_R_size_M.bin in out_dir.
+    """
+    if mode == "traj":
+        out_sub = os.path.join(traj_out, f"data_rank_{RANK}_size_{SIZE}")
+        os.makedirs(out_sub, exist_ok=True)
+        COMM.Barrier()
+
+    nsteps = 0
+    with open_bp_read(train_bp, COMM) as st:
+        for _ in st.steps():
+            src.attach_field_stream(st)
+            routed = {
+                name: rp.read_field(name, ncols=ncols)
+                for name, ncols in var_specs
+            }
+            # Read scalars only after the field reads: both are inside the
+            # same step, but keeping the order fixed keeps the trace simple.
+            if mode == "traj":
+                tstep = int(np.asarray(st.read("tstep")).reshape(-1)[0])
+                for name, arr in routed.items():
+                    arr.tofile(
+                        os.path.join(out_sub, f"{name}_step_{tstep}.bin")
+                    )
+                label = f"step {tstep}"
+            else:
+                time = float(np.asarray(st.read("time")).reshape(-1)[0])
+                t = round(time * 10.0) / 10.0
+                for name, arr in routed.items():
+                    arr.tofile(
+                        os.path.join(
+                            out_dir,
+                            f"fld_{name}_time_{t:.1f}"
+                            f"_rank_{RANK}_size_{SIZE}.bin",
+                        )
+                    )
+                label = f"time {t:.1f}"
+            nsteps += 1
+            if RANK == 0:
+                print(f"routed BP5 snapshot at {label}", flush=True)
+
+    if nsteps == 0:
+        raise SystemExit(f"{train_bp} contains no steps")
+    if RANK == 0:
+        dest = out_sub if mode == "traj" else out_dir
+        print(f"routed {nsteps} BP5 snapshots -> {dest}", flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--src-dir", help="gnn_outputs_poly_* source directory")
@@ -258,6 +317,31 @@ def main():
         help="output trajectory directory (contains data_rank_* subdirs)",
     )
     ap.add_argument(
+        "--graph-bp",
+        default=None,
+        help="graph.bp written by gnn.cpp gnnWriteADIOS; reads the graph "
+        "from ADIOS2 instead of gnn_outputs binaries or a .f mesh",
+    )
+    ap.add_argument(
+        "--train-bp",
+        default=None,
+        help="multi-step BP5 training data file written by the nekRS ADIOS2 "
+        "client (one snapshot per step); requires --graph-bp",
+    )
+    ap.add_argument(
+        "--train-bp-mode",
+        default="traj",
+        choices=["traj", "fld"],
+        help="traj: write data_rank_R_size_M/u_step_<tstep>.bin (default). "
+        "fld: write fld_<name>_time_<t>_rank_R_size_M.bin",
+    )
+    ap.add_argument(
+        "--train-bp-vars",
+        default=None,
+        help="comma-separated name:ncols field variables to route "
+        "(default: u:3 for traj, u:3,p:1 for fld)",
+    )
+    ap.add_argument(
         "--no-halo",
         action="store_true",
         help="skip writing the dist-gnn halo .npy files (for models that "
@@ -265,7 +349,20 @@ def main():
     )
     args = ap.parse_args()
 
-    if args.fld_mesh:
+    if args.graph_bp and (args.src_dir or args.fld_mesh):
+        raise SystemExit(
+            "--graph-bp is exclusive with --src-dir and --fld-mesh"
+        )
+    if args.train_bp and not args.graph_bp:
+        raise SystemExit("--train-bp requires --graph-bp")
+
+    if args.graph_bp:
+        src = AdiosSource(args.graph_bp, comm=COMM)
+        out_dir = args.out_dir
+        if out_dir is None:
+            raise SystemExit("--out-dir is required with --graph-bp")
+        desc = f"{args.graph_bp} (ADIOS2 graph, size {src.src_size}"
+    elif args.fld_mesh:
         from repartition.fld import FldSource
 
         periodic = tuple(ax in args.periodic.lower() for ax in "xyz")
@@ -302,6 +399,25 @@ def main():
     write_graph(rp, out_dir)
     if SIZE > 1 and not args.no_halo:
         write_halo_files(rp, out_dir)
+    if args.train_bp:
+        if args.train_bp_vars:
+            var_specs = [
+                (p.split(":")[0], int(p.split(":")[1]))
+                for p in args.train_bp_vars.split(",")
+            ]
+        elif args.train_bp_mode == "traj":
+            var_specs = [("u", 3)]
+        else:
+            var_specs = [("u", 3), ("p", 1)]
+        route_train_bp(
+            rp,
+            src,
+            args.train_bp,
+            args.train_bp_mode,
+            var_specs,
+            out_dir,
+            args.traj_out or out_dir,
+        )
     if args.fld_mesh:
         if args.fld_traj:
             traj_out = args.fld_traj_out or out_dir

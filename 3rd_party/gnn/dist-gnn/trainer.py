@@ -215,7 +215,7 @@ class Trainer:
         if self.size > 1:
             self.model = DDP(
                 self.model,
-                broadcast_buffers=False,
+                forward_sync_buffers=False,
                 gradient_as_bucket_view=True,
             )
 
@@ -1090,7 +1090,12 @@ class Trainer:
                     self.load_data(path_to_halo_info, extension=".npy")
                 )
             else:
-                if self.client is not None and self.client.file_exists(
+                # Avoid writing halo_info, node_degree, edge_weight since
+                # nothing reads them yet in the online case
+                cache_halo = (
+                    self.client is not None and self.client.backend != "adios"
+                )
+                if cache_halo and self.client.file_exists(
                     f"halo_info_rank_{self.rank}_size_{self.size}"
                 ):
                     halo_info = torch.tensor(
@@ -1126,10 +1131,11 @@ class Trainer:
                             % (self.rank, time.time() - tic)
                         )
                     halo_info = halo_info_glob[self.rank]
-                    self.client.put_array(
-                        f"halo_info_rank_{self.rank}_size_{self.size}",
-                        halo_info.numpy(),
-                    )
+                    if cache_halo:
+                        self.client.put_array(
+                            f"halo_info_rank_{self.rank}_size_{self.size}",
+                            halo_info.numpy(),
+                        )
                     self.comm.Barrier()
 
                     tic = time.time()
@@ -1145,7 +1151,7 @@ class Trainer:
                             "[RANK %d]: computed node degree in %f sec"
                             % (self.rank, time.time() - tic)
                         )
-                    if self.client is not None:
+                    if cache_halo:
                         self.client.put_array(
                             f"node_degree_rank_{self.rank}_size_{self.size}",
                             node_degree.numpy(),
@@ -1166,7 +1172,7 @@ class Trainer:
                             "[RANK %d]: computed edge weights in %f sec"
                             % (self.rank, time.time() - tic)
                         )
-                    if self.client is not None:
+                    if cache_halo:
                         self.client.put_array(
                             f"edge_weight_rank_{self.rank}_size_{self.size}",
                             edge_weight.to(torch.float32).numpy(),
