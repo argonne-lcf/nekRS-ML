@@ -215,9 +215,7 @@ class AdiosSource(ElementSource):
       alignStride(N_w), and the global offsets are a true per-writer scan of
       fieldOffset (trajGen.cpp:225-247). read_node_field handles that.
 
-    Np is read defensively: the writer declares it {1},{1},{1} -- start 1,
-    one past the end of its own shape (gnn.cpp:303) -- so a plain
-    ``read("Np")`` returns 0, not Np. See _resolve_np.
+    Np is a rank-0 scalar declared {1},{0},{1} (gnn.cpp:298).
     """
 
     def __init__(
@@ -238,7 +236,11 @@ class AdiosSource(ElementSource):
             self.num_edges_per_src = np.asarray(
                 stream.read("num_edges", [0], [w]), dtype=np.int64
             ).reshape(-1)
-            self.Np = self._resolve_np(stream, n_list, np_pts)
+            self.Np = (
+                int(np_pts)
+                if np_pts is not None
+                else int(np.asarray(stream.read("Np")).reshape(-1)[0])
+            )
             fo_list = self._read_field_offsets(stream, w)
             stream.end_step()
 
@@ -269,38 +271,6 @@ class AdiosSource(ElementSource):
         np.cumsum(self.fo_per_src, out=self.fo_offsets[1:])
 
         self._field_stream = None
-
-    @staticmethod
-    def _resolve_np(stream, n_list, np_pts=None):
-        """Read Np around the writer's start-{1} defect (gnn.cpp:303).
-
-        The writer declares Np with shape {1} but start {1}, so the single
-        value sits one past the end of the declared global shape. A read with
-        no selection (what client.py does today) returns the default-filled
-        in-bounds element, i.e. 0. A read of [1],[1] returns the true value.
-        Both are tried and the candidate that is positive and divides every
-        N_w is used, so this keeps working if the writer is ever fixed.
-        """
-        if np_pts is not None:
-            return int(np_pts)
-        cands = []
-        for sel in ([1], [1]), ():
-            try:
-                raw = stream.read("Np", *sel)
-            except Exception:
-                continue
-            arr = np.asarray(raw).reshape(-1)
-            if arr.size:
-                cands.append(int(arr[0]))
-        good = [
-            c for c in dict.fromkeys(cands) if c > 0 and not np.any(n_list % c)
-        ]
-        if len(good) == 1:
-            return good[0]
-        raise RuntimeError(
-            f"cannot determine Np from graph.bp (candidates {cands}, "
-            f"N={n_list.tolist()}); pass np_pts explicitly"
-        )
 
     @staticmethod
     def _read_field_offsets(stream, w):

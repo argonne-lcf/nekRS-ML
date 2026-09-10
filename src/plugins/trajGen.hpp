@@ -40,11 +40,16 @@ public:
                         int tstep, 
                         const std::string& field_name);
 #endif
-    void trajGenWriteADIOS(nrs_t *nrs,
+    void trajGenWriteSST(nrs_t *nrs,
                            adios_client_t* client,
-                           dfloat time, 
-                           int tstep, 
+                           dfloat time,
+                           int tstep,
                            const std::string& field_name);
+    void trajGenWriteBP(nrs_t *nrs,
+                        adios_client_t* client,
+                        const std::vector<bpField_t>& fields,
+                        dfloat time,
+                        int tstep);
 
 private:
     // nekrs objects 

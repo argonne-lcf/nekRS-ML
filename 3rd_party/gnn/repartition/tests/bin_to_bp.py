@@ -25,9 +25,8 @@ from adios2 import Stream
 # graph.bp, per writer rank w with N_w nodes and E_w edges:
 #   N            int32   shape {W}            start {w}          count {1}
 #   num_edges    int32   shape {W}            start {w}          count {1}
-#   Np           int32   shape {1}            start {1}          count {1}
-#                        ^ off-by-one in the writer (gnn.cpp:303); readers
-#                          must fetch it without a selection.
+#   Np           int32   shape {1}            start {0}          count {1}
+#                        rank-0 scalar (gnn.cpp:298)
 #   pos_node     f8      shape {3*sum(N)}     start {3*off_w}    count {3*N_w}
 #                        component-major: [x(0..N_w-1), y(...), z(...)]
 #   global_ids   i8      shape {sum(N)}       start {off_w}      count {N_w}
@@ -104,12 +103,9 @@ def write_graph_bp(out, np_pts, blocks):
     shutil.rmtree(out, ignore_errors=True)
     with Stream(out, "w") as s:
         s.begin_step()
-        # Np exactly as the writer defines it -- shape {1} start {1} count
-        # {1}, a block one past the end of its own global shape, written by
-        # rank 0 alone (gnn.cpp:303,320-322). Reproduced rather than
-        # corrected: a no-selection read of this returns 0, not Np, so a
-        # fixture that wrote it correctly would hide the bug from the reader.
-        s.write("Np", np.array([np_pts], dtype=np.int32), [1], [1], [1])
+        # Np exactly as the writer defines it -- shape {1} start {0} count
+        # {1}, written by rank 0 alone (gnn.cpp:298,317).
+        s.write("Np", np.array([np_pts], dtype=np.int32), [1], [0], [1])
         for w, b in enumerate(blocks):
             s.write("N", N[w : w + 1], [W], [w], [1])
             s.write("num_edges", E[w : w + 1], [W], [w], [1])
@@ -169,7 +165,7 @@ def write_training_bp(out, blocks, snapshots, mode="traj"):
     component-major layout of in_u/out_u, so the same reader path applies.
 
     Every step carries BOTH rank-0 scalars -- int 'tstep' and f8 'time' --
-    written at start {0} (NOT the start-{1} defect that Np has in graph.bp),
+    written at start {0}, like Np in graph.bp,
     because writeToFileBP puts both unconditionally: the reader takes
     whichever suits its dist-gnn time-dependency mode.
 

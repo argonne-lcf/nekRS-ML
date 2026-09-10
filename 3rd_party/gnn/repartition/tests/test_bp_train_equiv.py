@@ -121,7 +121,7 @@ def main():
     # a rank-0-only scalar written at start {0} must be visible to every rank
     check(
         all(t != 0 for t in seen_tsteps),
-        "tstep scalars are non-zero on every rank (start-{0}, not start-{1})",
+        "tstep scalars are non-zero on every rank (start-{0})",
     )
 
     if RANK == 0:

@@ -183,7 +183,7 @@ void trajGen_t::trajGenWriteDB(nrs_t *nrs,
 }
 #endif
 
-void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
+void trajGen_t::trajGenWriteSST(nrs_t *nrs,
     adios_client_t* client, 
     dfloat time, 
     int tstep, 
@@ -255,13 +255,42 @@ void trajGen_t::trajGenWriteADIOS(nrs_t *nrs,
             printf("[TRAJ WRITE ADIOS] -- Done writing data\n");
         }
 #else
-        trajGenWrite(time, tstep, field_name);
+        trajGenWrite(nrs, time, tstep, field_name);
 #endif
     }
 
     if (store_inputs) {
         graph->interpolateField(nrs, nrs->o_U, previous_U, num_dim);
     }
+#else
+    if (rank == 0) printf("[RANK %d] -- Error: Adios is not enabled!\n", rank);
+    fflush(stdout);
+    MPI_Abort(comm, 1);
+#endif
+}
+
+void trajGen_t::trajGenWriteBP(nrs_t *nrs,
+    adios_client_t* client,
+    const std::vector<bpField_t>& fields,
+    dfloat time,
+    int tstep)
+{
+    MPI_Comm &comm = platform->comm.mpiComm;
+#if defined(NEKRS_ENABLE_ADIOS)
+    // Emit on the same cadence as the POSIX trajGenWrite() so the step sequence
+    // is uniformly spaced and consecutive steps are a valid (input, output)
+    // pair. Unlike trajGenWriteSST, no (in_u, out_u) staging is needed: the
+    // file keeps every step, so the reader pairs consecutive ones itself.
+    if (skip != 0) {
+        if (rank == 0) {
+            printf("[RANK %d] -- Error: trajGenWriteBP does not support skip != 0\n", rank);
+        }
+        fflush(stdout);
+        MPI_Abort(comm, 1);
+    }
+    if (tstep % dt_factor != 0) return;
+
+    graph->writeToFileBP(nrs, client, fields, time, tstep);
 #else
     if (rank == 0) printf("[RANK %d] -- Error: Adios is not enabled!\n", rank);
     fflush(stdout);
