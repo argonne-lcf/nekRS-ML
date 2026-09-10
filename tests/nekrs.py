@@ -815,9 +815,7 @@ class NekRSMLOfflineTrajBpTest(NekRSMLOfflineRepartTest):
         # NekRSMLOfflineRepartTest omits traj_data_path (its fld/field
         # flavours do not need one); a trajectory run does.
         super().set_executable_options()
-        self.executable_opts.append(
-            f"traj_data_path={self.repart_traj_dir}"
-        )
+        self.executable_opts.append(f"traj_data_path={self.repart_traj_dir}")
 
 
 class NekRSMLOnlineTest(NekRSMLTest):

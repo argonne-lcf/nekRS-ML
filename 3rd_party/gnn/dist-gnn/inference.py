@@ -319,7 +319,8 @@ def inference_rollout(
         )
     else:
         client.put_array(
-            f"gnn_checkpoint_rank_{RANK}_size_{SIZE}", x.to(torch.float32).numpy()
+            f"gnn_checkpoint_rank_{RANK}_size_{SIZE}",
+            x.to(torch.float32).numpy(),
         )
 
     # Torch distributed cleanup
