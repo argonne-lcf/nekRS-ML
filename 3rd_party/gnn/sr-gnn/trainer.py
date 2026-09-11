@@ -147,11 +147,7 @@ class Trainer:
 
         # ~~~~ Wrap model in DDP
         if self.size > 1:
-            self.model = DDP(
-                self.model,
-                broadcast_buffers=False,
-                gradient_as_bucket_view=True,
-            )
+            self.model = DDP(self.model)
 
     def init_process_group(self, master_addr: str, master_port: int):
         os.environ["RANK"] = str(self.rank)

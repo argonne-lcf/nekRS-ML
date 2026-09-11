@@ -151,7 +151,7 @@ void UDF_ExecuteStep(double time, int tstep)
 
   // write trajectory
   if (tstep <= 50) {
-    tgen->trajGenWriteADIOS(nrs, client, time, tstep, "velocity");
+    tgen->trajGenWriteSST(nrs, client, time, tstep, "velocity");
   }
 
   if (nrs->checkpointStep) {
@@ -168,5 +168,6 @@ void UDF_ExecuteStep(double time, int tstep)
   if (nrs->lastStep || numSteps == 0) {
     delete tgen;
     delete graph;
+    delete client;
   }
 }

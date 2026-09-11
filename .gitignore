@@ -32,3 +32,6 @@ __pycache__/
 tests/test_data/
 .ruff_cache/
 .venv/
+
+# repartition parRSB shim (built artifact)
+3rd_party/gnn/repartition/libparrsb_shim.so

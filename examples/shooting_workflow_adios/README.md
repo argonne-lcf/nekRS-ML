@@ -9,13 +9,19 @@ The workflow is composed of the following two stages:
 * Online fine-tuning of the GNN surrogate. This step runs concurrently a high-fidelity nekRS simulation and GNN distributed training, streaming training data from the simulation to the trainer at a constant interval.
 * Shooting the solution forward. This step deploys the GNN surrogate for inference, feeding the GNN predictions bask as inputs for the next step in order to advance the solution state in time.
 
+> **Current scope.** The workflow runs fine-tuning and then shooting, and stops. Handing
+> the shot-forward solution back to nekRS to resume the simulation is not wired up yet:
+> inference writes its result to `checkpt_u.bp`, tagged with node global IDs so it can be
+> scattered onto any nekRS rank count, but nothing reads it back. Restarting nekRS from it
+> also needs a coarse-to-fine interpolation that does not exist yet.
+
 The workflow is set up using ADIOS2 to share data between nekRS, the GNN training module, and the GNN inference module. 
 Specifically, the following information is shared between components:
 
-* The data structures needed to build the GNN graph from the nekRS mesh. This information is shared through the file system because it is needed by the inferencing step as well, thus it needs to be persistent beyond the nekRS run. These data structures are computed once before the nekRS time step loop and written in `graph.bp` with ADIOS2.
+* The data structures needed to build the GNN graph from the nekRS mesh. This information is shared through the file system because it is needed by the inferencing step as well, thus it needs to be persistent beyond the nekRS run. These data structures are computed once before the nekRS time step loop and written in `graph.bp` with ADIOS2. The graph is **repartitioned when it is read**, so the trainer and the inference module are not bound to the nekRS rank count -- see [Rank counts](#rank-counts-nekrs-training-and-inference-are-independent) below.
 * The pair of solution snapshots at every mesh node which represent the input and output data to the GNN model. These are streamed (data is shared through the high-speed network, not through the file system) from nekRS to the GNN trainer with the ADIOS2 SST engine. nekRS is configured to share these snapshot at a predetermined frequency set in the `turbChannel.udf` file.
 * A small file called `check-run.bp` used to tell nekRS to exit cleanly when the GNN trainer reaches a stopping point (e.g., a preset maximum  number of iterations or a tolerance on the training loss).
-* A solution checkpoint for the last nekRS time step saved as the simulation exit cleanly. This is stored in `checkpoint.bp` and is loaded by the inference module as an initial condition to then advance the solution state with the GNN.
+* A solution checkpoint for the last nekRS time step saved as the simulation exit cleanly. This is stored in `checkpoint.bp` and is loaded by the inference module as an initial condition to then advance the solution state with the GNN. The checkpoint is interpolated onto the coarse GNN mesh before it is written, so its rows line up one-to-one with the `graph.bp` nodes and it is repartitioned through the same routing as the graph.
 
 The workflow makes use of new plugins added to the nekRS code. 
 The plugin API are called from the `turbChannel.udf` file, specifically within `UDF_Setup()` for initialization and `UDF_ExecuteStep()` to execute tasks every simulation time step.
@@ -83,3 +89,59 @@ The `run.sh` script is composed of two steps:
 - Execution of the workflow driver script `driver.py` with Python, which takes in the setting in the `config.yaml` file and launches fine tuning (nekRS + GNN training) followed by GNN inference on the requested resources. 
 
 The outputs logs of the nekRS, trainer and inference will be within the `./logs` directory created at runtime.
+
+## Rank counts: nekRS, training and inference are independent
+
+Fine-tuning runs nekRS and the trainer **concurrently**, so under the default clustered
+deployment they occupy disjoint halves of the job. Inference runs **afterwards, alone**,
+which means it is free to use every node in the allocation:
+
+```
+   fine-tuning        |   shooting
+   nekRS   (N/2)      |   inference (N)
+   trainer (N/2)      |
+```
+
+This is possible because the GNN graph and the solution checkpoint are repartitioned when
+they are read. Neither the trainer nor the inference module has to run on the rank count
+nekRS used to write them -- the graph nodes are the GLL points of whole elements, so
+moving elements between ranks moves the graph with them, and the node global IDs are
+partition independent.
+
+The sizing is controlled by these environment variables, read by `nrsrun_<system>` when
+it generates `config.yaml`:
+
+| Variable | Default (Aurora / Polaris) | Meaning |
+| --- | --- | --- |
+| `INFER_NODES` | `0` | Nodes for inference. `0` means every node of the job. |
+| `INFER_RANKS_PER_NODE` | `12` / `4` | Inference ranks per node. |
+| `INFERENCE_CPU_BIND_LIST` | same as training | CPU binding list for inference ranks. |
+
+They behave like the existing `SIM_*` and `TRAIN_*` variables -- set them in the
+environment before calling `gen_run_script`. The defaults already give the N/2 + N/2
+fine-tune to N inference split, so they only need setting to deviate from it:
+
+```sh
+# 8 nodes: nekRS on 4, trainer on 4, inference on all 8 (the default)
+./gen_run_script aurora /path/to/nekRS --nodes 8 --sim_nodes 4 --train_nodes 4
+
+# same job, but hold inference to 2 nodes at 6 ranks each
+INFER_NODES=2 INFER_RANKS_PER_NODE=6 \
+  ./gen_run_script aurora /path/to/nekRS --nodes 8 --sim_nodes 4 --train_nodes 4
+```
+
+The generated `config.yaml` gains `infer_nodes`, `inferprocs`, `inferprocs_pn` and
+`infer_cpu_bind` under `run_args`, which `driver.py` uses to size the inference launch
+independently of training. `infer_nodes` larger than the job is a hard error.
+
+Under a colocated deployment nekRS and the trainer share nodes and each takes half the
+devices; inference still runs by itself, so it uses the whole node with no device skip.
+
+### Choosing the GNN polynomial order
+
+The run scripts set `gnnPolynomialOrder = 2` in the generated `turbChannel.par` while the
+flow solver runs at `polynomialOrder = 7`. The GNN therefore lives on a coarser mesh than
+nekRS, and the plugins interpolate fine to coarse on the way out (both the streamed
+training snapshots and `checkpoint.bp`). Raising the GNN order raises graph size and
+memory per rank sharply -- `(p+1)^3` nodes per element -- so change it together with the
+rank counts above.

@@ -13,6 +13,8 @@ import time
 import math
 from omegaconf import DictConfig, OmegaConf
 
+import torch
+
 try:
     import mpi4py.rc
 
@@ -22,8 +24,6 @@ try:
     from mpi4py import MPI
 except ModuleNotFoundError as e:
     sys.exit("MPI is required! Please install MPI and try again.")
-
-import torch
 
 # Local imports
 import utils
@@ -266,7 +266,7 @@ def train(cfg: DictConfig, client: Optional[OnlineClient] = None) -> None:
 
 @hydra.main(version_base=None, config_path="./conf", config_name="config")
 def main(cfg: DictConfig) -> None:
-    if cfg.verbose:
+    if cfg.verbose and SIZE < 100:
         log.info(
             f"Hello from rank {RANK}/{SIZE}, local rank {LOCAL_RANK}, on node {HOST_NAME} and device {DEVICE}:{DEVICE_ID + cfg.device_skip} out of {N_DEVICES}."
         )

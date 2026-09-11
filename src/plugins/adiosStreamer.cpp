@@ -54,7 +54,14 @@ adios_client_t::adios_client_t(MPI_Comm& comm) : _comm(comm)
 
         _write_io = _adios->DeclareIO("writeIO");
         _write_io.SetEngine("BP5");
-    } 
+
+        // Separate IO for the offline training data file.
+        // Sharing _write_io would fold graph.bp's nine variables into 
+        // every training-data step's metadata. Also, check_run() reopens 
+        // _write_io in Mode::Read once per timestep.
+        _data_io = _adios->DeclareIO("trainingDataIO");
+        _data_io.SetEngine("BP5");
+    }
     catch (std::exception &e)
     {
         printf("Exception, STOPPING PROGRAM from rank %d\n", _rank);
@@ -74,6 +81,8 @@ adios_client_t::~adios_client_t()
 #if defined(NEKRS_ENABLE_ADIOS)
     // Close the stream for transfering the solution data
     closeStream();
+    // Close the offline training data file if one was opened
+    closeDataFile();
 #endif
 }
 
@@ -136,9 +145,10 @@ void adios_client_t::openStream()
     if (_rank == 0) std::cout << "All done!" << std::endl;
 }
 
-// Close the solution transfer stream
+// Close the solution transfer stream.
 void adios_client_t::closeStream()
 {
+    if (!_solWriter) return;
     try
     {
         if (_rank == 0) std::cout << "Closing ADIOS2 solutionStream " << std::endl;
@@ -169,6 +179,98 @@ void adios_client_t::checkpoint(dfloat *field, int num_dim)
     writer.Put<dfloat>(varField, field);
     writer.EndStep();
     writer.Close();
+}
+
+// Open the multi-step BP5 file holding training data for offline training.
+// Unlike checkpoint() above, the engine is kept open across steps so that each
+// snapshot becomes one ADIOS step of a single file.
+void adios_client_t::openDataFile(const std::string& fname)
+{
+    if (_dataOpen) return;
+    if (_rank == 0) std::cout << "Opening ADIOS2 training data file " << fname << " ... " << std::endl;
+    try
+    {
+        _dataWriter = _data_io.Open(fname, adios2::Mode::Write);
+        _dataOpen = true;
+    }
+    catch (std::exception &e)
+    {
+        std::cout << "Error opening ADIOS2 training data file, STOPPING PROGRAM from rank " << _rank << "\n";
+        std::cout << e.what() << "\n";
+    }
+    MPI_Barrier(_comm);
+    if (_rank == 0) std::cout << "All done!" << std::endl;
+}
+
+// Close the training data file. Idempotent -- also called from the destructor.
+void adios_client_t::closeDataFile()
+{
+    if (!_dataOpen) return;
+    try
+    {
+        if (_rank == 0) std::cout << "Closing ADIOS2 training data file " << std::endl;
+        _dataWriter.Close();
+        _dataOpen = false;
+    }
+    catch (std::exception &e)
+    {
+        std::cout << "Error closing ADIOS2 training data file, STOPPING PROGRAM from rank " << _rank << "\n";
+        std::cout << e.what() << "\n";
+    }
+}
+
+void adios_client_t::beginDataStep()
+{
+    _dataWriter.BeginStep();
+}
+
+void adios_client_t::endDataStep()
+{
+    _dataWriter.EndStep();
+}
+
+// Write one node field into the current step of the training data file.
+void adios_client_t::putField(const std::string& name, dfloat *field, int num_dim)
+{
+    unsigned long field_num_dim = num_dim;
+    auto it = _dataVars.find(name);
+    if (it == _dataVars.end()) {
+        auto var = _data_io.DefineVariable<dfloat>(
+            name,
+            {_global_field_offset * field_num_dim},
+            {_offset_field_offset * field_num_dim},
+            {_field_offset * field_num_dim});
+        it = _dataVars.emplace(name, var).first;
+    }
+    _dataWriter.Put<dfloat>(it->second, field);
+}
+
+// Write a rank-0 scalar int
+void adios_client_t::putScalar(const std::string& name, int value)
+{
+    auto it = _dataIntVars.find(name);
+    if (it == _dataIntVars.end()) {
+        auto var = _data_io.DefineVariable<int>(name, {1}, {0}, {1});
+        it = _dataIntVars.emplace(name, var).first;
+    }
+    if (_rank == 0) {
+        // Sync mode: `value` is a local and would be dangling by EndStep()
+        // under the default deferred mode.
+        _dataWriter.Put<int>(it->second, &value, adios2::Mode::Sync);
+    }
+}
+
+// Write a rank-0 scalar float
+void adios_client_t::putScalar(const std::string& name, dfloat value)
+{
+    auto it = _dataRealVars.find(name);
+    if (it == _dataRealVars.end()) {
+        auto var = _data_io.DefineVariable<dfloat>(name, {1}, {0}, {1});
+        it = _dataRealVars.emplace(name, var).first;
+    }
+    if (_rank == 0) {
+        _dataWriter.Put<dfloat>(it->second, &value, adios2::Mode::Sync);
+    }
 }
 
 #endif // NEKRS_ENABLE_ADIOS

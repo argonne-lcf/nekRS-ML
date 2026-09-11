@@ -23,6 +23,7 @@ class ShootingWorkflow:
         self.sim_nodes = ""
         self.train_nodes = ""
         self.inference_nodes = ""
+        self.infer_nodes = 0
         self.fine_tune_iter = -1
         self.inference_iter = -1
         self.nekrs_proc = {"name": "nekRS", "process": None, "status": "not running"}
@@ -62,7 +63,20 @@ class ShootingWorkflow:
         self.num_nodes = len(self.nodelist)
 
     def assignNodes(self) -> None:
-        """Assign the total nodes of the job to the different components"""
+        """Assign the total nodes of the job to the different components.
+
+        Simulation and training are concurrent, so under a clustered
+        deployment they take disjoint slices of the nodelist. Inference runs
+        afterwards, on its own, so it may use ANY nodes of the job -- how many
+        is run_args.infer_nodes, which nrsrun_<system> sets to the whole job
+        unless INFER_NODES says otherwise.
+        """
+        self.infer_nodes = int(self.cfg.run_args.infer_nodes)
+        if not 0 < self.infer_nodes <= self.num_nodes:
+            sys.exit(
+                f"run_args.infer_nodes ({self.infer_nodes}) is outside "
+                f"the {self.num_nodes} nodes in the job"
+            )
         if self.cfg.deployment == "clustered":
             self.sim_nodes = ",".join(self.nodelist[0 : self.cfg.run_args.sim_nodes])
             self.train_nodes = ",".join(
@@ -71,21 +85,20 @@ class ShootingWorkflow:
                     + self.cfg.run_args.ml_nodes
                 ]
             )
-            self.inference_nodes = str(self.train_nodes)
             print(f"nekRS running on {self.cfg.run_args.sim_nodes} nodes:")
             print(self.sim_nodes)
             print(f"Training running on {self.cfg.run_args.ml_nodes} nodes:")
             print(self.train_nodes)
-            print(f"Inference running on {self.cfg.run_args.ml_nodes} nodes:")
-            print(self.inference_nodes, "\n", flush=True)
         else:
             self.sim_nodes = ",".join(self.nodelist)
             self.train_nodes = str(self.sim_nodes)
-            self.inference_nodes = str(self.sim_nodes)
-            print(
-                f"nekRS, training and inference running on {self.cfg.run_args.sim_nodes} nodes:"
-            )
+            print(f"nekRS and training running on {self.cfg.run_args.sim_nodes} nodes:")
             print(self.sim_nodes, "\n", flush=True)
+
+        # Inference takes the first infer_nodes nodes of the job
+        self.inference_nodes = ",".join(self.nodelist[0 : self.infer_nodes])
+        print(f"Inference running on {self.infer_nodes} nodes:")
+        print(self.inference_nodes, "\n", flush=True)
 
     def launchNekRS(self) -> None:
         """Launch the nekRS simulation"""
@@ -152,25 +165,35 @@ class ShootingWorkflow:
         print("Done\n", flush=True)
 
     def launchInference(self) -> None:
-        """Launch the GNN model for inference"""
-        skip = (
-            0 if self.cfg.deployment == "clustered" else self.cfg.run_args.simprocs_pn
+        """Launch the GNN model for inference.
+
+        Sized independently of training: nothing constrains the two to the
+        same rank count once the graph and the solution checkpoint are
+        repartitioned on read.
+        """
+        skip = 0
+        inferprocs = int(self.cfg.run_args.inferprocs)
+        inferprocs_pn = int(self.cfg.run_args.inferprocs_pn)
+        infer_cpu_bind = self.cfg.run_args.infer_cpu_bind
+        print(
+            f"\nInference sizing: {inferprocs} ranks, {inferprocs_pn} per node "
+            f"(training used {self.cfg.run_args.mlprocs})"
         )
         cmd = (
             f"mpiexec "
-            + f"-n {self.cfg.run_args.mlprocs} "
-            + f"--ppn {self.cfg.run_args.mlprocs_pn} "
-            + f"--cpu-bind {self.cfg.run_args.ml_cpu_bind} "
+            + f"-n {inferprocs} "
+            + f"--ppn {inferprocs_pn} "
+            + f"--cpu-bind {infer_cpu_bind} "
             + f"--hosts {self.inference_nodes} "
         )
         if self.cfg.train.affinity:
-            cmd += f"{self.cfg.train.affinity} {self.cfg.run_args.simprocs_pn} {skip} "
+            cmd += f"{self.cfg.train.affinity} {inferprocs_pn} {skip} "
         cmd += (
             f"python {self.cfg.inference.executable} "
             + f"{self.cfg.inference.arguments} model_dir={self.run_dir}/saved_models/"
             + f" master_addr={self.inference_nodes.split(',')[0]}"
         )
-        print("\nLaunching GNN inference ...")
+        print("Launching GNN inference ...")
         self.infer_proc["process"] = subprocess.Popen(
             cmd,
             executable="/bin/bash",

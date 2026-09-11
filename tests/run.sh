@@ -2,7 +2,6 @@
 
 : ${SYSTEM:="aurora:compute"}
 : ${PREFIX:="${PWD}/test_data"}
-#: ${COMMIT="main"}
 : ${COMMIT="$(git -C "$(dirname "$0")/.." rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"}
 : ${QUEUE:="capacity"}
 : ${PROJECT:="datascience"}

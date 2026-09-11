@@ -7,7 +7,7 @@ In this example, the model takes as inputs the three components of velocity at a
 It is a time dependent modeling task, the model learns how to predict a future time step.
 
 Specifically, in `UDF_Setup()`, the `graph` class is instantiated from the mesh, followed by calls to `graph->gnnSetup();` and `graph->gnnWriteADIOS();` to setup and write the GNN input files, respectively. Here, the ADIOS2 client and the trajectory generation class are also initialized.
-In `UDF_ExecuteStep()`, the `trajGenWriteADIOS()` method of the trajectory generation class is used to stream the training data to the GNN trainer. By default, the SST engine with RDMA transport and a synchronous data transfer patter is used, but these configurations can be changed in the `.par` file.
+In `UDF_ExecuteStep()`, the `trajGenWriteSST()` method of the trajectory generation class is used to stream the training data to the GNN trainer. By default, the SST engine with RDMA transport and a synchronous data transfer patter is used, but these configurations can be changed in the `.par` file.
 For simplicity and reproducibility, nekRS is set up to send training data every 10 time steps for 5 consecutive times only (up to time step 50), but `UDF_ExecuteStep()` can be changed to send as many time steps as desired.
 
 ## Building nekRS

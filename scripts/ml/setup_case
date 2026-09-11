@@ -345,6 +345,7 @@ function setup_venv() {
   export LD_LIBRARY_PATH=$TORCH_PATH/lib:$LD_LIBRARY_PATH
   if [ "${SYSTEM}" == "aurora" ] && [ -n "${MODEL}" ]; then
     pip install torch_geometric
+    pip install hydra-core
   fi  
 
   if [ "${MODEL}" == "sr-gnn" ] && [ "${SYSTEM}" == "aurora" ]; then

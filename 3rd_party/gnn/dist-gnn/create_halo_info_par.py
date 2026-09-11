@@ -7,14 +7,14 @@ import numpy as np
 from typing import Tuple
 import time
 
+import torch
+from torch_geometric.data import Data
+import torch_geometric.utils as utils
+
 import mpi4py
 
 mpi4py.rc.initialize = False
 from mpi4py import MPI
-
-import torch
-from torch_geometric.data import Data
-import torch_geometric.utils as utils
 
 
 # helper Cantor-pairing on two 1D int64 tensors

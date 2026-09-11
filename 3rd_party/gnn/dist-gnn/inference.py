@@ -13,6 +13,8 @@ import time
 import math
 from omegaconf import DictConfig, OmegaConf
 
+import torch
+
 try:
     import mpi4py.rc
 
@@ -25,8 +27,6 @@ try:
 except ModuleNotFoundError as e:
     WITH_DDP = False
     pass
-
-import torch
 
 # Local imports
 import utils
@@ -307,9 +307,20 @@ def inference_rollout(
                 os.makedirs(save_path)
             np.save(save_path + f"/x_{trainer.iteration}", x_gathered)
             np.save(save_path + f"/pos_{trainer.iteration}", pos_gathered)
+    elif cfg.client.backend == "adios":
+        # Only the locally-unique nodes are returned, tagged with their
+        # global ids: their union over ranks covers the mesh exactly once
+        # whatever the ML rank count, which the bare per-rank array cannot
+        # express once that count is decoupled from nekRS's.
+        client.put_array(
+            f"gnn_checkpoint",
+            x[:n_nodes_local].to(torch.float32).numpy(),
+            global_ids=graph.global_ids[:n_nodes_local].cpu().numpy(),
+        )
     else:
         client.put_array(
-            f"checkpt_u_rank_{RANK}_size_{SIZE}", x.to(torch.float32).numpy()
+            f"gnn_checkpoint_rank_{RANK}_size_{SIZE}",
+            x.to(torch.float32).numpy(),
         )
 
     # Torch distributed cleanup
@@ -357,7 +368,7 @@ def inference_rollout(
 
 @hydra.main(version_base=None, config_path="./conf", config_name="config")
 def main(cfg: DictConfig) -> None:
-    if cfg.verbose:
+    if cfg.verbose and SIZE < 100:
         log.info(
             f"Hello from rank {RANK}/{SIZE}, local rank {LOCAL_RANK}, on node {HOST_NAME} and device {DEVICE}:{DEVICE_ID + cfg.device_skip} out of {N_DEVICES}."
         )
