@@ -46,16 +46,33 @@ echo "export MPICH_MPIIO_STATS=0" >>$RFILE
 echo "export MPICH_GPU_SUPPORT_ENABLED=0" >> $RFILE
 echo "export MPICH_OFI_NIC_POLICY=NUMA" >> $RFILE
 
+py_version=`python --version`
+parsed_version=$(echo ${py_version#Python } | awk -F. '{print $1"."$2}')
+echo -e "\nexport PYTHONPATH=\$PYTHONPATH:${NEKRS_HOME}/lib/python${parsed_version}/site-packages" >> $RFILE
+echo "#export SstVerbose=1" >> $RFILE
+echo "export OMP_PROC_BIND=spread" >> $RFILE
+echo "export OMP_PLACES=threads" >> $RFILE
+echo "if ls *.sst 1> /dev/null 2>&1" >> $RFILE
+echo "then" >> $RFILE
+echo "    echo Cleaning up old .sst files" >> $RFILE
+echo "    rm *.sst" >> $RFILE
+echo "fi" >> $RFILE
+echo "if ls *.bp 1> /dev/null 2>&1" >> $RFILE
+echo "then" >> $RFILE
+echo "    echo Cleaning up old .bp files" >> $RFILE
+echo "    rm -r ./*.bp" >> $RFILE
+echo "fi" >> $RFILE
+
 echo -e "\n# Build nekRS cache" >>$RFILE
 echo "mpiexec -n 4 -ppn 4 --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND} --build-only" >> $RFILE
 
-echo -e "\n# Run nekRS: writes graph.bp and trainingData.bp" >>$RFILE
+echo -e "\n# Run nekRS" >>$RFILE
 echo "mpiexec -n ${SIM_RANKS} -ppn ${SIM_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND}" >> $RFILE
 
 echo -e "\n# Repartition the graph and trajectory from BP5 to the ML rank count" >>$RFILE
-echo "mpiexec -n ${ML_RANKS} -ppn ${ML_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python -m repartition.cli --graph-bp ./graph.bp --train-bp ./trainingData.bp --train-bp-mode traj --out-dir ./gnn_from_bp --traj-out ./traj_from_bp --method rcb" >> $RFILE
+echo "mpiexec -n ${ML_RANKS} -ppn ${ML_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python -m repartition.cli --graph-bp ./graph.bp --train-bp ./trainingData.bp --train-bp-mode traj --out-dir ./gnn_outputs_poly_7 --traj-out ./traj_poly_7 --method rcb" >> $RFILE
 
 echo -e "\n# Train the GNN" >>$RFILE
 echo "head_node=\`head -1 \$PBS_NODEFILE | cut -d'.' -f1\`" >>$RFILE
-echo "mpiexec -n ${ML_RANKS} -ppn ${ML_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/dist-gnn/main.py master_addr=\$head_node halo_swap_mode=all_to_all_opt layer_norm=True gnn_outputs_path=${PWD}/gnn_from_bp traj_data_path=${PWD}/traj_from_bp time_dependency=time_dependent target_loss=6.6139e-01 transform_x=true transform_y=true transform_z=true" >> $RFILE
+echo "mpiexec -n ${ML_RANKS} -ppn ${ML_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/dist-gnn/main.py master_addr=\$head_node halo_swap_mode=all_to_all_opt layer_norm=True gnn_outputs_path=${PWD}/gnn_outputs_poly_7 traj_data_path=${PWD}/traj_poly_7 time_dependency=time_dependent target_loss=6.6139e-01 transform_x=true transform_y=true transform_z=true" >> $RFILE
 chmod u+x $RFILE
