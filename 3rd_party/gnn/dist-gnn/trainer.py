@@ -897,8 +897,7 @@ class Trainer:
 
     @staticmethod
     def is_bp_path(path) -> bool:
-        """True for an ADIOS2 BP file/directory path.
-        """
+        """True for an ADIOS2 BP file/directory path."""
         return str(path).rstrip("/").endswith(".bp")
 
     def _stats_path(self, data_dir):
