@@ -148,12 +148,10 @@ void UDF_ExecuteStep(double time, int tstep)
   int numSteps = -1;
   platform->options.getArgs("NUMBER TIMESTEPS", numSteps);
 
-  // Write the trajectory to the BP5 training data file. The set of fields is
-  // chosen here, not in the plugin: this case trains on velocity alone, so it
-  // sends only u. Adding pressure would be one more entry:
-  //   {"p", nrs->o_P, 1}
-  std::vector<bpField_t> fields = {{"u", nrs->o_U, nrs->mesh->dim}};
-  tgen->trajGenWriteBP(nrs, client, fields, time, tstep);
+  // Write the trajectory to the BP5 training data file. Same call signature and
+  // same field_name vocabulary ("velocity", "pressure", "all") as the POSIX,
+  // SmartRedis and SST trajectory writers; only the transport differs.
+  tgen->trajGenWriteBP(nrs, client, time, tstep, "velocity");
 
   if (nrs->checkpointStep) {
     nrs->Qcriterion(o_qcriterion);

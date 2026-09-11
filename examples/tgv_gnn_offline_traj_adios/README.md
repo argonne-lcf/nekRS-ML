@@ -14,7 +14,7 @@ non-scalable offline paths — the one-file-per-rank binaries of
 | file | written by | contents |
 |---|---|---|
 | `graph.bp` | `graph->gnnWriteADIOS(client)` | the five graph arrays plus the per-writer `N`/`num_edges`/`field_offset` manifest |
-| `trainingData.bp` | `tgen->trajGenWriteBP(...)` | one ADIOS step per snapshot: `u` (padded component-major) and the scalar `tstep` |
+| `trainingData.bp` | `tgen->trajGenWriteBP(...)` | one ADIOS step per snapshot: `u` (padded component-major) and the scalars `tstep` and `time` |
 
 `gnnWriteADIOS` must run first — it is the sole setter of the client field
 offsets and the sole writer of the block manifest that the reader needs to
@@ -23,6 +23,13 @@ interpret `trainingData.bp`.
 Unlike the SST path, only the current snapshot is written per step; the reader
 pairs consecutive steps, exactly as dist-gnn does for the POSIX
 `u_step_<tstep>.bin` files.
+
+`trajGenWriteBP` takes the same arguments and the same `field_name` vocabulary
+(`"velocity"`, `"pressure"`, `"all"`) as `trajGenWrite`, `trajGenWriteDB` and
+`trajGenWriteSST`, so switching a case between transports is a one-word edit in
+the UDF. A case needing fields outside that vocabulary calls
+`graph->writeToFileBP(nrs, client, fields, time, tstep)` directly with its own
+`std::vector<bpField_t>`.
 
 ## Pipeline
 

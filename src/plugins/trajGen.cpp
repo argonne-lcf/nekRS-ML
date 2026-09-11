@@ -183,6 +183,30 @@ void trajGen_t::trajGenWriteDB(nrs_t *nrs,
 }
 #endif
 
+// Translate the field_name vocabulary shared by all four trajGenWrite*
+// overloads into the named device fields gnn_t::writeToFileBP consumes. The
+// names given here ("u", "p") become the ADIOS variable names in the file, and
+// match the u_step_*.bin / p_step_*.bin stems trajGenWrite() writes.
+std::vector<bpField_t> trajGen_t::trajFields(nrs_t *nrs, const std::string& field_name)
+{
+    std::vector<bpField_t> fields;
+    if (field_name == "velocity" || field_name == "all") {
+        fields.push_back({"u", nrs->o_U, mesh->dim});
+    }
+    if (field_name == "pressure" || field_name == "all") {
+        fields.push_back({"p", nrs->o_P, 1});
+    }
+    if (fields.empty()) {
+        if (rank == 0) {
+            printf("[RANK %d] -- Error: unrecognized field_name '%s'; "
+                   "expected velocity, pressure or all\n", rank, field_name.c_str());
+        }
+        fflush(stdout);
+        MPI_Abort(platform->comm.mpiComm, 1);
+    }
+    return fields;
+}
+
 void trajGen_t::trajGenWriteSST(nrs_t *nrs,
     adios_client_t* client, 
     dfloat time, 
@@ -191,6 +215,17 @@ void trajGen_t::trajGenWriteSST(nrs_t *nrs,
 {
     MPI_Comm &comm = platform->comm.mpiComm;
 #if defined(NEKRS_ENABLE_ADIOS)
+    // The SST path only defines in_u/out_u, so it can carry velocity alone.
+    // Reject the rest of the shared vocabulary loudly
+    if (field_name != "velocity") {
+        if (rank == 0) {
+            printf("[RANK %d] -- Error: trajGenWriteSST supports field_name "
+                   "velocity only, got '%s'\n", rank, field_name.c_str());
+        }
+        fflush(stdout);
+        MPI_Abort(comm, 1);
+    }
+
     dlong num_dim = mesh->dim;
     hlong field_offset = graph->fieldOffset;
     bool store_inputs = false;
@@ -217,7 +252,6 @@ void trajGen_t::trajGenWriteSST(nrs_t *nrs,
         previous_U = new dfloat[num_dim * field_offset]();
         U = new dfloat[num_dim * field_offset]();
 
-#if defined(NEKRS_ENABLE_ADIOS)
         // Define ADIOS variables
         client->uIn = client->_stream_io.DefineVariable<dfloat>("in_u", 
                                                         {client->_global_field_offset * client->_num_dim}, // global dim
@@ -230,7 +264,6 @@ void trajGen_t::trajGenWriteSST(nrs_t *nrs,
 
         // Open the stream for transfering the solution data
         client->openStream();
-#endif
     }
 
     if (send_data) {
@@ -238,7 +271,6 @@ void trajGen_t::trajGenWriteSST(nrs_t *nrs,
             graph->interpolateField(nrs, nrs->o_U, U, num_dim);
         }
 
-#if defined(NEKRS_ENABLE_ADIOS)
         if (rank == 0) {
             printf("[TRAJ WRITE ADIOS] -- Writing data at tstep %d and physical time %g \n", tstep, time);
         }
@@ -254,9 +286,6 @@ void trajGen_t::trajGenWriteSST(nrs_t *nrs,
         if (rank == 0) {
             printf("[TRAJ WRITE ADIOS] -- Done writing data\n");
         }
-#else
-        trajGenWrite(nrs, time, tstep, field_name);
-#endif
     }
 
     if (store_inputs) {
@@ -271,9 +300,9 @@ void trajGen_t::trajGenWriteSST(nrs_t *nrs,
 
 void trajGen_t::trajGenWriteBP(nrs_t *nrs,
     adios_client_t* client,
-    const std::vector<bpField_t>& fields,
     dfloat time,
-    int tstep)
+    int tstep,
+    const std::string& field_name)
 {
     MPI_Comm &comm = platform->comm.mpiComm;
 #if defined(NEKRS_ENABLE_ADIOS)
@@ -288,6 +317,8 @@ void trajGen_t::trajGenWriteBP(nrs_t *nrs,
         fflush(stdout);
         MPI_Abort(comm, 1);
     }
+    const std::vector<bpField_t> fields = trajFields(nrs, field_name);
+
     if (tstep % dt_factor != 0) return;
 
     graph->writeToFileBP(nrs, client, fields, time, tstep);

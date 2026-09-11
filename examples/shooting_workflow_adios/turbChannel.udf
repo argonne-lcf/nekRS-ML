@@ -107,7 +107,7 @@ void UDF_Setup()
 void UDF_ExecuteStep(double time, int tstep)
 {
   // write trajectory
-  tgen->trajGenWriteADIOS(nrs, client, time, tstep, "velocity");
+  tgen->trajGenWriteSST(nrs, client, time, tstep, "velocity");
 
   // Every time step check if ML training says it is time to quit
   int exit_val = client->check_run();
