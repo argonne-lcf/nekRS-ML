@@ -4,6 +4,7 @@ from nekrs import (
     NekRSMLOfflineFldTest,
     NekRSMLOfflineRepartTest,
     NekRSMLOfflineTest,
+    NekRSMLOfflineTrajBpCliTest,
     NekRSMLOfflineTrajBpTest,
     NekRSMLOnlineTest,
     EnsembleTest,
@@ -89,7 +90,8 @@ class TGVOfflineFld(NekRSMLOfflineFldTest):
     # nekRS always runs on nekrs_ranks=2 and writes only a .f checkpoint;
     # the graph and training data are reconstructed from it at 2 and 4
     # ranks to check that the loss is independent of the rank count
-    # (rpn=4 exercises an actual 2 -> 4 repartitioning).
+    # (rpn=4 exercises an actual 2 -> 4 repartitioning). The partitioner
+    # is the default, parrsb; TGVOfflineRepart is where rcb is covered.
     ranks_per_node = parameter([2, 4])
 
     def __init__(self):
@@ -144,6 +146,33 @@ class TGVOfflineTrajBp(NekRSMLOfflineTrajBpTest):
             extra_opts=TGV_TRANSFORM_OPTS,
         )
         self.tags |= {"tgv_offline_traj_bp"}
+
+
+@rfm.simple_test
+class TGVOfflineTrajBpCli(NekRSMLOfflineTrajBpCliTest):
+    """Same case as TGVOfflineTrajBp, but materialized by repartition.cli.
+
+    Same target_loss as the in-memory variant: the loss is independent of
+    both the partitioning and of whether the BP5 data reaches the trainer
+    directly or through a converted gnn_outputs tree.
+    """
+
+    num_nodes = parameter([1])
+    ranks_per_node = parameter([2, 4])
+
+    def __init__(self):
+        super().__init__(
+            case="tgv",
+            directory="tgv_gnn_offline_traj_adios",
+            nn=self.num_nodes,
+            rpn=self.ranks_per_node,
+            nekrs_ranks=2,
+            repartition_method="parrsb",
+            time_dependency="time_dependent",
+            target_loss=6.6139e-01,
+            extra_opts=TGV_TRANSFORM_OPTS,
+        )
+        self.tags |= {"tgv_offline_traj_bp_cli"}
 
 
 @rfm.simple_test

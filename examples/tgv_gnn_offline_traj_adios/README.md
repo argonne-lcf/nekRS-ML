@@ -20,8 +20,8 @@ non-scalable offline paths — the one-file-per-rank binaries of
 offsets and the sole writer of the block manifest that the reader needs to
 interpret `trainingData.bp`.
 
-Unlike the SST path, only the current snapshot is written per step; the reader
-pairs consecutive steps, exactly as dist-gnn does for the POSIX
+Unlike the SST path, only the current snapshot is written per step; the Dist-GNN trainer
+pairs consecutive steps, similarly to the POSIX
 `u_step_<tstep>.bin` files.
 
 `trajGenWriteBP` takes the same arguments and the same `field_name` vocabulary
@@ -33,30 +33,54 @@ the UDF. A case needing fields outside that vocabulary calls
 
 ## Pipeline
 
+The trainer selects the reader from the shape of the paths it is given: a
+`gnn_outputs_path` ending in `.bp` is read through `AdiosSource` and
+repartitioned onto the ML rank count in memory, and a `traj_data_path` ending in
+`.bp` has its `(x, y)` pairs built by walking the ADIOS steps. Nothing is
+written to disk in between.
+
 ```bash
-# 1. nekRS at SIM_RANKS -> graph.bp + trainingData.bp
-# 2. repartition to ML_RANKS (may differ from SIM_RANKS)
-mpiexec -n $ML_RANKS python -m repartition.cli \
-    --graph-bp ./graph.bp --train-bp ./trainingData.bp \
-    --train-bp-mode traj \
-    --out-dir ./gnn_from_bp --traj-out ./traj_from_bp --method parrsb
-# 3. train
+# 1. nekRS at SIM_RANKS=2 -> graph.bp + trainingData.bp
+# 2. train at ML_RANKS=4 
 mpiexec -n $ML_RANKS python .../dist-gnn/main.py \
-    gnn_outputs_path=$PWD/gnn_from_bp traj_data_path=$PWD/traj_from_bp \
+    gnn_outputs_path=$PWD/graph.bp traj_data_path=$PWD/trainingData.bp \
     time_dependency=time_dependent target_loss=6.6139e-01
 ```
 
-Step 2 materializes the exact filenames the trainer already globs, so dist-gnn
-itself is unchanged and `gnn_outputs_size` stays 0.
+A BP5 graph is always repartitioned, at every ML rank count: `graph.bp` is
+written in the nekRS *writers'* blocks, and even at `ML_RANKS == SIM_RANKS` the
+partitioner does not reproduce the writer's element assignment, so there is no
+native layout to fall back on. `gnn_outputs_size` is neither needed nor
+consulted here — the writer count comes out of the file itself.
+
+### Alternative: materialize a POSIX tree first
+
+`repartition.cli` converts the same two files into the `gnn_outputs` /
+`traj_poly` tree the `.bin` trainer path globs. It is the slower route — it
+writes the intermediate arrays to disk and reads them back — but it is useful
+for inspecting those arrays, and for a trainer build without ADIOS2:
+
+```bash
+mpiexec -n $ML_RANKS python -m repartition.cli \
+    --graph-bp ./graph.bp --train-bp ./trainingData.bp \
+    --train-bp-mode traj \
+    --out-dir ./gnn_outputs_poly_7 --traj-out ./traj_poly_7 --method parrsb
+mpiexec -n $ML_RANKS python .../dist-gnn/main.py \
+    gnn_outputs_path=$PWD/gnn_outputs_poly_7 traj_data_path=$PWD/traj_poly_7 \
+    time_dependency=time_dependent target_loss=6.6139e-01
+```
+
+Both routes repartition with the same code and reach the same loss.
 
 ## Running
 
 ```bash
-./gen_run_script <system> $NEKRS_HOME --venv_path <venv>
-SIM_RANKS_PER_NODE=2 ML_RANKS_PER_NODE=4 ./nrsrun_aurora <nodes>
+./gen_run_script <system> $NEKRS_HOME 
 qsub run.sh
 ```
 
-Setting `SIM_RANKS_PER_NODE != ML_RANKS_PER_NODE` exercises the repartitioner;
-setting them equal exercises the pass-through case. The training loss is
-rank-invariant, so `target_loss=6.6139e-01` is the acceptance gate in both.
+`SIM_RANKS_PER_NODE` and `ML_RANKS_PER_NODE` are independent; set them
+differently to move data across a rank-count change. Both settings go through
+the partitioner (see above), so the difference is in how much data moves, not in
+which code runs. The training loss is rank-invariant either way, so
+`target_loss=6.6139e-01` is the acceptance gate in both.

@@ -50,11 +50,12 @@ from repartition import BinSource, Repartitioner
 from repartition.fld import FldSource
 
 # from gnn_outputs binaries (source rank count autodetected):
-rp = Repartitioner(BinSource("gnn_outputs_poly_7"), comm, method="rcb")
+rp = Repartitioner(BinSource("gnn_outputs_poly_7"), comm, method="parrsb")
 
 # or purely from a .f file (periodic axes fold coincidence classes):
 src = FldSource("case0.f00000", periodic=(True, True, True))
-rp = Repartitioner(src, comm, method="rcb")
+rp = Repartitioner(src, comm, method="parrsb")  # the default; rcb is
+                                                # pure Python, no shim
 
 arrays = rp.graph_arrays()   # dict: pos (N,3) f8, global_ids (N,1) i8,
                              # edge_index (E,2) i4, local/halo masks (N,) i4
@@ -76,7 +77,7 @@ Run from `3rd_party/gnn` (or with it on `PYTHONPATH`):
 # trajectory) to M ranks:
 mpirun -n M python -m repartition.cli \
     --src-dir gnn_outputs_poly_7 --out-dir gnn_outputs_poly_7_M \
-    --method rcb --fld \
+    --method parrsb --fld \
     --traj-dir traj_poly_7/tinit_0.000000_dtfactor_10 --traj-out traj_M
 
 # reconstruct graph + training data purely from .f checkpoint files:
@@ -93,9 +94,22 @@ The CLI always writes the five arrays + `Np` file named
 files (`halo_info`, `node_degree`, `edge_weights`) so dist-gnn training
 runs unchanged; pass `--no-halo` for other models.
 
-dist-gnn can alternatively skip the CLI entirely: its trainer autodetects
-a rank-count mismatch in `gnn_outputs_path` and repartitions in memory
-(config keys `gnn_outputs_size`, `repartition_method`).
+dist-gnn can alternatively skip the CLI entirely -- its trainer picks the
+reader from the suffix of the paths it is given:
+
+- a `gnn_outputs_poly_*` **directory**: the trainer autodetects a
+  rank-count mismatch and repartitions in memory (config keys
+  `gnn_outputs_size`, `repartition_method`).
+- a `graph.bp` / `trainingData.bp` **BP5 file**: read through
+  `AdiosSource`, always repartitioned (a BP5 graph is laid out in the
+  nekRS writers' blocks, so there is no native layout even at M == W),
+  with the trajectory pairs built by walking the ADIOS steps.
+  `gnn_outputs_size` is not consulted -- the writer count comes from
+  `shape("N")[0]` in the file. See
+  `examples/tgv_gnn_offline_traj_adios`.
+
+The CLI remains the route for models other than dist-gnn, for inspecting
+the intermediate arrays, and for a trainer build without ADIOS2.
 
 ## parRSB (`--method parrsb`)
 

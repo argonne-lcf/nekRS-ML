@@ -636,7 +636,7 @@ class NekRSMLOfflineRepartTest(NekRSMLOfflineTest):
 
     def __init__(self, **kwargs):
         self.nekrs_ranks = kwargs.pop("nekrs_ranks", 2)
-        self.repartition_method = kwargs.pop("repartition_method", "rcb")
+        self.repartition_method = kwargs.pop("repartition_method", "parrsb")
         super().__init__(**kwargs)
 
     @property
@@ -779,16 +779,71 @@ class NekRSMLOfflineFldTest(NekRSMLOfflineRepartTest):
 
 
 class NekRSMLOfflineTrajBpTest(NekRSMLOfflineRepartTest):
-    """Offline dist-gnn trajectory training through ADIOS2 BP5 files only.
+    """Offline dist-gnn trajectory training straight from ADIOS2 BP5.
 
     nekRS runs at its own, fixed rank count (nekrs_ranks) and writes the
     graph to graph.bp and the trajectory to a multi-step trainingData.bp
     (one ADIOS step per snapshot) instead of the one-file-per-rank
-    binaries used by NekRSMLOfflineTest. The repartition package reads
-    both through AdiosSource and materializes them at the test's rank
-    count. Running the test at rpn == nekrs_ranks and rpn != nekrs_ranks
-    against the same target_loss checks that the loss is independent of
-    the partitioning.
+    binaries used by NekRSMLOfflineTest. The trainer is handed those two
+    .bp paths directly: it selects AdiosSource on the .bp suffix,
+    repartitions the graph onto the test's rank count in memory and
+    builds the trajectory pairs by walking the ADIOS steps, so there is
+    no repartition.cli pre-pass and no intermediate .bin tree.
+
+    Running the test at rpn == nekrs_ranks and rpn != nekrs_ranks against
+    the same target_loss checks that the loss is independent of the
+    partitioning. See NekRSMLOfflineTrajBpCliTest for the variant that
+    goes through repartition.cli instead.
+    """
+
+    @property
+    def graph_bp(self):
+        return os.path.join(self.stagedir, "graph.bp")
+
+    @property
+    def train_bp(self):
+        return os.path.join(self.stagedir, "trainingData.bp")
+
+    def set_prerun_cmds(self):
+        """The base prerun without its trailing repartition_cmd().
+
+        This flavour has nothing to convert -- the trainer reads the two
+        .bp files itself -- but everything before that step (setup,
+        PYTHONPATH, the parRSB shim, the nekRS build and run) is still
+        needed, so take the base list and drop its last entry rather than
+        restating it here.
+        """
+        before = len(self.prerun_cmds)
+        super().set_prerun_cmds()
+        assert len(self.prerun_cmds) > before, "base added no commands"
+        # Match on the module name, not on the regenerated command string:
+        # the check should survive a change in how mpiexec is spelled and
+        # only fire if the base stops ending with the conversion step.
+        assert "repartition.cli" in self.prerun_cmds[-1], (
+            "expected NekRSMLOfflineRepartTest.set_prerun_cmds to end with "
+            f"the repartition step, found: {self.prerun_cmds[-1]}"
+        )
+        del self.prerun_cmds[-1]
+
+    @property
+    def repart_graph_dir(self):
+        # The base passes this as gnn_outputs_path; handing it the .bp
+        # file is what selects the trainer's ADIOS2 path.
+        return self.graph_bp
+
+    def set_executable_options(self):
+        super().set_executable_options()
+        self.executable_opts.append(f"traj_data_path={self.train_bp}")
+
+
+class NekRSMLOfflineTrajBpCliTest(NekRSMLOfflineTrajBpTest):
+    """The same BP5 trajectory case, materialized by repartition.cli.
+
+    Converts graph.bp and trainingData.bp into a POSIX gnn_outputs tree
+    at the test's rank count and trains from that, exercising the CLI
+    reader and the .bin trainer path. It shares nekRS's side and its
+    target_loss with NekRSMLOfflineTrajBpTest, so running both checks
+    that the in-memory and materialized routes agree.
     """
 
     @property
@@ -802,19 +857,21 @@ class NekRSMLOfflineTrajBpTest(NekRSMLOfflineRepartTest):
     def repartition_cli_opts(self):
         return [
             "--graph-bp",
-            os.path.join(self.stagedir, "graph.bp"),
+            self.graph_bp,
             "--train-bp",
-            os.path.join(self.stagedir, "trainingData.bp"),
+            self.train_bp,
             "--train-bp-mode",
             "traj",
             "--traj-out",
             self.repart_traj_dir,
         ]
 
+    def set_prerun_cmds(self):
+        # Restore the repartition step the in-memory parent removes.
+        NekRSMLOfflineRepartTest.set_prerun_cmds(self)
+
     def set_executable_options(self):
-        # NekRSMLOfflineRepartTest omits traj_data_path (its fld/field
-        # flavours do not need one); a trajectory run does.
-        super().set_executable_options()
+        NekRSMLOfflineRepartTest.set_executable_options(self)
         self.executable_opts.append(f"traj_data_path={self.repart_traj_dir}")
 
 

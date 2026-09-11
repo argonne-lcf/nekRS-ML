@@ -272,7 +272,7 @@ class OnlineClient:
     def _wait_for_graph(self, path: str = "graph.bp", timeout: float = 600.0):
         self._wait_for_bp(path, {"N", "num_edges", "pos_node"}, timeout)
 
-    def get_graph_data_from_stream(self, method: str = "rcb") -> dict:
+    def get_graph_data_from_stream(self, method: str = "parrsb") -> dict:
         """Get the entire set of graph datasets from a stream.
 
         graph.bp is written by the nekRS ranks, so it has W writer blocks

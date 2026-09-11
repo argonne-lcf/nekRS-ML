@@ -127,7 +127,7 @@ def element_corners(elems):
     return gids, xyz
 
 
-def partition_elements(elems, comm, method="rcb"):
+def partition_elements(elems, comm, method="parrsb"):
     size = comm.Get_size()
     if size == 1:
         return np.zeros(elems.n_elements, dtype=np.int64)

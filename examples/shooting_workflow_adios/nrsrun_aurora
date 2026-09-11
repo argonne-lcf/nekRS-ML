@@ -218,7 +218,7 @@ echo "if [ -d .cache ]; then" >> $RFILE
 echo "  echo Cleaning up the cache" >> $RFILE
 echo "  rm -rf .cache" >> $RFILE
 echo "fi" >> $RFILE
-CMD_build="mpiexec -n ${RANKS_FOR_BUILD} -ppn ${RANKS_FOR_BUILD} --cpu-bind list:${SIM_CPU_BIND_LIST} -- $bin --setup ${case} --backend ${NEKRS_BACKEND}  $extra_args --build-only ${RANKS_FOR_BUILD}"
+CMD_build="mpiexec -n ${RANKS_FOR_BUILD} -ppn ${RANKS_FOR_BUILD} --cpu-bind list:${SIM_CPU_BIND_LIST} -- $bin --setup ${case} --backend ${NEKRS_BACKEND}  $extra_args --build-only ${SIM_PROCS}"
 add_build_CMD "$RFILE" "$CMD_build" "$TOTAL_RANKS"
 
 echo -e "\n# actual run" >>$RFILE

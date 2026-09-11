@@ -65,10 +65,16 @@ echo "mpiexec -n 12 -ppn 12 --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/
 echo -e "\n# Run nekRS" >>$RFILE
 echo "mpiexec -n ${SIM_RANKS} -ppn ${SIM_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} -- $NEKRS_HOME/bin/nekrs --setup ${case} --backend ${NEKRS_BACKEND}" >> $RFILE
 
-echo -e "\n# Repartition the graph and trajectory from BP5 to the ML rank count" >>$RFILE
-echo "mpiexec -n ${ML_RANKS} -ppn ${ML_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python -m repartition.cli --graph-bp ./graph.bp --train-bp ./trainingData.bp --train-bp-mode traj --out-dir ./gnn_outputs_poly_7 --traj-out ./traj_poly_7 --method rcb" >> $RFILE
+echo -e "\n# The trainer reads graph.bp and trainingData.bp directly and repartitions" >>$RFILE
+echo "# them onto the ML rank count in memory, so no conversion step is needed." >>$RFILE
+echo "# To materialize a POSIX gnn_outputs tree instead -- useful for inspecting" >>$RFILE
+echo "# the intermediate arrays, or for a trainer build without ADIOS2 -- run" >>$RFILE
+echo "# repartition.cli here and point the two paths below at its output:" >>$RFILE
+echo "#   python -m repartition.cli --graph-bp ./graph.bp --train-bp ./trainingData.bp \\" >>$RFILE
+echo "#       --train-bp-mode traj --out-dir ./gnn_outputs_poly_7 \\" >>$RFILE
+echo "#       --traj-out ./traj_poly_7 --method parrsb" >>$RFILE
 
 echo -e "\n# Train the GNN" >>$RFILE
 echo "head_node=\`head -1 \$PBS_NODEFILE | cut -d'.' -f1\`" >>$RFILE
-echo "mpiexec -n ${ML_RANKS} -ppn ${ML_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/dist-gnn/main.py master_addr=\$head_node halo_swap_mode=all_to_all_opt layer_norm=True gnn_outputs_path=${PWD}/gnn_outputs_poly_7 traj_data_path=${PWD}/traj_poly_7 time_dependency=time_dependent target_loss=6.6139e-01 transform_x=true transform_y=true transform_z=true" >> $RFILE
+echo "mpiexec -n ${ML_RANKS} -ppn ${ML_RANKS_PER_NODE} --cpu-bind=list:${CPU_BIND_LIST} python ${NEKRS_HOME}/3rd_party/gnn/dist-gnn/main.py master_addr=\$head_node halo_swap_mode=all_to_all_opt layer_norm=True gnn_outputs_path=${PWD}/graph.bp traj_data_path=${PWD}/trainingData.bp time_dependency=time_dependent target_loss=6.6139e-01 transform_x=true transform_y=true transform_z=true" >> $RFILE
 chmod u+x $RFILE

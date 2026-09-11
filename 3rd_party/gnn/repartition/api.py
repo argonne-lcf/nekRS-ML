@@ -11,13 +11,13 @@ class Repartitioner:
 
     Usage:
         src = BinSource("gnn_outputs_poly_7")
-        rp = Repartitioner(src, comm, method="rcb")
+        rp = Repartitioner(src, comm, method="parrsb")
         arrays = rp.graph_arrays()
         u = rp.read_field(lambda s: f".../data_rank_{s}_size_{src.src_size}"
                           f"/u_step_10.bin", ncols=3)
     """
 
-    def __init__(self, source, comm, method="rcb"):
+    def __init__(self, source, comm, method="parrsb"):
         self.source = source
         self.comm = comm
         self.method = method

@@ -2,7 +2,7 @@
 repartitioned to the current MPI communicator size.
 
     mpirun -n M python -m repartition.cli --src-dir gnn_outputs_poly_7 \
-        [--out-dir OUT] [--method rcb|block] [--fld] \
+        [--out-dir OUT] [--method parrsb|rcb|block] [--fld] \
         [--traj-dir traj_poly_7/tinit_0.000000_dtfactor_10 [--traj-out OUT2]]
 
 Writes the five graph arrays and the Np file named *_rank_r_size_M
@@ -12,6 +12,10 @@ edge_weights, via dist-gnn's create_halo_info_par functions), so existing
 offline dist-gnn training/inference runs unchanged at the new size. --fld
 routes every fld_* snapshot found in the source dir; --traj-dir routes
 every file of every data_rank_*_size_S trajectory subdirectory.
+
+--method defaults to parrsb, the partitioner nekRS itself uses; it needs
+the ctypes shim that CMake builds and installs next to parrsb.py. rcb is
+pure Python and needs nothing.
 
 Run from 3rd_party/gnn (or with that directory on PYTHONPATH).
 """
@@ -282,7 +286,7 @@ def main():
     ap.add_argument("--src-dir", help="gnn_outputs_poly_* source directory")
     ap.add_argument("--out-dir", default=None)
     ap.add_argument(
-        "--method", default="rcb", choices=["rcb", "block", "parrsb"]
+        "--method", default="parrsb", choices=["rcb", "block", "parrsb"]
     )
     ap.add_argument("--fld", action="store_true")
     ap.add_argument("--traj-dir", default=None)

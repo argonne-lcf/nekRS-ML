@@ -784,10 +784,15 @@ class Trainer:
         """
         if self.rank == 0:
             log.info("Setting up the graph ...")
-        if not self.cfg.online:
+        if not self.cfg.online and not self.is_bp_path(
+            self.cfg.gnn_outputs_path
+        ):
             main_path = self.cfg.gnn_outputs_path + "/"
         else:
-            main_path = ""
+            # a BP5 ADIOS2 graph
+            # _maybe_repartition_graph reads it and returns before any
+            # main_path-derived name is used
+            main_path = self.cfg.gnn_outputs_path
 
         if not self.cfg.online:
             repart_arrays = self._maybe_repartition_graph(main_path)
@@ -890,36 +895,74 @@ class Trainer:
 
         return pos, gli, ei, local_unique_mask, halo_unique_mask
 
-    def _maybe_repartition_graph(self, main_path):
-        """Route offline graph loading through the repartition package when
-        the gnn_outputs files were written at a different rank count.
-        Returns the load_graph_data tuple, or None for the native path."""
-        src_size = int(self.cfg.get("gnn_outputs_size", 0) or 0)
-        have_native = os.path.exists(
-            main_path + "pos_node_rank_%d_size_%d.bin" % (self.rank, self.size)
-        )
-        if (src_size == 0 or src_size == self.size) and have_native:
-            return None
+    @staticmethod
+    def is_bp_path(path) -> bool:
+        """True for an ADIOS2 BP file/directory path.
+        """
+        return str(path).rstrip("/").endswith(".bp")
 
-        # the repartition package lives one level up (3rd_party/gnn/), so
-        # multiple models can share it
+    def _stats_path(self, data_dir):
+        """Where the cached data_stats.npz for this dataset lives.
+        For ADIOS2, put it next to the .bp.
+        """
+        if self.is_bp_path(data_dir):
+            base = str(data_dir).rstrip("/")
+            return base[: -len(".bp")] + "_data_stats.npz"
+        return data_dir + "/data_stats.npz"
+
+    def _import_repartition(self):
+        """The repartition package lives one level up (3rd_party/gnn/), so
+        multiple models can share it."""
         pkg_parent = os.path.abspath(
             os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
         )
         if pkg_parent not in sys.path:
             sys.path.insert(0, pkg_parent)
-        from repartition import BinSource, Repartitioner
+        import repartition
 
-        src = BinSource(self.cfg.gnn_outputs_path, src_size=src_size or None)
-        if src.src_size == self.size and have_native:
-            return None
-        method = str(self.cfg.get("repartition_method", "rcb"))
+        return repartition
+
+    def _maybe_repartition_graph(self, graph_path):
+        """Route offline graph loading through the repartition package.
+
+        Two cases reach here. A BP5 graph (gnn_outputs_path ends in .bp) is
+        always read through AdiosSource and always repartitioned: graph.bp
+        is written in the nekRS writers' blocks, and even at M == N the
+        partitioner does not reproduce the writer's element assignment, so
+        there is no "native" layout to fall back on. A .bin gnn_outputs
+        directory only needs this when it was written at a different rank
+        count than the current world size.
+
+        Returns the load_graph_data tuple, or None for the native path."""
+        bp_graph = self.is_bp_path(graph_path)
+
+        if not bp_graph:
+            src_size = int(self.cfg.get("gnn_outputs_size", 0) or 0)
+            have_native = os.path.exists(
+                graph_path
+                + "pos_node_rank_%d_size_%d.bin" % (self.rank, self.size)
+            )
+            if (src_size == 0 or src_size == self.size) and have_native:
+                return None
+
+        repartition = self._import_repartition()
+        method = str(self.cfg.get("repartition_method", "parrsb"))
+
+        if bp_graph:
+            # N comes from shape("N")[0] in the file itself, so gnn_outputs_size
+            # is neither needed nor consulted on this path.
+            src = repartition.AdiosSource(graph_path, comm=self.comm)
+        else:
+            src = repartition.BinSource(graph_path, src_size=src_size or None)
+            if src.src_size == self.size and have_native:
+                return None
+
         if self.rank == 0:
             log.info(
                 f"Repartitioning graph from size {src.src_size} to "
                 f"{self.size} (method={method})"
             )
-        self.repart = Repartitioner(src, COMM, method=method)
+        self.repart = repartition.Repartitioner(src, self.comm, method=method)
         arrs = self.repart.graph_arrays()
         self.Np = np.array([float(self.repart.Np)], dtype=np.float32)
         return (
@@ -1308,9 +1351,35 @@ class Trainer:
         data_std = data_std.unsqueeze(0)
         return data_mean, data_std
 
+    def _load_field_data_bp(self, bp_path: str):
+        """Load (input, output) field pairs from a multi-step BP5 file.
+
+        Both fields live in the SAME ADIOS step (writeToFileBP writes the whole
+        field vector per step), so each step yields one complete pair and
+        no cross-step pairing is needed.
+        """
+        in_name = self.cfg.input_fld_name
+        out_name = self.cfg.output_fld_name
+        specs = [
+            (in_name, self.cfg.input_fld_dim),
+            (out_name, self.cfg.output_fld_dim),
+        ]
+        nsnap = 0
+        for _, routed in self._bp_snapshot_steps(bp_path, specs, scalar="time"):
+            nsnap += 1
+            self.data_list.append({
+                "x": self.prepare_snapshot_data(routed[in_name]),
+                "y": self.prepare_snapshot_data(routed[out_name]),
+            })
+        if nsnap == 0:
+            raise RuntimeError(f"{bp_path} contains no steps")
+        if self.rank == 0:
+            log.info(f"Loaded {nsnap} field snapshots from {bp_path}")
+
     def load_field_data(self, data_dir: str):
         if self.rank == 0:
             log.info("Loading field data...")
+        bp_source = not self.cfg.online and self.is_bp_path(data_dir)
         input_field = self.cfg.input_fld_name
         output_field = self.cfg.output_fld_name
 
@@ -1322,73 +1391,83 @@ class Trainer:
             return float(time_part)
 
         # read files
-        if not self.cfg.online:
-            file_list = os.listdir(data_dir)
-            # with an active repartitioner, snapshots are listed (and then
-            # read collectively) from the source rank 0 files
-            rank_token = (
-                f"rank_{self.rank}"
-                if self.repart is None
-                else f"rank_0_size_{self.repart.source.src_size}"
-            )
-            input_files = [
-                item
-                for item in file_list
-                if (f"fld_{input_field}" in item) and (rank_token in item)
-            ]
-            input_files.sort(key=snapshot_time_from_filename)
-            output_files = [
-                item
-                for item in file_list
-                if (f"fld_{output_field}" in item) and (rank_token in item)
-            ]
-            output_files.sort(key=snapshot_time_from_filename)
+        if bp_source:
+            # one ADIOS step holds both fields, so the pairs come straight
+            # out of the step loop
+            self._load_field_data_bp(data_dir)
         else:
-            tic = time.time()
-            output_files = self.client.get_file_list(
-                f"outputs_rank_{self.rank}"
-            )
-            input_files = self.client.get_file_list(f"inputs_rank_{self.rank}")
-            self.online_timers["metaData"].append(time.time() - tic)
-        assert len(input_files) == len(output_files), (
-            "ERROR: found different number of input and output files"
-        )
-
-        # populate dataset
-        if not self.cfg.online:
-            path_prepend = data_dir + "/"
-            input_files = [
-                path_prepend + input_file for input_file in input_files
-            ]
-            output_files = [
-                path_prepend + output_file for output_file in output_files
-            ]
-        log.info(
-            f"[RANK {self.rank}]: Found {len(output_files)} new field files in DB"
-        )
-        for i in range(len(output_files)):
-            tic = time.time()
-            data_x = self._load_snapshot(input_files[i], self.cfg.input_fld_dim)
-            toc = time.time()
-            if self.cfg.online:
-                self.online_timers["trainDataTime"].append(toc - tic)
-                self.online_timers["trainDataThroughput"].append(
-                    data_x.nbytes / GB_SIZE / (toc - tic)
+            if not self.cfg.online:
+                file_list = os.listdir(data_dir)
+                # with an active repartitioner, snapshots are listed (and then
+                # read collectively) from the source rank 0 files
+                rank_token = (
+                    f"rank_{self.rank}"
+                    if self.repart is None
+                    else f"rank_0_size_{self.repart.source.src_size}"
                 )
-            data_x = self.prepare_snapshot_data(data_x)
-
-            tic = time.time()
-            data_y = self._load_snapshot(
-                output_files[i], self.cfg.output_fld_dim
-            )
-            toc = time.time()
-            if self.cfg.online:
-                self.online_timers["trainDataTime"].append(toc - tic)
-                self.online_timers["trainDataThroughput"].append(
-                    data_x.nbytes / GB_SIZE / (toc - tic)
+                input_files = [
+                    item
+                    for item in file_list
+                    if (f"fld_{input_field}" in item) and (rank_token in item)
+                ]
+                input_files.sort(key=snapshot_time_from_filename)
+                output_files = [
+                    item
+                    for item in file_list
+                    if (f"fld_{output_field}" in item) and (rank_token in item)
+                ]
+                output_files.sort(key=snapshot_time_from_filename)
+            else:
+                tic = time.time()
+                output_files = self.client.get_file_list(
+                    f"outputs_rank_{self.rank}"
                 )
-            data_y = self.prepare_snapshot_data(data_y)
-            self.data_list.append({"x": data_x, "y": data_y})
+                input_files = self.client.get_file_list(
+                    f"inputs_rank_{self.rank}"
+                )
+                self.online_timers["metaData"].append(time.time() - tic)
+            assert len(input_files) == len(output_files), (
+                "ERROR: found different number of input and output files"
+            )
+
+            # populate dataset
+            if not self.cfg.online:
+                path_prepend = data_dir + "/"
+                input_files = [
+                    path_prepend + input_file for input_file in input_files
+                ]
+                output_files = [
+                    path_prepend + output_file for output_file in output_files
+                ]
+            log.info(
+                f"[RANK {self.rank}]: Found {len(output_files)} "
+                "new field files in DB"
+            )
+            for i in range(len(output_files)):
+                tic = time.time()
+                data_x = self._load_snapshot(
+                    input_files[i], self.cfg.input_fld_dim
+                )
+                toc = time.time()
+                if self.cfg.online:
+                    self.online_timers["trainDataTime"].append(toc - tic)
+                    self.online_timers["trainDataThroughput"].append(
+                        data_x.nbytes / GB_SIZE / (toc - tic)
+                    )
+                data_x = self.prepare_snapshot_data(data_x)
+
+                tic = time.time()
+                data_y = self._load_snapshot(
+                    output_files[i], self.cfg.output_fld_dim
+                )
+                toc = time.time()
+                if self.cfg.online:
+                    self.online_timers["trainDataTime"].append(toc - tic)
+                    self.online_timers["trainDataThroughput"].append(
+                        data_x.nbytes / GB_SIZE / (toc - tic)
+                    )
+                data_y = self.prepare_snapshot_data(data_y)
+                self.data_list.append({"x": data_x, "y": data_y})
 
         # split into train/validation
         data = {"train": [], "validation": []}
@@ -1422,9 +1501,9 @@ class Trainer:
         # Compute statistics for normalization
         stats = {"x": [], "y": []}
         if "stats" not in self.data.keys():
-            if os.path.exists(data_dir + f"/data_stats.npz"):
+            if os.path.exists(self._stats_path(data_dir)):
                 if self.rank == 0:
-                    npzfile = np.load(data_dir + f"/data_stats.npz")
+                    npzfile = np.load(self._stats_path(data_dir))
                     stats_arr_x = np.stack([
                         npzfile["x_mean"][0],
                         npzfile["x_std"][0],
@@ -1444,14 +1523,15 @@ class Trainer:
                 stats["y"] = [stats_arr_y[0], stats_arr_y[1]]
                 if self.rank == 0:
                     log.info(
-                        f"Read training data statistics from {data_dir}/data_stats.npz"
+                        "Read training data statistics from "
+                        f"{self._stats_path(data_dir)}"
                     )
             else:
                 x_mean, x_std = self.compute_statistics(data["train"], "x")
                 y_mean, y_std = self.compute_statistics(data["train"], "y")
                 if self.rank == 0 and not self.cfg.online:
                     np.savez(
-                        data_dir + f"/data_stats.npz",
+                        self._stats_path(data_dir),
                         x_mean=x_mean,
                         x_std=x_std,
                         y_mean=y_mean,
@@ -1465,11 +1545,82 @@ class Trainer:
                     )
         return data, stats
 
+    def _bp_snapshot_steps(self, bp_path, var_specs, scalar=None):
+        """Iterate the snapshots of a multi-step BP5 training-data file.
+
+        Yields (scalar_value, {name: (n_local, ncols) array}) once per ADIOS
+        step, with the fields already routed onto this rank by the active
+        repartitioner. The file is stepped exactly once and each snapshot is
+        read exactly once, which is what lets the trajectory pairs be built
+        without holding or re-reading anything but the previous snapshot.
+
+        AdiosSource.read_node_field needs the stream attached and positioned
+        inside a step, so the step loop has to live here rather than behind
+        the per-path _load_snapshot() used by the .bin loaders.
+        """
+        if self.repart is None:
+            raise RuntimeError(
+                f"reading {bp_path} needs an active repartitioner: the "
+                "training data is laid out in the nekRS writers' blocks, "
+                "whose sizes only the BP5 graph announces. Set "
+                "gnn_outputs_path to the graph .bp file."
+            )
+        repartition = self._import_repartition()
+        src = self.repart.source
+        with repartition.open_bp_read(bp_path, self.comm) as st:
+            for _ in st.steps():
+                src.attach_field_stream(st)
+                routed = {
+                    name: self.repart.read_field(name, ncols=ncols)
+                    for name, ncols in var_specs
+                }
+                # Read the scalar after the fields: both live in the same
+                # step, but a fixed order keeps the ADIOS trace simple.
+                value = None
+                if scalar is not None:
+                    value = np.asarray(st.read(scalar)).reshape(-1)[0]
+                yield value, routed
+
+    def _load_trajectory_bp(self, bp_path: str):
+        """Load a trajectory from a multi-step BP5 file written by nekRS.
+
+        Each ADIOS step is one snapshot (trajGenWriteBP / writeToFileBP), so
+        the (x, y) training pairs are consecutive steps. Walking the steps
+        forward and keeping only the previous snapshot reads each one once.
+
+        The real nekRS step number rides along in the file as the tstep
+        scalar, so the pairs carry it instead of a positional index.
+        """
+        prev = None
+        nsnap = 0
+        for tstep, routed in self._bp_snapshot_steps(
+            bp_path, [("u", self.cfg.input_fld_dim)], scalar="tstep"
+        ):
+            nsnap += 1
+            cur = (int(tstep), self.prepare_snapshot_data(routed["u"]))
+            if prev is not None:
+                self.data_list.append({
+                    "x": prev[1],
+                    "y": cur[1],
+                    "step_x": prev[0],
+                    "step_y": cur[0],
+                })
+            prev = cur
+        if nsnap < 2:
+            raise RuntimeError(
+                f"{bp_path} holds {nsnap} snapshot(s); a trajectory needs "
+                "at least 2 to form one (x, y) pair"
+            )
+        if self.rank == 0:
+            log.info(f"Loaded {nsnap} trajectory snapshots from {bp_path}")
+
     def load_trajectory(self, data_dir: str):
         """Load a solution trajectory"""
         self.comm.Barrier()  # sync helps here
         # read files
-        if not self.cfg.online:
+        if not self.cfg.online and self.is_bp_path(data_dir):
+            self._load_trajectory_bp(data_dir)
+        elif not self.cfg.online:
             traj_sub = (
                 f"data_rank_{self.rank}_size_{self.size}"
                 if self.repart is None
@@ -1574,7 +1725,7 @@ class Trainer:
         fraction_valid = 0.0
         if fraction_valid > 0 and len(self.data_list) * fraction_valid > 1:
             # How many total snapshots to extract
-            n_full = len(idx_x)
+            n_full = len(self.data_list)
             n_valid = int(np.floor(fraction_valid * n_full))
 
             # Get validation set indices
@@ -1601,9 +1752,9 @@ class Trainer:
         # Compute statistics for normalization
         stats = {"x": [], "y": []}
         if "stats" not in self.data.keys():
-            if os.path.exists(data_dir + f"/data_stats.npz"):
+            if os.path.exists(self._stats_path(data_dir)):
                 if self.rank == 0:
-                    npzfile = np.load(data_dir + f"/data_stats.npz")
+                    npzfile = np.load(self._stats_path(data_dir))
                     stats_arr = np.stack([
                         npzfile["x_mean"][0],
                         npzfile["x_std"][0],
@@ -1618,7 +1769,8 @@ class Trainer:
                 stats["y"] = [stats_arr[2], stats_arr[3]]
                 if self.rank == 0:
                     log.info(
-                        f"Read training data statistics from {data_dir}/data_stats.npz"
+                        "Read training data statistics from "
+                        f"{self._stats_path(data_dir)}"
                     )
             else:
                 if self.rank == 0:
@@ -1627,7 +1779,7 @@ class Trainer:
                 y_mean, y_std = self.compute_statistics(data["train"], "y")
                 if self.rank == 0 and not self.cfg.online:
                     np.savez(
-                        data_dir + "/data_stats.npz",
+                        self._stats_path(data_dir),
                         x_mean=x_mean.cpu().to(torch.float32).numpy(),
                         x_std=x_std.cpu().to(torch.float32).numpy(),
                         y_mean=y_mean.cpu().to(torch.float32).numpy(),
@@ -1645,7 +1797,18 @@ class Trainer:
         """Load the initial condition to a solution trajectory"""
         self.comm.Barrier()  # sync helps here
         # read files
-        if not self.cfg.online:
+        if not self.cfg.online and self.is_bp_path(data_dir):
+            # the rollout only needs the first snapshot, so stop after the
+            # first ADIOS step instead of walking the whole file
+            data_x = None
+            for _, routed in self._bp_snapshot_steps(
+                data_dir, [("u", 3)], scalar="tstep"
+            ):
+                data_x = routed["u"]
+                break
+            if data_x is None:
+                raise RuntimeError(f"{data_dir} contains no steps")
+        elif not self.cfg.online:
             traj_sub = (
                 f"data_rank_{self.rank}_size_{self.size}"
                 if self.repart is None
@@ -1674,15 +1837,16 @@ class Trainer:
         # Compute statistics for normalization
         stats = {"x": [], "y": []}
         if "stats" not in self.data.keys():
-            if os.path.exists(data_dir + "/data_stats.npz"):
+            if os.path.exists(self._stats_path(data_dir)):
                 if self.rank == 0:
-                    npzfile = np.load(data_dir + "/data_stats.npz")
+                    npzfile = np.load(self._stats_path(data_dir))
                     stats["x"] = [npzfile["x_mean"], npzfile["x_std"]]
                     stats["y"] = [npzfile["y_mean"], npzfile["y_std"]]
                 stats = self.comm.bcast(stats, root=0)
                 if self.rank == 0:
                     log.info(
-                        f"Read training data statistics from {data_dir}/data_stats.npz"
+                        "Read training data statistics from "
+                        f"{self._stats_path(data_dir)}"
                     )
             else:
                 x_mean, x_std = self.compute_statistics(data["train"], "x")
