@@ -20,7 +20,8 @@ import torch.optim as optim
 # torch.use_deterministic_algorithms(True)
 
 import torch.distributed as dist
-#import torch.distributed.nn as distnn
+
+# import torch.distributed.nn as distnn
 import torch.distributed._functional_collectives as funcol
 from torch.nn.parallel import DistributedDataParallel as DDP
 
