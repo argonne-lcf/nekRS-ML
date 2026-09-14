@@ -20,7 +20,8 @@ import torch.optim as optim
 # torch.use_deterministic_algorithms(True)
 
 import torch.distributed as dist
-import torch.distributed.nn as distnn
+#import torch.distributed.nn as distnn
+import torch.distributed._functional_collectives as funcol
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 # PyTorch Geometric
@@ -2313,7 +2314,7 @@ class Trainer:
                 ].unsqueeze(-1)
 
                 sum_squared_errors_local = squared_errors_local.sum()
-                sum_squared_errors = distnn.all_reduce(sum_squared_errors_local, "sum", torch.distributed.group.WORLD)
+                sum_squared_errors = funcol.all_reduce(sum_squared_errors_local, "sum", torch.distributed.group.WORLD)
                 mse_loss[batch_idx] = (
                     1.0 / (graph.effective_nodes * n_output_features)
                 ) * sum_squared_errors
@@ -2547,7 +2548,7 @@ class Trainer:
                     )
 
                     sum_squared_errors_local = squared_errors_local.sum()
-                    sum_squared_errors = distnn.all_reduce(
+                    sum_squared_errors = funcol.all_reduce(
                         sum_squared_errors_local,
                         "sum",
                         torch.distributed.group.WORLD
