@@ -2314,7 +2314,11 @@ class Trainer:
                 ].unsqueeze(-1)
 
                 sum_squared_errors_local = squared_errors_local.sum()
-                sum_squared_errors = funcol.all_reduce(sum_squared_errors_local, "sum", torch.distributed.group.WORLD)
+                sum_squared_errors = funcol.all_reduce(
+                    sum_squared_errors_local,
+                    "sum",
+                    torch.distributed.group.WORLD,
+                )
                 mse_loss[batch_idx] = (
                     1.0 / (graph.effective_nodes * n_output_features)
                 ) * sum_squared_errors
@@ -2551,7 +2555,7 @@ class Trainer:
                     sum_squared_errors = funcol.all_reduce(
                         sum_squared_errors_local,
                         "sum",
-                        torch.distributed.group.WORLD
+                        torch.distributed.group.WORLD,
                     )
                     loss = (
                         1.0 / (graph.effective_nodes * n_output_features)
