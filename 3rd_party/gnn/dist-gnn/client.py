@@ -75,6 +75,11 @@ class OnlineClient:
                 "DataTransport": self.transport,  # options: MPI, WAN, UCX, RDMA
                 "OpenTimeoutSecs": "600",  # number of seconds writer waits on Open() for reader
                 "AlwaysProvideLatestTimestep": "False",  # True means reader will see only the newest available step
+                # Use epoll, not SST's hardcoded "select", for the EVPath control
+                # plane: select() breaks on fds >= FD_SETSIZE (1024, not raisable)
+                # at large node counts. Must match the writer
+                # (src/plugins/adiosStreamer.cpp).
+                "ControlModule": "epoll",
             }
             self.client.set_parameters(parameters)
             self.solutionStream = None

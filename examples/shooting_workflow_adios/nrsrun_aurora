@@ -202,6 +202,7 @@ fi
 echo "export SstVerbose=1" >> $RFILE
 echo "export OMP_PROC_BIND=spread" >> $RFILE
 echo "export OMP_PLACES=threads" >> $RFILE
+echo "export CMControlModule=epoll" >> $RFILE
 echo "if ls *.sst 1> /dev/null 2>&1" >> $RFILE
 echo "then" >> $RFILE 
 echo "    echo Cleaning up old .sst files" >> $RFILE

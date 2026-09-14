@@ -50,6 +50,12 @@ adios_client_t::adios_client_t(MPI_Comm& comm) : _comm(comm)
         }
         _params["DataTransport"] = _transport;
         _params["OpenTimeoutSecs"] = "600";
+        // SST hardcodes EVPath's control module to "select" when unset, and
+        // select() cannot handle a file descriptor >= FD_SETSIZE (1024 in glibc,
+        // not raisable). At large node counts the control sockets exceed that.
+        // epoll has no such ceiling and is otherwise a
+        // drop-in. Must match the reader (3rd_party/gnn/dist-gnn/client.py).
+        _params["ControlModule"] = "epoll";
         _stream_io.SetParameters(_params);
 
         _write_io = _adios->DeclareIO("writeIO");
