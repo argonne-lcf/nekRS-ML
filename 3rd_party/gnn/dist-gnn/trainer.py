@@ -784,15 +784,14 @@ class Trainer:
         """
         if self.rank == 0:
             log.info("Setting up the graph ...")
-        if not self.cfg.online and not self.is_bp_path(
-            self.cfg.gnn_outputs_path
-        ):
-            main_path = self.cfg.gnn_outputs_path + "/"
-        else:
-            # a BP5 ADIOS2 graph
-            # _maybe_repartition_graph reads it and returns before any
-            # main_path-derived name is used
+        if self.cfg.online:
+            # SmartRedis tensor names, not a filesystem path
+            main_path = ""
+        elif self.is_bp_path(self.cfg.gnn_outputs_path):
+            # BP5 ADIOS2 graph
             main_path = self.cfg.gnn_outputs_path
+        else:
+            main_path = self.cfg.gnn_outputs_path + "/"
 
         if not self.cfg.online:
             repart_arrays = self._maybe_repartition_graph(main_path)
@@ -2315,7 +2314,7 @@ class Trainer:
                 ].unsqueeze(-1)
 
                 sum_squared_errors_local = squared_errors_local.sum()
-                sum_squared_errors = distnn.all_reduce(sum_squared_errors_local)
+                sum_squared_errors = distnn.all_reduce(sum_squared_errors_local, "sum", torch.distributed.group.WORLD)
                 mse_loss[batch_idx] = (
                     1.0 / (graph.effective_nodes * n_output_features)
                 ) * sum_squared_errors
@@ -2550,7 +2549,9 @@ class Trainer:
 
                     sum_squared_errors_local = squared_errors_local.sum()
                     sum_squared_errors = distnn.all_reduce(
-                        sum_squared_errors_local
+                        sum_squared_errors_local,
+                        "sum",
+                        torch.distributed.group.WORLD
                     )
                     loss = (
                         1.0 / (graph.effective_nodes * n_output_features)
