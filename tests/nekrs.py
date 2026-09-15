@@ -739,12 +739,6 @@ class NekRSMLOfflineRepartTest(NekRSMLOfflineTest):
             self.setup_cmd(),
             self.source_cmd(),
             f"export PYTHONPATH={self.repartition_pkg_root}:$PYTHONPATH",
-            # repartition.sources imports adios2 lazily, so a non-BP
-            # flavour of this test never notices it is missing; the BP
-            # subclasses do. Added here rather than in those subclasses
-            # so the two paths that can reach an ADIOS2 read -- the CLI
-            # prerun step and the trainer itself -- are both covered.
-            *self.adios2_pythonpath_cmds(),
         ]
         if self.repartition_method == "parrsb":
             self.prerun_cmds += self.parrsb_shim_cmds()
