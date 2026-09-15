@@ -4,6 +4,8 @@
 #include "nrs.hpp"
 #if defined(NEKRS_ENABLE_ADIOS)
 #include "adios2.h"
+#include <map>
+#include <string>
 #endif
 
 class adios_client_t
@@ -17,7 +19,9 @@ public:
   adios2::ADIOS *_adios;
   adios2::IO _stream_io;
   adios2::IO _write_io;
+  adios2::IO _data_io;
   adios2::Engine _solWriter;
+  adios2::Engine _dataWriter;
 
   // solution variables and array sizes
   unsigned long long _num_dim;
@@ -34,6 +38,16 @@ public:
   void openStream();
   void closeStream();
 
+  // Offline training data written to a multi-step BP5 file.
+  // NOTE: gnnWriteADIOS() must be called first 
+  void openDataFile(const std::string& fname = "trainingData.bp");
+  void closeDataFile();
+  void beginDataStep();
+  void endDataStep();
+  void putField(const std::string& name, dfloat *field, int num_dim);
+  void putScalar(const std::string& name, int value);
+  void putScalar(const std::string& name, dfloat value);
+
 private:
   // Streamer parameters
   std::string _engine;
@@ -43,8 +57,12 @@ private:
   // adios objects
   adios2::Params _params;
 
-  // nekrs objects 
-  //nrs_t *_nrs;
+  // Training data file state.  Variables are defined once on first use and
+  // cached, since adios2::IO::DefineVariable throws if a name is redefined.
+  bool _dataOpen = false;
+  std::map<std::string, adios2::Variable<dfloat>> _dataVars;
+  std::map<std::string, adios2::Variable<int>> _dataIntVars;
+  std::map<std::string, adios2::Variable<dfloat>> _dataRealVars;
 #endif
 
   // MPI stuff

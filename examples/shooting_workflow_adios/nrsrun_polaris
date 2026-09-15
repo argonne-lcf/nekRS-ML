@@ -15,14 +15,18 @@ set -e
 : ${SIM_CPU_BIND_LIST:="24:16:8:1"}
 : ${TRAIN_CPU_BIND_LIST:="24:16:8:1"}
 : ${INFERENCE_CPU_BIND_LIST:="24:16:8:1"}
+: ${INFER_NODES:=0}          # 0 => all nodes of the job
+: ${INFER_RANKS_PER_NODE:=4}
 : ${VENV_PATH:=""}
 #--------------------------------------
 
 #--------------------------------------
 # Set variables based on deployment type
 if [ ${DEPLOYMENT} == "colocated"  ]; then
-  SIM_NODES=$nodes
-  TRAIN_NODES=$nodes
+  # $nodes is set by nrsqsub_utils, which is not sourced until further down;
+  # $2 is that same argument and is already available here.
+  SIM_NODES=$2
+  TRAIN_NODES=$2
   SIM_RANKS_PER_NODE=2
   TRAIN_RANKS_PER_NODE=2
   DEVICE_SKIP=2
@@ -31,6 +35,14 @@ if [ ${DEPLOYMENT} == "colocated"  ]; then
 fi
 SIM_PROCS=$(( SIM_NODES * SIM_RANKS_PER_NODE ))
 TRAIN_PROCS=$(( TRAIN_NODES * TRAIN_RANKS_PER_NODE ))
+if [ ${INFER_NODES} -eq 0 ]; then
+  if [ ${DEPLOYMENT} == "colocated" ]; then
+    INFER_NODES=${TRAIN_NODES}
+  else
+    INFER_NODES=$(( SIM_NODES + TRAIN_NODES ))
+  fi
+fi
+INFER_PROCS=$(( INFER_NODES * INFER_RANKS_PER_NODE ))
 
 
 #--------------------------------------
@@ -76,13 +88,17 @@ echo "# Run config" >> $CFILE
 echo "run_args:" >> $CFILE
 echo "    nodes: ${qnodes}" >> $CFILE
 echo "    sim_nodes: ${SIM_NODES}" >> $CFILE
-echo "    ml_nodes: ${SIM_NODES}" >> $CFILE
+echo "    ml_nodes: ${TRAIN_NODES}" >> $CFILE
+echo "    infer_nodes: ${INFER_NODES}" >> $CFILE
 echo "    simprocs: ${SIM_PROCS}" >> $CFILE
 echo "    simprocs_pn: ${SIM_RANKS_PER_NODE}" >> $CFILE
+echo "    sim_cpu_bind: \"list:${SIM_CPU_BIND_LIST}\"" >> $CFILE
 echo "    mlprocs: ${TRAIN_PROCS}" >> $CFILE
 echo "    mlprocs_pn: ${TRAIN_RANKS_PER_NODE}" >> $CFILE
-echo "    sim_cpu_bind: \"list:${SIM_CPU_BIND_LIST}\"" >> $CFILE
 echo "    ml_cpu_bind: \"list:${TRAIN_CPU_BIND_LIST}\"" >> $CFILE
+echo "    inferprocs: ${INFER_PROCS}" >> $CFILE
+echo "    inferprocs_pn: ${INFER_RANKS_PER_NODE}" >> $CFILE
+echo "    infer_cpu_bind: \"list:${INFERENCE_CPU_BIND_LIST}\"" >> $CFILE
 echo "" >> $CFILE
 echo "# Simulation config" >> $CFILE
 echo "sim:" >> $CFILE

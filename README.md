@@ -30,6 +30,7 @@ Users can find more details on each of the examples in the  README files contain
 
 * [tgv_gnn_offline](./examples/tgv_gnn_offline/): Offline training pipeline to generate data and perform time independent training of the Dist-GNN model.
 * [tgv_gnn_offline_coarse_mesh](./examples/tgv_gnn_offline_coarse_mesh/): Offline training pipeline to generate data and perform time independent training of the Dist-GNN model on a p-coarsened grid relative to the one used by the nekRS simulation.
+* [tgv_gnn_offline_fld](./examples/tgv_gnn_offline_fld/): Offline training pipeline of the Dist-GNN model working purely from standard nekRS .f checkpoint files -- the graph and training data are reconstructed by the [repartition](./3rd_party/gnn/repartition/) package at an arbitrary number of training ranks, independent of the nekRS rank count.
 * [tgv_gnn_offline_traj](./examples/tgv_gnn_offline_traj/): Offline training pipeline to generate data and perform time dependent training of the Dist-GNN model.
 * [tgv_gt_offline_traj](./examples/tgv_gt_offline_traj/): Offline training pipeline to generate data and perform time dependent training of the Dist-GT model.
 * [tuurbChannel_srgnn](./examples/turbChannel_srgnn/): Offline training pipeline to generate data, perform training, and evaluate the model through inference with the SR-GNN model. 

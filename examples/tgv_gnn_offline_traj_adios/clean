@@ -1,0 +1,8 @@
+#!/bin/bash
+
+rm -r gnn_from_bp traj_from_bp
+rm -r outputs ckpt/ saved_models/
+rm -r *.bp
+rm *_data_stats.npz
+rm *.f* tgv.nek5000
+rm run.sh

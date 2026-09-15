@@ -107,7 +107,7 @@ void UDF_Setup()
 void UDF_ExecuteStep(double time, int tstep)
 {
   // write trajectory
-  tgen->trajGenWriteADIOS(nrs, client, time, tstep, "velocity");
+  tgen->trajGenWriteSST(nrs, client, time, tstep, "velocity");
 
   // Every time step check if ML training says it is time to quit
   int exit_val = client->check_run();
@@ -122,7 +122,9 @@ void UDF_ExecuteStep(double time, int tstep)
     dfloat *U = new dfloat[num_dim * field_offset]();
     graph->interpolateField(nrs, nrs->o_U, U, num_dim);
     client->checkpoint(U, num_dim);
+    delete[] U;
     delete tgen;
     delete graph;
+    delete client;
   }
 }

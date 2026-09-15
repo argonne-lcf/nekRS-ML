@@ -4,10 +4,21 @@
 
 #include "nrs.hpp"
 #include "nekInterfaceAdapter.hpp"
+#include <map>
+#include <string>
+#include <vector>
 #ifdef NEKRS_ENABLE_SMARTREDIS
 #include "smartRedis.hpp"
 #endif
 #include "adiosStreamer.hpp"
+
+// Field to write into a step of a BP5 file. 
+// Set the field and name in the UDF file
+typedef struct {
+    std::string name;
+    occa::memory o_field;
+    int num_dim;
+} bpField_t;
 
 typedef struct {
     dlong localId; 
@@ -53,6 +64,11 @@ public:
     void gnnWriteDB(smartredis_client_t* client);
 #endif
     void gnnWriteADIOS(adios_client_t* client);
+    void writeToFileBP(nrs_t* nrs,
+                       adios_client_t* client,
+                       const std::vector<bpField_t>& fields,
+                       dfloat time,
+                       int tstep);
 
 private:
     // MPI stuff 
@@ -104,6 +120,11 @@ private:
     // binary write functions 
     void write_edge_index_binary(const std::string& filename);
     void write_edge_index_element_local_vertex_binary(const std::string& filename); 
+
+    // Host staging buffers for writeToFileBP, keyed by field name and reused
+    // across steps -- it is called once per snapshot, so allocating per call
+    // would churn. Freed in the destructor.
+    std::map<std::string, dfloat*> bp_buffers;
 
     // for print statements
     bool verbose = false; 

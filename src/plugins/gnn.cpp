@@ -129,6 +129,7 @@ gnn_t::~gnn_t()
     free(haloNodes);
     free(graphNodes);
     free(graphNodes_element);
+    for (auto& kv : bp_buffers) delete[] kv.second;
 }
 
 void gnn_t::gnnSetup()
@@ -294,7 +295,7 @@ void gnn_t::gnnWriteADIOS(adios_client_t* client)
                                                             {client->_global_num_edges * 2}, 
                                                             {client->_offset_num_edges * 2}, 
                                                             {client->_num_edges * 2});
-    auto NpInts = client->_write_io.DefineVariable<dlong>("Np", {1}, {1}, {1});
+    auto NpInts = client->_write_io.DefineVariable<dlong>("Np", {1}, {0}, {1});
     auto NInts = client->_write_io.DefineVariable<hlong>("N", {_size}, {_rank}, {1});
     auto numedgesInts = client->_write_io.DefineVariable<hlong>("num_edges", {_size}, {_rank}, {1});
     auto fieldOffsetInts = client->_write_io.DefineVariable<hlong>("field_offset", {_size}, {_rank}, {1});
@@ -327,6 +328,62 @@ void gnn_t::gnnWriteADIOS(adios_client_t* client)
     if (verbose and rank == 0) printf("[RANK %d] -- ADIOS is not enabled!, Falling back to binary write.\n", rank);
     fflush(stdout);
     gnnWrite();
+#endif
+}
+
+// Equivalent of writeToFile or writeToFileBinary but write to ADIOS2 BP5 format
+// Write one snapshot -- one ADIOS step -- of an arbitrary set of fields into the
+// BP5 training data file.
+// NOTE: gnnWriteADIOS() must have run first. 
+void gnn_t::writeToFileBP(nrs_t* nrs,
+                          adios_client_t* client,
+                          const std::vector<bpField_t>& fields,
+                          dfloat time,
+                          int tstep)
+{
+#if defined(NEKRS_ENABLE_ADIOS)
+    MPI_Comm &comm = platform->comm.mpiComm;
+
+    if (fields.empty()) {
+        if (rank == 0) {
+            printf("[GNN WRITE BP] -- Error: no fields given to writeToFileBP\n");
+        }
+        fflush(stdout);
+        MPI_Abort(comm, 1);
+    }
+
+    // Idempotent, so the UDF does not have to special-case its first step.
+    client->openDataFile();
+
+    if (rank == 0) {
+        printf("[GNN WRITE BP] -- Writing snapshot at tstep %d and physical time %g \n",
+               tstep, time);
+    }
+
+    client->beginDataStep();
+    for (const auto& f : fields) {
+        // One buffer per name, sized on first sight of that name. A given name
+        // must keep its component count for the life of the file -- the ADIOS
+        // variable is defined once, on the first step that puts it.
+        auto it = bp_buffers.find(f.name);
+        if (it == bp_buffers.end()) {
+            it = bp_buffers.emplace(f.name, new dfloat[f.num_dim * fieldOffset]()).first;
+        }
+        interpolateField(nrs, const_cast<occa::memory&>(f.o_field), it->second, f.num_dim);
+        client->putField(f.name, it->second, f.num_dim);
+    }
+    client->putScalar("tstep", tstep);
+    client->putScalar("time", time);
+    client->endDataStep();
+
+    MPI_Barrier(comm);
+    if (rank == 0 and verbose) {
+        printf("[GNN WRITE BP] -- Done writing snapshot\n");
+    }
+#else
+    if (rank == 0) printf("[RANK %d] -- Error: Adios is not enabled!\n", rank);
+    fflush(stdout);
+    MPI_Abort(platform->comm.mpiComm, 1);
 #endif
 }
 

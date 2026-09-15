@@ -185,8 +185,48 @@ add_dependencies(blasLapack nek5000_deps)
 
 if (${USE_PARRSB})
   add_library(parRSB STATIC IMPORTED)
-  set_target_properties(parRSB PROPERTIES IMPORTED_LOCATION ${PARRSB_DIR}/lib/libparRSB.a)
+  # PARRSB_DIR is parRSB's *source* dir; the archive is installed one level
+  # up by its own Makefile (DESTDIR=${PARRSB_DIR}/..), i.e. in PARRSB_LIB_DIR.
+  set_target_properties(parRSB PROPERTIES IMPORTED_LOCATION ${PARRSB_LIB_DIR}/libparRSB.a)
   add_dependencies(parRSB nek5000_deps)
+endif()
+
+# ---------------------------------------------------------
+# parRSB ctypes shim (Python repartition package)
+# ---------------------------------------------------------
+
+# 3rd_party/gnn/repartition/parrsb.py calls parrsb_part_mesh through this
+# one-function shared library (an MPI_Comm cannot cross the ctypes boundary,
+# so the communicator is passed as a Fortran handle). It is built here, and
+# not from the top-level CMakeLists, because PARRSB_*/NEK5000_GS_* are
+# function-local to add_nek5000() and would expand to empty paths elsewhere.
+if (${USE_PARRSB} AND ENABLE_PARRSB_SHIM)
+  add_library(parrsb_shim SHARED
+    ${CMAKE_CURRENT_SOURCE_DIR}/3rd_party/gnn/repartition/parrsb_shim.c)
+
+  # parrsb.py looks the library up by this exact name on every platform.
+  set_target_properties(parrsb_shim PROPERTIES
+    PREFIX "lib"
+    SUFFIX ".so"
+    POSITION_INDEPENDENT_CODE on)
+
+  # -DMPI is parRSB.h's guard macro; gslib's config.h supplies the rest.
+  target_compile_definitions(parrsb_shim PRIVATE MPI)
+
+  # parRSB.h includes gslib.h, so both include dirs are required. Link the
+  # archives by path rather than through the imported targets above: they
+  # carry no usage requirements and the shim must absorb both statically.
+  target_include_directories(parrsb_shim PRIVATE
+    ${PARRSB_INCLUDE_DIR}
+    ${NEK5000_GS_INCLUDE_DIR})
+  target_link_libraries(parrsb_shim PRIVATE
+    ${PARRSB_LIB_DIR}/libparRSB.a
+    ${NEK5000_GS_LIB_DIR}/libgs.a
+    MPI::MPI_C
+    m)
+
+  # Both archives are produced by the ExternalProject, not by CMake targets.
+  add_dependencies(parrsb_shim nek5000_deps)
 endif()
 
 # ---------------------------------------------------------

@@ -28,11 +28,13 @@ public:
     std::string irank, nranks;
     dfloat *previous_U = 0, *U = 0;
     dfloat /* *previous_P, */ *P = 0;
-    //int previous_tstep;
     
     // member functions 
     void trajGenSetup();
-    void trajGenWrite(nrs_t *nrs, dfloat time, int tstep, const std::string& field_name);
+    void trajGenWrite(nrs_t *nrs, 
+                      dfloat time, 
+                      int tstep, 
+                      const std::string& field_name);
 #ifdef NEKRS_ENABLE_SMARTREDIS
     void trajGenWriteDB(nrs_t *nrs,
                         smartredis_client_t* client, 
@@ -40,15 +42,22 @@ public:
                         int tstep, 
                         const std::string& field_name);
 #endif
-    void trajGenWriteADIOS(nrs_t *nrs,
-                           adios_client_t* client,
-                           dfloat time, 
-                           int tstep, 
-                           const std::string& field_name);
+    void trajGenWriteSST(nrs_t *nrs,
+                         adios_client_t* client,
+                         dfloat time,
+                         int tstep,
+                         const std::string& field_name);
+    void trajGenWriteBP(nrs_t *nrs,
+                        adios_client_t* client,
+                        dfloat time,
+                        int tstep,
+                        const std::string& field_name);
 
 private:
+    // Translate the field_name vocabulary into the named device fields
+    std::vector<bpField_t> trajFields(nrs_t *nrs, const std::string& field_name);
+
     // nekrs objects 
-    //nrs_t *nrs;
     gnn_t *graph;
     mesh_t *mesh;
     ogs_t *ogs;

@@ -2635,10 +2635,11 @@ void parseMLSection(const int rank, setupAide &options, inipp::Ini *ini)
   ini->extract("ml", "ssimDbNodes", ssimDbNodes);
   options.setArgs("SSIM DB NODES", std::to_string(ssimDbNodes));
   
-  std::string adiosEngine;
-  if (ini->extract("ml", "adiosEngine", adiosEngine)) {
-    options.setArgs("ADIOS ML ENGINE", adiosEngine);
-  }
+  // Default to SST: an offline BP5 case sets no [ML] adios* keys, and an empty
+  // engine name would otherwise be passed to _stream_io.SetEngine().
+  std::string adiosEngine = "SST";
+  ini->extract("ml", "adiosEngine", adiosEngine);
+  options.setArgs("ADIOS ML ENGINE", adiosEngine);
   
   std::string adiosTransport;
   if (ini->extract("ml", "adiosTransport", adiosTransport)) {

@@ -156,6 +156,8 @@ set(ENABLE_SMARTREDIS OFF CACHE BOOL "Enable SmartRedis support")
 set(SMARTREDIS_INSTALL_DIR "" CACHE STRING "SmartRedis install directory")
 set(NEKRS_BUILD_FLOAT ON CACHE BOOL "Build dfloat = float version")
 
+set(ENABLE_PARRSB_SHIM ON CACHE BOOL "Build the parRSB ctypes shim used by the Python repartition package")
+
 set(ENABLE_CPPTRACE OFF CACHE BOOL "Enable cpptrace for stack tracing")
 
 ###############################################################################
@@ -385,6 +387,19 @@ install(FILES src/udf/CMakeLists.txt DESTINATION udf)
 install(DIRECTORY src/nekInterface/ DESTINATION nekInterface REGEX "\.hpp$|\.cpp$" EXCLUDE)
 install(DIRECTORY 3rd_party/gnn/dist-gnn DESTINATION 3rd_party/gnn)
 install(DIRECTORY 3rd_party/gnn/sr-gnn DESTINATION 3rd_party/gnn)
+install(DIRECTORY 3rd_party/gnn/repartition DESTINATION 3rd_party/gnn
+  PATTERN "libparrsb_shim.so" EXCLUDE)
+
+# The shim built by add_nek5000(), rather than any stale hand-built copy left
+# in the source tree by build_parrsb_shim.sh (excluded above). Installed next
+# to repartition/parrsb.py, which is where it looks first, and in lib/ so that
+# $NEKRS_HOME/lib resolves it when the package is imported from a source
+# checkout instead of from the install tree.
+if (TARGET parrsb_shim)
+  install(FILES $<TARGET_FILE:parrsb_shim> DESTINATION 3rd_party/gnn/repartition)
+  install(FILES $<TARGET_FILE:parrsb_shim> DESTINATION lib)
+endif()
+
 install(DIRECTORY 3rd_party/ensembleLauncher DESTINATION 3rd_party)
 install(DIRECTORY doc/ DESTINATION doc)
 

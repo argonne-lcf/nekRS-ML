@@ -4,6 +4,7 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 import time
 
+import torch
 from mpi4py import MPI
 
 COMM = MPI.COMM_WORLD

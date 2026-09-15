@@ -57,9 +57,14 @@ target_loss: 0
 # plotting the connecivity (can take some time)
 plot_connectivity : False
 
-# specify path to gnn_outputs here (case directory)  
+# Paths to the graph and the training data. 
+# Two formats are accepted: POSIX gnn_outputs_poly_* and ADIOS2 BP5 .bp
 gnn_outputs_path: ${work_dir}/gnn_outputs_poly_7/
 traj_data_path: ${work_dir}/traj_poly_1/
+
+# Rrank count of the gnn_outputs .bin files (0 = current world size)
+gnn_outputs_size: 0
+repartition_method: "parrsb" # parrsb, rcb, block
 
 # Online training
 online: False
