@@ -27,5 +27,5 @@ zLength = LZ
 betaY = 2.2
 
 [MESH]
-#partitioner = uniformz
+partitioner = uniformz
 
