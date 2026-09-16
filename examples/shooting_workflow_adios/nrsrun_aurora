@@ -73,6 +73,8 @@ echo "      growth ${SIM_NODES}x split as ${GX} in x, ${GZ} in z; box ${LX} x 2 
 cp ${1}.box.safe ${1}.box
 sed -i "s/NX/${NX}/g" ${1}.box
 sed -i "s/NZ/${NZ}/g" ${1}.box
+sed -i "s/LX/${LX}/g" ${1}.box
+sed -i "s/LZ/${LZ}/g" ${1}.box
 sed -i "s/LX/${LX}/g" ${1}.par
 sed -i "s/LZ/${LZ}/g" ${1}.par
 
