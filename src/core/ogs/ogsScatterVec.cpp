@@ -138,6 +138,7 @@ void ogsScatterVec(void *sv,
     if (ogs::hostBufSize < ogs->NhaloGather*Nbytes*k) {
       if (ogs::hostBufSize) free(ogs::hostBuf);
       ogs::hostBuf = (void *) malloc(ogs->NhaloGather*Nbytes*k);
+      ogs::hostBufSize = ogs->NhaloGather*Nbytes*k;
     }
   }
 

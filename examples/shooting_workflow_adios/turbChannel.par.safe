@@ -22,10 +22,10 @@ residualTol = 1e-06
 
 [CASEDATA]
 ReTau = 550
-xLength = 6.283185307 
+xLength = LX 
 zLength = LZ 
 betaY = 2.2
 
 [MESH]
-partitioner = uniformz
+partitioner = rcb # recommended for this case
 

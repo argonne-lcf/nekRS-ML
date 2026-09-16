@@ -50,11 +50,30 @@ INFER_PROCS=$(( INFER_NODES * INFER_RANKS_PER_NODE ))
 cp ${1}.par.safe ${1}.par
 
 #--------------------------------------
-# Update the .box file to increase the mesh size linearly with the number of nodes
-NZ=$(( 26*SIM_PROCS ))
-LZ=$(echo "3.141592653 * $SIM_PROCS" | bc -l)
+# Update the .box and .par files to grow the mesh linearly with the node count.
+# A perfect square of nodes (4, 16, 64, 256, 1024) splits evenly, GX = GZ, and the
+# aspect ratio of the domain is preserved exactly. Anything else splits as evenly 
+# as it can and lands within a factor of two of the original domain dimension ratio.
+# The odd factor goes to x. Domain lengths track the element counts
+# exactly, so dx and dz -- hence the resolution and Re_tau -- are identical at
+# every scale.
+NX0=42
+NZ_PER_RANK=26
+GZ=1
+for (( f=1; f*f<=SIM_NODES; f++ )); do
+  (( SIM_NODES % f == 0 )) && GZ=${f}
+done
+GX=$(( SIM_NODES / GZ ))
+NX=$(( NX0 * GX ))
+NZ=$(( NZ_PER_RANK * SIM_RANKS_PER_NODE * GZ ))
+LX=$(echo "6.283185307 * $GX" | bc -l)
+LZ=$(echo "3.141592653 * $SIM_RANKS_PER_NODE * $GZ" | bc -l)
+echo "Mesh: ${NX} x 18 x ${NZ} = $(( NX * 18 * NZ )) elements"
+echo "      growth ${SIM_NODES}x split as ${GX} in x, ${GZ} in z; box ${LX} x 2 x ${LZ}"
 cp ${1}.box.safe ${1}.box
+sed -i "s/NX/${NX}/g" ${1}.box
 sed -i "s/NZ/${NZ}/g" ${1}.box
+sed -i "s/LX/${LX}/g" ${1}.par
 sed -i "s/LZ/${LZ}/g" ${1}.par
 
 #--------------------------------------
@@ -165,6 +184,7 @@ echo "export ZE_FLAT_DEVICE_HIERARCHY=FLAT" >> $RFILE
 echo -e "\nexport NEKRS_HOME=$NEKRS_HOME" >>$RFILE
 echo "export OCCA_DPCPP_COMPILER_FLAGS=\"$OCCA_DPCPP_COMPILER_FLAGS\"" >> $RFILE
 echo "export FI_CXI_RX_MATCH_MODE=hybrid" >> $RFILE # required by parRSB
+echo "#export MPIR_CVAR_CH4_OFI_RNDV_PROTOCOL=direct # possible workaround to building FEM matrix crash with rcb partitioner" >> $RFILE
 
 # Temporary workaround while waiting on bugfix in runtime
 echo "export UR_L0_USE_COPY_ENGINE=0" >> $RFILE

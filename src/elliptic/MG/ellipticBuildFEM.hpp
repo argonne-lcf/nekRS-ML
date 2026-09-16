@@ -36,6 +36,12 @@ struct nonZero_t
   hlong row;
   hlong col;
   int ownerRank;
+  // explicit stand-in for the padding the compiler inserts here anyway. Named so
+  // the MPI_Type_create_struct below can describe all sizeof(nonZero_t) bytes:
+  // a type whose MPI size is smaller than its extent is non-contiguous, and
+  // MPICH 5 routes non-contiguous types through a pack pipeline that asserts
+  // under the many-peer, widely-varying-message-size traffic rcb produces.
+  int _pad;
   dfloat val;
 };
 

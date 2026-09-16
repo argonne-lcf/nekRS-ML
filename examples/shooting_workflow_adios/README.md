@@ -137,6 +137,26 @@ independently of training. `infer_nodes` larger than the job is a hard error.
 Under a colocated deployment nekRS and the trainer share nodes and each takes half the
 devices; inference still runs by itself, so it uses the whole node with no device skip.
 
+### How the mesh scales with node count
+
+The case is weak-scaled: `nrsrun_<system>` generates `turbChannel.box` and fills in
+`xLength`/`zLength` in `turbChannel.par` from `SIM_NODES`, so the element count per
+rank is the same at every scale. The 1-node mesh is the reference (e.g., 42 x 18 x 312
+elements on Aurora) and the total grows by exactly
+`SIM_NODES` from there.
+
+That growth is split between x and z dimensions. `SIM_NODES` is factored into `GX * GZ`, taking the most balanced pair available, and then
+
+```
+nelx = 42 * GX                   
+Lx = 2*pi * GX
+nelz = 26 * SIM_RANKS_PER_NODE * GZ     
+Lz = pi * SIM_RANKS_PER_NODE * GZ
+```
+
+The mesh spacing, `dx` and `dz`, and therefore the friction Reynolds number 
+are identical at every node count. 
+
 ### Choosing the GNN polynomial order
 
 The run scripts set `gnnPolynomialOrder = 2` in the generated `turbChannel.par` while the
