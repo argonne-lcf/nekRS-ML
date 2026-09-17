@@ -1,8 +1,22 @@
 #include "platform.hpp"
 #include "lowPassFilter.hpp"
+#include "nrs.hpp"
 
 namespace
 {
+
+struct userFilterContainer
+{
+  std::string tag;
+  int Nc = -1;
+  dfloat wght = 0.0;
+  occa::memory o_filterRT;
+
+  bool setupCalled = false;
+};
+
+std::map<std::string, userFilterContainer> filterMap;
+
 double filterFactorial(int n)
 {
   if (n == 0) {
@@ -23,6 +37,26 @@ void filterFunctionRelaxation1D(int Nmodes, int Nc, double *A)
   int k0 = Nmodes - Nc;
   for (int k = k0; k < Nmodes; k++) {
     double amp = ((k + 1.0 - k0) * (k + 1.0 - k0)) / (Nc * Nc);
+    A[k + Nmodes * k] = 1.0 - amp;
+  }
+}
+
+// explicit
+void filterFunctionRelaxation1Dv2(int Nmodes, int Nc, double wght, double *A)
+{
+  // zero matrix
+  for (int n = 0; n < Nmodes*Nmodes; n++) {
+    A[n] = 0.0;
+  }
+
+  // Set all diagonal to 1
+  for (int n = 0; n < Nmodes; n++) {
+    A[n * Nmodes + n] = 1.0;
+  }
+
+  int k0 = Nmodes - Nc;
+  for (int k = k0; k < Nmodes; k++) {
+    double amp = wght * ((k + 1.0 - k0) * (k + 1.0 - k0)) / (Nc * Nc);
     A[k + Nmodes * k] = 1.0 - amp;
   }
 }
@@ -84,42 +118,35 @@ void filterVandermonde1D(int N, int Np, double *r, double *V)
   }
 }
 
-} // namespace
-
-occa::memory lowPassFilterSetup(mesh_t *mesh, const dlong filterNc)
+// legendre polynomials at [-1,1] for GLL
+void filterLegendreP(double *L, const double x, const int N)
 {
-  nekrsCheck(filterNc < 1,
-             platform->comm.mpiComm,
-             EXIT_FAILURE,
-             "number of filter modes must be at least 1, but is set to %d\n",
-             filterNc);
+   L[0] = 1.0;
+   L[1] = x;
+   for (int j = 2; j <= N; j++) {
+      const double dj = j;
+      L[j] = ( (2*dj-1) * x * L[j-1] - (j-1) * L[j-2] ) / dj;
+   }
+}
 
-  nekrsCheck(filterNc >= mesh->N,
-             platform->comm.mpiComm,
-             EXIT_FAILURE,
-             "mumber of filter modes must be < %d\n",
-             mesh->N);
-
-  // Construct Filter Function
-  int Nmodes = mesh->N + 1; // N+1, 1D GLL points
-
-  auto V = (double *)calloc(Nmodes * Nmodes, sizeof(double));
-  auto A = (double *)calloc(Nmodes * Nmodes, sizeof(double));
-
-  // Construct Filter Function
-  filterFunctionRelaxation1D(Nmodes, filterNc, A);
-
-  // Construct Vandermonde Matrix
-  {
-    auto r = (double *)malloc(mesh->Np * sizeof(double));
-    for (int i = 0; i < mesh->Np; i++) {
-      r[i] = mesh->r[i];
+void filterBubbleFunc1D(int N, int Np, double *r, double *V)
+{
+  auto Lj = (double *)malloc(Np * sizeof(double));
+  for (int j = 0; j <= N; j++) {
+    const double z = r[j];
+    filterLegendreP(Lj, z, N);
+    V[0 * Np + j] = Lj[0];
+    V[1 * Np + j] = Lj[1];
+    for (int i = 2; i < Np; i++) {
+      V[i * Np + j] = Lj[i] - Lj[i-2];
     }
-    filterVandermonde1D(mesh->N, Nmodes, r, V);
-    free(r);
   }
+  free(Lj);
+}
 
-  // Invert the Vandermonde
+// A = V A V^{-1}, both V and A are of size Nmodes^2
+void computeFilterMatrix(double *V, double *A, const int Nmodes, const char TRANS)
+{
   int INFO;
   int N = Nmodes;
   int LWORK = N * N;
@@ -141,8 +168,8 @@ occa::memory lowPassFilterSetup(mesh_t *mesh, const dlong filterNc)
   nekrsCheck(INFO, MPI_COMM_SELF, EXIT_FAILURE, "%s\n", "dgetri failed");
 
   // V*A*V^-1 in row major
-  char TRANSA = 'T';
-  char TRANSB = 'T';
+  char TRANSA = TRANS;
+  char TRANSB = TRANS;
   double ALPHA = 1.0, BETA = 0.0;
   int MD = Nmodes;
   int ND = Nmodes;
@@ -156,27 +183,200 @@ occa::memory lowPassFilterSetup(mesh_t *mesh, const dlong filterNc)
 
   dgemm_(&TRANSA, &TRANSB, &MD, &ND, &KD, &ALPHA, A, &LDA, iV, &LDB, &BETA, C, &LDC);
 
-  TRANSA = 'T';
+  TRANSA = TRANS;
   TRANSB = 'N';
 
   dgemm_(&TRANSA, &TRANSB, &MD, &ND, &KD, &ALPHA, V, &LDA, C, &LDB, &BETA, A, &LDC);
+
+  free(C), free(iV), free(IPIV), free(WORK);
+}
+
+} // namespace
+
+occa::memory lowPassFilterSetup(mesh_t *mesh, const dlong filterNc)
+{
+  const int verbose = platform->options.compareArgs("VERBOSE", "TRUE");
+
+  nekrsCheck(filterNc < 1,
+             platform->comm.mpiComm,
+             EXIT_FAILURE,
+             "number of filter modes must be at least 1, but is set to %d\n",
+             filterNc);
+
+  nekrsCheck(filterNc >= mesh->N,
+             platform->comm.mpiComm,
+             EXIT_FAILURE,
+             "mumber of filter modes must be < %d\n",
+             mesh->N);
+
+  // Construct Filter Function
+  const int Nmodes = mesh->N + 1; // N+1, 1D GLL points
+
+  auto V = (double *)calloc(Nmodes * Nmodes, sizeof(double));
+  auto A = (double *)calloc(Nmodes * Nmodes, sizeof(double));
+
+  // Construct Filter Function
+  filterFunctionRelaxation1D(Nmodes, filterNc, A);
+
+  // Construct Vandermonde Matrix
+  {
+    auto r = (double *)malloc(mesh->Np * sizeof(double));
+    for (int i = 0; i < mesh->Np; i++) {
+      r[i] = mesh->r[i];
+    }
+    filterVandermonde1D(mesh->N, Nmodes, r, V); // this is polyn.^T
+    free(r);
+  }
+
+  computeFilterMatrix(V, A, Nmodes, 'T');
 
   auto o_A = platform->device.malloc<dfloat>(Nmodes * Nmodes);
   {
     auto tmp = (dfloat *)calloc(Nmodes * Nmodes, sizeof(dfloat));
     for (int i = 0; i < Nmodes * Nmodes; i++) {
-      tmp[i] = A[i];
+      tmp[i] = A[i]; // cast to dfloat
     }
     o_A.copyFrom(tmp, o_A.length());
     free(tmp);
   }
 
+  if (verbose && platform->comm.mpiRank == 0) {
+    for (int j = 0; j < Nmodes; j++) {
+      printf("filt mat (rs) %5s:", "hpf");
+      for (int i = 0; i < Nmodes; i++) {
+        printf("%11.4e", A[i + Nmodes * j]);
+      }
+      printf("\n");
+    }
+  }
+
   free(A);
   free(V);
-  free(C);
-  free(iV);
-  free(IPIV);
-  free(WORK);
-
   return o_A;
+}
+
+occa::memory explicitFilterSetup(std::string tag,
+                                 mesh_t *mesh,
+                                 const dlong filterNc,
+                                 const dfloat filterWght)
+{
+  const int verbose = platform->options.compareArgs("VERBOSE", "TRUE");
+
+  nekrsCheck(filterNc < 1,
+             platform->comm.mpiComm,
+             EXIT_FAILURE,
+             "%s: number of filter modes must be at least 1, but is set to %d\n",
+             tag.c_str(), filterNc);
+
+  nekrsCheck(filterNc >= mesh->N,
+             platform->comm.mpiComm,
+             EXIT_FAILURE,
+             "%s: mumber of filter modes must be < %d\n",
+             tag.c_str(), mesh->N);
+
+  nekrsCheck(filterWght < 0 || filterWght > 1,
+             platform->comm.mpiComm,
+             EXIT_FAILURE,
+             "%s: filterWght must in [0,1], but is set to %g\n",
+             tag.c_str(), filterWght);
+
+  // Construct Filter Function
+  const int Nmodes = mesh->N + 1; // N+1, 1D GLL points
+
+  auto V = (double *)calloc(Nmodes * Nmodes, sizeof(double));
+  auto A = (double *)calloc(Nmodes * Nmodes, sizeof(double));
+
+  // Construct Filter Function
+  filterFunctionRelaxation1Dv2(Nmodes, filterNc, filterWght, A);
+
+  if (platform->comm.mpiRank == 0) {
+    printf("filt trn (rs) %5s:", tag.c_str());
+    for (int k = 0; k < Nmodes; k++) {
+      printf("%7.4f", A[k + Nmodes * k]);
+    }
+    printf("\n");
+  }
+
+  // Construct Vandermonde Matrix
+  {
+    auto r = (double *)malloc(mesh->Np * sizeof(double));
+    for (int i = 0; i < mesh->Np; i++) {
+      r[i] = mesh->r[i];
+    }
+    filterBubbleFunc1D(mesh->N, Nmodes, r, V); // bubble of Legendre
+    free(r);
+  }
+
+  computeFilterMatrix(V, A, Nmodes, 'N');
+
+  auto o_A = platform->device.malloc<dfloat>(Nmodes * Nmodes);
+  {
+    auto tmp = (dfloat *)calloc(Nmodes * Nmodes, sizeof(dfloat));
+    for (int i = 0; i < Nmodes * Nmodes; i++) {
+      tmp[i] = A[i]; // cast to dfloat
+    }
+    o_A.copyFrom(tmp, o_A.length());
+    free(tmp);
+  }
+
+  if (verbose && platform->comm.mpiRank == 0) {
+    for (int j = 0; j < Nmodes; j++) {
+      printf("filt mat (rs) %5s:", tag.c_str());
+      for (int i = 0; i < Nmodes; i++) {
+        printf("%11.4e", A[i + Nmodes * j]);
+      }
+      printf("\n");
+    }
+  }
+
+  free(A);
+  free(V);
+  return o_A;
+}
+
+void  nrs_t::applyExplicitFilter(std::string tag, mesh_t *mesh, occa::memory &o_fld,
+                                 const int filterNc, const dfloat filterWght)
+{
+  userFilterContainer *m = &filterMap[tag];
+
+  if (!m->setupCalled) {
+    m->Nc = filterNc;
+    m->wght = filterWght;
+    m->o_filterRT = explicitFilterSetup(tag, mesh, m->Nc, m->wght);
+    m->setupCalled = true;
+  } else {
+    nekrsCheck(m->Nc != filterNc,
+               MPI_COMM_SELF,
+               EXIT_FAILURE,
+               "explicitFilter %s attempt to use a differnt Nc=%d than setup Nc=%d!\n",
+               tag.c_str(), filterNc, m->Nc);
+    nekrsCheck(abs(m->wght - filterWght) > 1e-6,
+               MPI_COMM_SELF,
+               EXIT_FAILURE,
+               "explicitFilter %s attempt to use a differnt wght=%g than setup wght=%g!\n",
+               tag.c_str(), filterWght, m->wght);
+  }
+
+  static bool firstCall = true;
+  static occa::memory o_offsetScan;
+  static occa::memory o_applyFilter;
+
+  if (firstCall) { // set up dummy scalar arrays
+    std::vector<dlong> offsetScan = {0};
+    o_offsetScan = platform->device.malloc<dlong>(1);
+    o_offsetScan.copyFrom(offsetScan.data());
+
+    std::vector<dlong> applyFilter = {1};
+    o_applyFilter = platform->device.malloc<dlong>(1);
+    o_applyFilter.copyFrom(applyFilter.data());
+    firstCall = false;
+  }
+
+  this->scalarExplicitFilterKernel(mesh->Nelements,
+                                   0, // start idx
+                                   1, // nfld
+                                   o_offsetScan,
+                                   o_applyFilter,
+                                   m->o_filterRT,
+                                   o_fld);
 }

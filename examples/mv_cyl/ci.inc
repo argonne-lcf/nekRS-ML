@@ -15,6 +15,7 @@ void ciSetup(MPI_Comm comm, setupAide &options)
   options.setArgs("END TIME", std::string("0.1"));
   options.setArgs("DT", std::string("1e-3"));
   options.setArgs("SUBCYCLING STEPS", std::string("0"));
+  options.setArgs("LINEAR SOLVER STOPPING CRITERION TYPE", "L2_RESIDUAL");
   options.setArgs("PRESSURE INITIAL GUESS", "PREVIOUS");
 
   options.setArgs("BDF ORDER", "3");

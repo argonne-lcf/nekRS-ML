@@ -41,7 +41,7 @@ occa::properties registerUDFKernels()
   MPI_Barrier(platform->comm.mpiComm);
   const double loadTime = MPI_Wtime() - tStart;
   if (platform->comm.mpiRank == 0 && !registerOnly) {
-    printf("done (%gs)\n", loadTime);
+    printf("loading udf kernels :: done (%gs)\n", loadTime);
   }
   fflush(stdout);
 

@@ -1,7 +1,7 @@
 #include <compileKernels.hpp>
 #include "benchmarkFDM.hpp"
 #include "benchmarkAx.hpp"
-#include "ellipticPrecon.h" 
+#include "ellipticPrecon.h"
 
 #include "re2Reader.hpp"
 
@@ -34,6 +34,14 @@ void registerAxKernels(const std::string &section, int N, int poissonEquation)
   int nelgt, nelgv;
   const std::string meshFile = platform->options.getArgs("MESH FILE");
   re2::nelg(meshFile, nelgt, nelgv, platform->comm.mpiComm);
+  {
+    int nscale = 1;
+    platform->options.getArgs("MESH REFINEMENT SCALE", nscale);
+    if (nscale > 1) {
+      nelgt *= nscale;
+      nelgv *= nscale;
+    }
+  }
   const int NelemBenchmark = nelgv / platform->comm.mpiCommSize;
 
   occa::properties AxKernelInfo = kernelInfo;
@@ -184,7 +192,7 @@ void registerSchwarzKernels(const std::string &section, int N)
 
   const bool serial = platform->serial;
   const std::string oklpath = getenv("NEKRS_KERNEL_DIR") + std::string("/elliptic/");
- 
+
   std::string fileName, kernelName;
   const std::string extension = serial ? ".c" : ".okl";
 
@@ -205,6 +213,14 @@ void registerSchwarzKernels(const std::string &section, int N)
     int nelgt, nelgv;
     const std::string meshFile = platform->options.getArgs("MESH FILE");
     re2::nelg(meshFile, nelgt, nelgv, platform->comm.mpiComm);
+    {
+      int nscale = 1;
+      platform->options.getArgs("MESH REFINEMENT SCALE", nscale);
+      if (nscale > 1) {
+        nelgt *= nscale;
+        nelgv *= nscale;
+      }
+    }
     const int NelemBenchmark = nelgv / platform->comm.mpiCommSize;
 
     bool verbose = platform->options.compareArgs("VERBOSE", "TRUE");
@@ -288,7 +304,7 @@ void registerMultigridLevelKernels(const std::string &section, int Nf, int N, in
 
   if (N == 1) {
     if (  platform->options.compareArgs(optionsPrefix + "MULTIGRID COARSE SOLVE", "TRUE") &&
-         !platform->options.compareArgs(optionsPrefix + "MULTIGRID COARSE SOLVE AND SMOOTH", "TRUE") ) { 
+         !platform->options.compareArgs(optionsPrefix + "MULTIGRID COARSE SOLVE AND SMOOTH", "TRUE") ) {
       return;
     }
   }

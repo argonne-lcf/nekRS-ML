@@ -501,8 +501,45 @@ void nrs_t::initInnerStep(double time, dfloat _dt, int tstep)
   }
 }
 
+void nrs_t::applyExplicitFilter()
+{
+  if (platform->options.compareArgs("VELOCITY REGULARIZATION METHOD", "EXPLICIT")) {
+    auto mesh = this->mesh;
+    this->vectorExplicitFilterKernel(mesh->Nelements, this->o_filterRT, this->fieldOffset, this->o_U);
+    double flops = 24 * mesh->Np * mesh->Nq + 3 * mesh->Np;
+    flops *= static_cast<double>(mesh->Nelements);
+    platform->flopCounter->add("velocityExplicitFilter", flops);
+  }
+
+  if (this->Nscalar) {
+    auto cds = this->cds;
+    for (int is = 0; is < cds->NSfields; is++) {
+      if (!cds->compute[is] || cds->cvodeSolve[is]) {
+        continue;
+      }
+      std::string sid = scalarDigitStr(is);
+
+      if (platform->options.compareArgs("SCALAR" + sid + " REGULARIZATION METHOD", "EXPLICIT")) {
+        auto mesh = (cht) ? cds->mesh[0] : this->mesh;
+        cds->explicitFilterKernel(mesh->Nelements,
+                                  is,
+                                  1,
+                                  cds->o_fieldOffsetScan,
+                                  cds->o_applyFilterRT,
+                                  cds->o_filterRT,
+                                  cds->o_S);
+        double flops = 6 * mesh->Np * mesh->Nq + 4 * mesh->Np;
+        flops *= static_cast<double>(mesh->Nelements);
+        platform->flopCounter->add("scalarExplicitFilter", flops);
+      }
+    }
+  }
+}
+
 void nrs_t::finishStep()
 {
+  this->applyExplicitFilter();
+
   if (platform->options.compareArgs("NEKNEK MULTIRATE TIMESTEPPER", "TRUE")) {
     finishOuterStep();
   } else {
@@ -626,11 +663,11 @@ bool nrs_t::runInnerStep(std::function<bool(int)> convergenceCheck, int iter, bo
     checkpointStep = 1;
   }
 
-  platform->timer.hostTic("udfExecuteStep", 1);
+  platform->timer.tic("udfExecuteStep", 1);
   if (udf.executeStep) {
     udf.executeStep(timeNew, tstep);
   }
-  platform->timer.hostToc("udfExecuteStep");
+  platform->timer.toc("udfExecuteStep");
 
   return converged;
 }

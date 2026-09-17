@@ -2,6 +2,7 @@
 set -e
 
 : ${QUEUE:="prod"} # debug, debug-scaling, prod https://docs.alcf.anl.gov/running-jobs/job-and-queue-scheduling/
+: ${USE_ASCENT:=0}
 
 source $NEKRS_HOME/bin/nrsqsub_utils
 setup $# 1
@@ -56,11 +57,15 @@ echo "module load PrgEnv-gnu" >> $SFILE
 echo "module load nvhpc-mixed" >> $SFILE
 echo "module load craype-x86-milan craype-accel-nvidia80" >> $SFILE
 echo "module load spack-pe-base cmake" >> $SFILE
-echo "module load visualization/ascent" >> $SFILE
+if [ $USE_ASCENT -eq 1 ]; then
+  echo "module load visualization/ascent" >> $SFILE
+fi
 echo "module list" >> $SFILE
 
-# Ascent
-echo "export NEKRS_ASCENT_INSTALL_DIR=\"/soft/visualization/ascent/develop/2024-05-03-8baa78c/ascent-develop\"" >> $SFILE
+if [ $USE_ASCENT -eq 1 ]; then
+  echo "export NEKRS_ASCENT_INSTALL_DIR=\"/soft/visualization/ascent/develop/2024-05-03-8baa78c/ascent-develop\"" >> $SFILE
+  echo "export NEKRS_MPI_THREAD_MULTIPLE=1" >>$SFILE # for ascent async mode
+fi
 
 echo "nvidia-smi" >> $SFILE
 echo "ulimit -s unlimited " >>$SFILE
@@ -78,6 +83,7 @@ echo "export MPICH_GPU_SUPPORT_ENABLED=1" >> $SFILE
 echo "export MPICH_OFI_NIC_POLICY=NUMA" >> $SFILE
 
 CMD=.lhelper
+rm -rf $CMD; sleep 0.1s
 echo "#!/bin/bash" >$CMD
 echo "gpu_id=\$((${gpu_per_node} - 1 - \${PMI_LOCAL_RANK} % ${gpu_per_node}))" >>$CMD
 echo "export CUDA_VISIBLE_DEVICES=\$gpu_id" >>$CMD

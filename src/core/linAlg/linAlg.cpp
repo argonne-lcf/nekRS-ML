@@ -120,20 +120,29 @@ linAlg_t *linAlg_t::getInstance()
 
 linAlg_t::linAlg_t()
 {
+  const double tStart = MPI_Wtime();
+  if (platform->comm.mpiRank == 0) {
+    printf("initializing linAlg ...\n");
+    fflush(stdout);
+   }
+
   blocksize = BLOCKSIZE;
   serial = platform->serial;
   comm = platform->comm.mpiComm;
   timer = 0;
-
-  if (platform->comm.mpiRank == 0 && platform->verbose) {
-    std::cout << "initializing linAlg ...\n";
-  }
 
   setup();
   runTimers();
 
   if (platform->options.compareArgs("ENABLE LINALG TIMER", "TRUE")) {
     timer = 1;
+  }
+
+  MPI_Barrier(platform->comm.mpiComm);
+  const double loadTime = MPI_Wtime() - tStart;
+  if (platform->comm.mpiRank == 0) {
+    printf("initializing linAlg :: done (%g)\n", loadTime);
+    fflush(stdout);
   }
 }
 

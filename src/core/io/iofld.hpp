@@ -63,6 +63,7 @@ public:
   bool outputMesh = false;
   bool redistribute = true;
   bool pointInterpolation = false;
+  std::vector<int> refineSchedule = {};
 
   void writeAttribute(const std::string& key_, const std::string& val)
   {
@@ -100,6 +101,16 @@ public:
     if (key == "interpolate") {
       pointInterpolation = (val == "true") ? true : false;
       if (pointInterpolation) redistribute = false; 
+    }
+    if (key == "refine") {
+      refineSchedule.clear();
+      std::vector<std::string> list = serializeString(val, ',');
+      for (auto &entry : list) {
+        int ncut = std::stoi(entry);
+        if (ncut > 0) {
+          refineSchedule.push_back(ncut);
+        }
+      }
     }
   }
 

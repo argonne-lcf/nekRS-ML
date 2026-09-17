@@ -704,6 +704,8 @@ size_t iofldAdios::read()
       return exists;
    };
 
+  nekrsCheck(refineSchedule.size() > 0, MPI_COMM_SELF, EXIT_FAILURE, "%s\n", "read attribute refine not supported!");
+
   // first allocate then get variable to ensure deferred pointer to memPool remains valid
   for (int pass = 0; pass < 2; pass++) {
     const auto allocateOnly = (pass == 0) ? true : false;

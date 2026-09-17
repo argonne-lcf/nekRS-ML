@@ -136,6 +136,8 @@ public:
   occa::memory o_filterRT;
 
   occa::kernel filterRTKernel;
+  occa::kernel vectorExplicitFilterKernel;
+  occa::kernel scalarExplicitFilterKernel;
   occa::kernel advectMeshVelocityKernel;
   occa::kernel pressureAddQtlKernel;
   occa::kernel pressureStressKernel;
@@ -243,7 +245,11 @@ public:
   occa::memory Qcriterion(const occa::memory &o_U);
   occa::memory Qcriterion();
 
+  void applyExplicitFilter();
+  void applyExplicitFilter(std::string tag, mesh_t *mesh, occa::memory &o_fld, const int filterNc, const dfloat filterWght);
+
   void restartFromFile(const std::string& restartStr);
+  void restartFromFiles(const std::string& restartStr);
   void writeCheckpoint(double t, int step, bool enforceOutXYZ = false, bool enforceFP64 = false, int Nout = 0, bool uniform = false);
 
   void finalize();
@@ -253,8 +259,8 @@ public:
   void copyToNek(double time, int tstep, bool updateMesh = false);
   void copyToNek(double time, bool updateMesh = false);
 
-  void copyFromNek(double &time);
-  void copyFromNek();
+  void copyFromNek(double &time, bool updateMesh = false);
+  void copyFromNek(bool updateMesh = false);
   void getICFromNek();
 
 private:

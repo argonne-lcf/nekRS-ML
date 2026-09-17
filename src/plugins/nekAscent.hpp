@@ -242,7 +242,7 @@ void addVariable(const std::string &name, mesh_t *mesh_fld, const std::vector<de
   }
 
   const auto dim = fld_.size();
-  nekrsCheck(dim != 1 && dim != 3, MPI_COMM_SELF, EXIT_FAILURE, "Unsupported vector dim: %d\n", dim);
+  nekrsCheck(dim != 1 && dim != 3, MPI_COMM_SELF, EXIT_FAILURE, "Unsupported vector dim: %zu\n", dim);
 
   userFieldList.push_back(std::tuple{name, fld_, mesh_fld});
 }
@@ -256,7 +256,8 @@ void setup(mesh_t *mesh_,
            const std::string &actionFile,
            int Nin_ = 0,
            bool uniform_ = false,
-           bool stageThroughHost_ = false bool async_ = false)
+           bool stageThroughHost_ = false,
+            bool async_ = false)
 {
   mesh_in = mesh_;
   const int Nin = (Nin_) ? Nin_ : mesh_in->N;
@@ -288,14 +289,18 @@ void setup(mesh_t *mesh_,
   const auto tStart = MPI_Wtime();
   if (platform->comm.mpiRank == 0) {
     printf("initializing nekAscent ");
-    if (interpolate || uniform) {
-      printf("(Nviz=%d", Nin);
-      if (uniform) {
-        printf(" +uniform");
-      }
-      printf(") ...\n");
-      fflush(stdout);
+    printf("(Nviz=%d", Nin);
+    if (uniform) {
+      printf(" +uniform");
     }
+    if (stageThroughHost){
+      printf(" +viaHost");
+    }
+    if (async){
+      printf(" +async");
+    }
+    printf(") ...\n");
+    fflush(stdout);
   }
 
   if (platform->comm.mpiRank == 0) {

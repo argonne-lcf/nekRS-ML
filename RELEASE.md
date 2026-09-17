@@ -1,19 +1,91 @@
+# (Draft) Release v24.1
+
+v24.1 is a patch release focused on bug fixes and essential updates for Aurora.
+For code developers, please note that major changes are expected in the upcoming v25.
+
+## What is new?
+
+**New features:**
+
+* (Experimental) On-the-fly oct-tree mesh refinement.
+  For example, `[GENERAL] refine=2,3` performs two rounds of refinement: `1-> 8 -> 8 x 27`.
+  It supports restarts from coarse meshes using the restart option:
+  `startFrom = "r1.fld+refine=2;3"`. See *ethier* example with `ciMode=24,25,26,27`.
+* Support for multiple restart files. Separate filenames by commas:
+  `startFrom = "r1.fld+X,r2.fld+U,r3.fld+S"` (no spaces). This reads mesh, velocity and scalars from `r1.fld`, `r2.fld` and  `r3.fld`, respectively.
+* New command-line option `--output <path-to-logfile>` to specify the path to the logfile.
+* Support XXT as a `coarseSolver` option (see *ethier* `ciMode=28`).
+* Support for Intel GPUs on ALCF/Aurora (see `nrsqsub_aurora`).
+* Support Nek5000's explicit filter with `regularization=explicit` (see *ethier* `ciMode=30`). Add `nrs_t::applyExplicitFilter` API to allow user calling it at any time.
+* Add module setup and installation guide for HPC (e.g., `nrsman hpc aurora`).
+
+**Other changes:**
+
+* Add additional timers during setup.
+* Incorporate Nek5000’s nullspace treatment in GMRES, controlled via `setArgs("PGMRES NULLSPACE ZERO MEAN ALGEBRAIC NORM", "TRUE")`.
+* Revert multithread JIT to avoid possibility of hangs on Aurora and Frontier.
+* Update scripts for Frontier (`USE_COMPILER=amd` or `gnu`), Aurora, Polaris, and Perlmutter (unchanged) and support the `USE_ASCENT=1` option.
+* Add a workaround option avoid restart hangs via crystal router, controlled by
+  `setArgs("CHECKPOINT READ USE CRYSTAL ROUTER", "TRUE")`.
+* Add `[MESH] maxElements` to specify `lelg` used in `mkSIZE`, enabling more flexible CI test.
+* Rename `amgSolver` to `coarseSolver` to support XXT and future options.
+
+## Good to know
+
+These changes deviate from v24 but *might* become defaults in v25:
+
+* Always calling `userchk` during setup, followed by a mesh update.
+* Revert default norm to `LEGACY`.
+* Switch default solver from combined PCG to standard PCG.
+
+## Various Bugs Fixed
+
+* Fix duplicated CFL check; allow user-defined limit via `setArg("MAXIMIUM CFL","1000")`.
+* Fix nekAscent API issues.
+* Fix interpolation setup in the *hemi* example.
+* Fix IO of Nek checkpoint file header to prevent integer overflow.
+* Dump timesteps into Nek checkpoint files
+* Properly read restart options for scalars. `startFrom = "r.fld+S"` reads all scalars.
+* Eliminate redundant copies during SYM BC alignment detection.
+* Find `.co2` based on the name of `.re2`
+* Fix infinite loops bug in `occa::memory opSEM::strongDivergence`.
+
+## Known Bugs / Restrictions
+
+TODO: Link to github issues
+
+- `ethier` example fails to run on 2 nodes of Aurora due to unregistered kernels.
+  TODO: Verify and update.
+- Correctness check in kernel benchmark is temporarily disabled due to the robustness issue.
+- (Aurora) Device streamTag timer is still unreliable; `DEVICE:MAX` may report negative durations.
+- (Aurora) MPI-related issues observed in parCon, parRSB, FEM setup and checkpoint reading.
+
+## Thanks to our Contributors
+
+@kris-rowe, @tcew, @yslan, @MalachiTimothyPhillips, @thilinarmtb, @mvictoras
+
+We are grateful to all who added new features, filed issues or helped resolve them,
+asked and answered questions, and were part of inspiring discussions.
+
+
+---
+
 # Release v24.0
 
-## What is new? 
+## What is new?
 
 * FP32 solver mode
 * DPCPP backend to support Intel GPUs
 * Interpolation based velocity recycling
 * [Ascent](https://ascent.readthedocs.io/en/latest/) in situ visualisation plugin
-* iofld class reading/writing field files including [ADIOS2](https://adios2.readthedocs.io/) support 
+* iofld class reading/writing field files including [ADIOS2](https://adios2.readthedocs.io/) support
 * Addtional output options (element filter and interpolation on uniform grid / different polynomial-order)
 * Multi session nek-nek including multi-rate time stepping
 * Improved memory management
 * CHT nek-nek support
 * nek-nek support for nrsqsub scripts
 * Improved JIT compilation performance
-* HIP support for SEMFEM  
+* HIP support for SEMFEM
 * Aero forces
 * opSEM class
 * Mesh surface ops
@@ -35,11 +107,11 @@ This list provides an overview of the most significant changes in this release, 
 
 * run `build.sh` instead of `nrsconfig` to build the code
 * change par section `SCALAR00` to `TEMPERATURE` in case it represent indeed a physical temperature
-* `nek::userchk` is no longer called automatically during the setup phase 
-* host mirrored variables including `nrs->U, cds->S, mesh->x, nrs->usrwrk` have been removed 
+* `nek::userchk` is no longer called automatically during the setup phase
+* host mirrored variables including `nrs->U, cds->S, mesh->x, nrs->usrwrk` have been removed
 * send signal (defined in env-var `NEKRS_SIGNUM_UPD`) to process trigger file `nekrs.upd`
 * use `auto foo = platform->deviceMemoryPool.reserve<T>(nWords)` instead of pre-allocated dfloat slices like `platform->o_mempool.slice0`
-* change count argument of `occa::memory::slice, occa::memory::copyFrom, occa::memory::copyTo` to number of words instead of bytes 
+* change count argument of `occa::memory::slice, occa::memory::copyFrom, occa::memory::copyTo` to number of words instead of bytes
 * use `nekrs_registerPtr` instead of common blocks NRSSCPTR / SCNRS in usr file and access them using `nek::ptr` in udf (see examples)
 
 ### Name Changes
@@ -52,10 +124,10 @@ This list provides an overview of the most significant changes in this release, 
 * `cds->o_FS` -> `cds->o_NLT`
 * `occaKernel` -> `deviceKernel`
 * `occaProperties` > `deviceKernelProperties`
-* `occa::memory` -> `deviceMemory` 
+* `occa::memory` -> `deviceMemory`
 * `nrs->isOutputStep` -> `nrs->checkpointStep`
 
-### Interface Changes 
+### Interface Changes
 * define `time` as double (instead of defloat) in all UDF functions
 * remove `nrs_t` argument from all UDF functions (nrs object is now globally accessible within udf if the Navier Stokes solver is enabled)
 * `nrs_t::userProperties = std::function<void(double)>` -> `udf::properties = std::function<void(nrs_t *, dfloat, occa::memory, occa::memory, occa::memory, occa::memory)>`
@@ -81,31 +153,31 @@ This list provides an overview of the most significant changes in this release, 
 
 @kris-rowe, @tcew, @yslan, @MalachiTimothyPhillips, @thilinarmtb
 
-We are grateful to all who added new features, filed issues or helped resolve them, 
+We are grateful to all who added new features, filed issues or helped resolve them,
 asked and answered questions, and were part of inspiring discussions.
 
 
 # Release v23.0
 
-## What is new? 
+## What is new?
 
-* Lagrangian phase model (one-way coupling) 
+* Lagrangian phase model (one-way coupling)
 * Overset grids (neknek)
-* Particle tracking 
+* Particle tracking
 * Single source udf+oudf
 * Device support BoomerAMG
 * Improved runtime statistics
 * 4th-kind Chebyshev smoothers
-* Configureable time averaging 
+* Configureable time averaging
 * Extrapolation initialGuess method
 * Scaleable JIT compilation
 * Real gas support for lowMach
 * More examples
-* Various bug fixes 
+* Various bug fixes
 
 ## Good to know
 
-* [udf] Changes in include files do not trigger a rebuild automatically 
+* [udf] Changes in include files do not trigger a rebuild automatically
 * [udf] Plugins kernels will be loaded automatically (call in `UDF_LoadKernels` no longer required)
 
 ## Breaking Changes
@@ -118,10 +190,10 @@ asked and answered questions, and were part of inspiring discussions.
 * [par] Rename writeControl value `runTime` => `simulationTime`
 * [par] Remove multigrid qualifier `coarse`
 * [par] Remove SEMFEM solver specification from key `preconditioner`, use `semfemSolver` instead
-* [par] Replace `stressFormulation = true` by `equation = navierStokes+variableViscosity` 
+* [par] Replace `stressFormulation = true` by `equation = navierStokes+variableViscosity`
 * [par] Replace bcType `fixedValue` by `codedFixedValue`
 * [par] Replace `elasticity` by `pcg+block` for mesh solver
-* [okl] Replace `@barrier("local")` by `@barrier()` 
+* [okl] Replace `@barrier("local")` by `@barrier()`
 * [oudf] `bc` struct member `trn` was removed
 * Use occa::memory mesh_t objects for vgeo, cubvgeo, ggeom, sgeom, LMM, invLMM (no longer mirrored on host)
 * All `boundaryIDs` need to be assigned in  `boundaryTypeMap` (use `none` for an internal boundary)
@@ -137,24 +209,24 @@ asked and answered questions, and were part of inspiring discussions.
 
 @neil-lindquist, @kris-rowe, @pwang234, @nandu90, @yhaomin2007
 
-We are grateful to all who added new features, filed issues or helped resolve them, 
+We are grateful to all who added new features, filed issues or helped resolve them,
 asked and answered questions, and were part of inspiring discussions.
 
 
 # Release v22.0
 
-## What is new? 
+## What is new?
 
 * Multi-session (uncoupled) support
 * Support unaligned symmetry boundary condition
 * Support (unaligned) traction boundary condition
 * Better performance on AMD MI-GPUs
 * FLOP counters
-* Various bug fixes 
+* Various bug fixes
 
 ## Good to know
 
-* OpenCL support is now disabled by default 
+* OpenCL support is now disabled by default
 
 ## Breaking Changes
 
@@ -178,15 +250,15 @@ asked and answered questions, and were part of inspiring discussions.
 
 @tcew, @kris-rowe, @aprilnovak
 
-We are grateful to all who added new features, filed issues or helped resolve them, 
+We are grateful to all who added new features, filed issues or helped resolve them,
 asked and answered questions, and were part of inspiring discussions.
 
-A special shout out to Tim Warburton at VT for tuning some critical kernels. 
+A special shout out to Tim Warburton at VT for tuning some critical kernels.
 
 
 # Release v21.1
 
-## What is new? 
+## What is new?
 
 * Flexible GMRES
 * Constant flow rate
@@ -197,16 +269,16 @@ A special shout out to Tim Warburton at VT for tuning some critical kernels.
 * FEMSEM preconditioner
 * Update file (nekrs.upd) for runtime modifications
 * Validate key/value input in par
-* Various bug fixes 
+* Various bug fixes
 
-## Good to know 
+## Good to know
 * [par] `preconditioner = multigrid` was replaced by `preconditioner = multigrid+coarse`
-* [par] Only valid `key/value` pairs will be accepted 
+* [par] Only valid `key/value` pairs will be accepted
 * [par] Default smootherType is `ASM+Chebyshev+degree=2` (instead of degree=1)
-* [fld] Only first checkpoint will contain mesh coordinates 
+* [fld] Only first checkpoint will contain mesh coordinates
 * GMRES is now the default linear solver for pressure (higher memory usage)
 
-## Breaking Changes 
+## Breaking Changes
 
 * [udf] Use std namespace qualifier e.g. `std::cout` instead of `cout`
 * [udf] Rename `UDF_LoadKernels(nrs_t *nrs)` => `UDF_LoadKernels(occa::properties& kernelInfo)`
@@ -225,7 +297,7 @@ A special shout out to Tim Warburton at VT for tuning some critical kernels.
 
 @RonRahaman, @aprilnovak, @yslan
 
-We are grateful to all who added new features, filed issues or helped resolve them, 
+We are grateful to all who added new features, filed issues or helped resolve them,
 asked and answered questions, and were part of inspiring discussions.
 
 # Hofix Release v21.0.1
@@ -238,7 +310,7 @@ asked and answered questions, and were part of inspiring discussions.
 
 # Release v21.0
 
-## What is new? 
+## What is new?
 
 * ASM and RAS smoother + Chebyshev acceleration
 * Improved gs performance
@@ -246,28 +318,28 @@ asked and answered questions, and were part of inspiring discussions.
 * Runtime averages
 * Stress formulation
 * ALE formulation to support moving meshes
-* Linear algebra helpers 
-* Various bug fixes 
+* Linear algebra helpers
+* Various bug fixes
 
-## What you may have to change to be compatible 
+## What you may have to change to be compatible
 
-* common block SCRNS was replaced by pointer array NRSSCPTR (see ethier example) 
+* common block SCRNS was replaced by pointer array NRSSCPTR (see ethier example)
 * boundary device functions and bc struct members in oudf were renamed
-* manually copying nek's IC in UDF_Setup() is no longer required 
+* manually copying nek's IC in UDF_Setup() is no longer required
 * nrs->Nlocal was replaced by mesh->Nlocal
 * nrs->options was replaced by platform->options
 * nrs->linAlg was replaced by platform->linAlg
 * nek_copyFrom() was renamed to nek::copyToNek()
 * nek_copyTo() was renamed to nek::copyFromNek()
-* cds->fieldOffset was replaced by cds->fieldOffset[i] 
+* cds->fieldOffset was replaced by cds->fieldOffset[i]
 * nrs->mesh was replaced by nrs->meshV
-* cds->mesh was replaced by cds->mesh[i] 
+* cds->mesh was replaced by cds->mesh[i]
 * nrs->meshT was replaced by cds->mesh[0]
 * mesh->rank was replaced by platform->comm.mpiRank
 * mesh->comm was replaced by platform->comm.mpiComm
 * mesh->device was replaced by platform->device
 
-## Known Bugs 
+## Known Bugs
 
 * [201](https://github.com/Nek5000/nekRS/issues/201)
 * [199](https://github.com/Nek5000/nekRS/issues/199)
@@ -278,29 +350,29 @@ asked and answered questions, and were part of inspiring discussions.
 
 @RonRahaman, @aprilnovak, @roystgnr, @yslan, @pwang234
 
-We are grateful to all who added new features, filed issues or helped resolve them, 
+We are grateful to all who added new features, filed issues or helped resolve them,
 asked and answered questions, and were part of inspiring discussions.
 
-A special thanks goes to the CAPS Lab at ETHZ who helped to develop the moving mesh support. 
+A special thanks goes to the CAPS Lab at ETHZ who helped to develop the moving mesh support.
 
 # Release v20.0
 
-## What is new? 
+## What is new?
 
 * Initial release
 
-## What you may have to change to be compatible 
+## What you may have to change to be compatible
 
-* n/a 
+* n/a
 
-## Known Bugs 
+## Known Bugs
 
 [80](https://github.com/Nek5000/nekRS/issues/80)
 
 ## Thanks to our Contributors
 
-@AliKarakus, @thilinarmtb, @noelchalmers and @tcew for helping 
+@AliKarakus, @thilinarmtb, @noelchalmers and @tcew for helping
 
-We are grateful to all who added new features, filed issues or helped resolve them, 
+We are grateful to all who added new features, filed issues or helped resolve them,
 asked and answered questions, and were part of inspiring discussions.
 
