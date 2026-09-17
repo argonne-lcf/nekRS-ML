@@ -50,7 +50,7 @@ struct cmdOptions
   std::string backend;
   int nSessions = 1;
   int sessionID = 0;
-  bool redirectOutput;
+  std::string redirectOutput;
 };
 
 struct session_t {
@@ -97,6 +97,7 @@ cmdOptions* processCmdLineOptions(int argc, char** argv, const MPI_Comm &comm)
         {"attach", no_argument, 0, 'a'},
         {"backend", required_argument, 0, 't'},
         {"device-id", required_argument, 0, 'i'},
+        {"output", required_argument, 0, 'r'},
         {"help", optional_argument, 0, 'h'},
         {0, 0, 0, 0}
       };
@@ -142,6 +143,9 @@ cmdOptions* processCmdLineOptions(int argc, char** argv, const MPI_Comm &comm)
       case 't':
         cmdOpt->backend.assign(optarg);
         break;
+      case 'r':
+        cmdOpt->redirectOutput.assign(optarg);
+        break;
       case 'h':
         printHelp++;
         if(!optarg && argv[optind] != NULL && argv[optind][0] != '-')
@@ -153,7 +157,7 @@ cmdOptions* processCmdLineOptions(int argc, char** argv, const MPI_Comm &comm)
     }
   }
 
-  for(auto opt: {&cmdOpt->multiSessionFile, &cmdOpt->setupFile, &cmdOpt->deviceID, &cmdOpt->backend})
+  for(auto opt: {&cmdOpt->multiSessionFile, &cmdOpt->setupFile, &cmdOpt->deviceID, &cmdOpt->backend, &cmdOpt->redirectOutput})
   {
     int bufSize = opt->size() + 1;
     MPI_Bcast(&bufSize, 1, MPI_INT, 0, comm);
@@ -200,7 +204,8 @@ cmdOptions* processCmdLineOptions(int argc, char** argv, const MPI_Comm &comm)
                   << "[ --help <par|env> ] "
                   << "--setup <par|sess file> "
                   << "[ --build-only <#procs> ] [ --cimode <id> ] [ --debug ] [ --attach ] "
-                  << "[ --backend <CPU|CUDA|HIP|DPCPP|OPENCL> ] [ --device-id <id|LOCAL-RANK> ]"
+                  << "[ --backend <CPU|CUDA|HIP|DPCPP|OPENCL> ] [ --device-id <id|LOCAL-RANK> ] "
+                  << "[ --output <local-path-to-logfile>]"
                   << "\n";
       }
     }

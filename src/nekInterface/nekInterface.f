@@ -25,6 +25,8 @@ c-----------------------------------------------------------------------
 
       character*1  re2fle1(132)
       equivalence  (RE2FLE,re2fle1)
+      character*1  reafle1(132)
+      equivalence  (REAFLE,reafle1)
 
       ! set word size for REAL
       wdsize = sizeof(rtest)
@@ -52,6 +54,11 @@ c-----------------------------------------------------------------------
       call chcopy(re2fle1(lp+1),mesh_in,len(mesh_in))
       ls = lp + len(mesh_in)
       call blank(re2fle1(ls+1),len(re2fle)-ls)
+
+      lp = 0 !ltrunc(PATH,132)
+      call chcopy(reafle1(lp+1),mesh_in,len(mesh_in))
+      ls = lp + len(mesh_in)
+      call blank(reafle1(ls+1),len(reafle)-ls)
 
       call nekrs_registerPtr('ndim', ndim)
       call nekrs_registerPtr('nelv', nelv)
@@ -111,7 +118,7 @@ c-----------------------------------------------------------------------
       return
       end
 c-----------------------------------------------------------------------
-      subroutine nekf_setup(ifflow_in, 
+      subroutine nekf_setup(ifflow_in, refine, refineSize,
      $                      bIDMap, bIDMapSize, bIDtMap, bIDtMapSize,
      $                      npscal_in, idpss_in, p32, mpart, contol,
      $                      rho, mue, rhoCp, lambda, stsform) 
@@ -120,6 +127,9 @@ c-----------------------------------------------------------------------
       include 'TOTAL'
       include 'DOMAIN'
       include 'NEKINTF'
+
+      integer refineSize
+      integer refine(refineSize)
 
       integer bIDMapSize
       integer bIDtMapSize
@@ -136,7 +146,10 @@ c-----------------------------------------------------------------------
       common /ivrtx/ vertex ((2**ldim)*lelt)
       integer*8 vertex
 
+      real*8 etimes, etime1, etime2, etimeSetup, dnekclock_sync
+
       etimes = dnekclock_sync()
+      if (nio.eq.0) write(*,*) 'call nek setup'
 
       call read_re2_hdr(ifbswap, .true.)
 
@@ -191,11 +204,13 @@ c-----------------------------------------------------------------------
       endif
 #endif
 
+      call ifill(boundaryID, -1, 6*lelv)
+      call ifill(boundaryIDt, -1, 6*lelt)
+
       ifld_bId = 2
       if(ifflow) ifld_bId = 1
       do iel = 1,nelv
       do ifc = 1,2*ndim
-         boundaryID(ifc,iel) = -1
          if(bc(5,ifc,iel,ifld_bId).gt.0) then
            boundaryID(ifc,iel) = bc(5,ifc,iel,ifld_bId)
            idx = ibsearch(bIDMap, bIDMapSize, bc(5,ifc,iel,ifld_bId))
@@ -210,7 +225,6 @@ c-----------------------------------------------------------------------
       if(nelgt.ne.nelgv) then 
         do iel = 1,nelt
         do ifc = 1,2*ndim
-         boundaryIDt(ifc,iel) = -1
          if(bc(5,ifc,iel,2).gt.0) then
            boundaryIDt(ifc,iel) = bc(5,ifc,iel,2)
            idx = ibsearch(bIDtMap, bIDtMapSize, bc(5,ifc,iel,2))
@@ -238,14 +252,23 @@ c-----------------------------------------------------------------------
       call genwz           ! Compute GLL points, weights, etc.
 
       if(nio.eq.0) write(6,*) 'call usrdat'
+      etime1 = dnekclock_sync()
       call usrdat
-      if(nio.eq.0) write(6,'(A,/)') ' done :: usrdat' 
+      etime2 = dnekclock_sync()
+      if(nio.eq.0) write(6,998) ' done :: usrdat', etime2-etime1
 
       call gengeom(igeom)  ! Generate geometry, after usrdat 
 
       if(nio.eq.0) write(6,*) 'call usrdat2'
+      etime1 = dnekclock_sync()
+      do iref=1,refineSize
+        call usrdat2_oct(refine(iref))
+        call fix_geom
+      enddo
+
       call usrdat2
-      if(nio.eq.0) write(6,'(A,/)') ' done :: usrdat2' 
+      etime2 = dnekclock_sync()
+      if(nio.eq.0) write(6,998) ' done :: usrdat2', etime2-etime1
 
       call fix_geom
       call geom_reset(1)    ! recompute Jacobians, etc.
@@ -259,8 +282,10 @@ c-----------------------------------------------------------------------
       ifield = 1
 
       if(nio.eq.0) write(6,*) 'call usrdat3'
+      etime1 = dnekclock_sync()
       call usrdat3
-      if(nio.eq.0) write(6,'(A,/)') ' done :: usrdat3'
+      etime2 = dnekclock_sync()
+      if(nio.eq.0) write(6,998) ' done :: usrdat3', etime2-etime1
 
       time = 0.0
       p0thn = p0th
@@ -268,6 +293,7 @@ c-----------------------------------------------------------------------
 
       etimeSetup = dnekclock_sync() - etimes
       if(nio.eq.0) write(6,999) etimeSetup 
+ 998  format(a, 1p1e13.4, ' s',/)
  999  format(' nek setup done in ', 1p1e13.4, ' s')
       if(nio.eq.0) write(6,*) 
       call flush(6)
@@ -275,7 +301,7 @@ c-----------------------------------------------------------------------
       return
       end
 c-----------------------------------------------------------------------
-      subroutine nekf_outfld(fname, time_in, out_fld, 
+      subroutine nekf_outfld(fname, time_in, istep_in, out_fld,
      &                       nxo_in, rego_in,
      $                       xm_in, ym_in, zm_in,
      $                       vx_in, vy_in, vz_in,
@@ -288,6 +314,7 @@ c-----------------------------------------------------------------------
 
       character fname*(*)
       real time_in
+      integer istep_in
       integer out_fld(*)
 
       integer rego_in
@@ -307,6 +334,7 @@ c-----------------------------------------------------------------------
       integer*8 cntg
 
       real time_s
+      integer istep_s
 
       common /vrthov/ ur1(lxo*lxo*lxo*lelt)
      &              , ur2(lxo*lxo*lxo*lelt)
@@ -314,6 +342,8 @@ c-----------------------------------------------------------------------
 
       time_s = time
       time = time_in
+      istep_s = istep
+      istep = istep_in
 
       rego = .false.
       if(rego_in.ne.0) rego = .true.
@@ -385,7 +415,8 @@ c-----------------------------------------------------------------------
       nxyzo8  = nxo*nyo*nzo
 
       ! only relevant for single shared file
-      offs0 = iHeaderSize + 4 + isize*cntg
+      offs0 = cntg ! cast to int*8
+      offs0 = iHeaderSize + 4 + isize*offs0
       strideB = nelB * nxyzo8*wdsizo
       stride  = cntg * nxyzo8*wdsizo
 
@@ -489,6 +520,7 @@ c-----------------------------------------------------------------------
       call err_chk(ierr,'Error closing file in mfo_outfld. Abort. $')
 
       time = time_s
+      istep = istep_s
 
       return
       end
@@ -1229,7 +1261,7 @@ c     Interpolate xm(m,m,m,...) to xn(n,n,n,...) (GLL-->GLL)
       end
 
 c-----------------------------------------------------------------------
-      subroutine nekf_openfld(fname_in, time_, p0th_)
+      subroutine nekf_openfld(fname_in, time_, p0th_, use_cr_)
       include 'mpif.h'
       include 'SIZE'
       include 'TOTAL'
@@ -1240,7 +1272,7 @@ c-----------------------------------------------------------------------
       real time_
       real p0th_
 
-      integer nps_
+      integer nps_, use_cr_
 
       character*132  fname
       character*1    fnam1(132)
@@ -1265,6 +1297,8 @@ c-----------------------------------------------------------------------
 
       call mfi_prepare(fname)       ! determine reader nodes +
                                     ! read hdr + element mapping 
+      ifcrrs = .false.
+      if (use_cr_.ne.0) ifcrrs = .true.
 
       time_ = timer
       p0th_ = p0th
@@ -1310,25 +1344,37 @@ c-----------------------------------------------------------------------
 
       common /nekmpi/ nid_,np_,nekcomm,nekgroup,nekreal
 
+      real*8 cr_etime1,cr_etime2,cr_etime3,etime0,dnekclock_sync
+      common /cr_rst_tmr/ cr_etime1,cr_etime2,cr_etime3
+
       integer   disp_unit
       integer*8 win_size
 
 #ifdef MPI
-      disp_unit = 4 
-      win_size  = int(disp_unit,8)*size(wk)
-      if (commrs .eq. MPI_COMM_NULL) then
-        call mpi_comm_dup(nekcomm,commrs,ierr)
-        call MPI_Win_create(wk,
-     $                      win_size,
-     $                      disp_unit,
-     $                      MPI_INFO_NULL,
-     $                      commrs,rsH,ierr)
+      if (ifcrrs) then
+        call fgslib_crystal_setup(cr_mfi,nekcomm,np)
+        cr_etime1 = 0.0
+        cr_etime2 = 0.0
+        cr_etime3 = 0.0
+      else
+        disp_unit = 4
+        win_size  = int(disp_unit,8)*size(wk)
+        if (commrs .eq. MPI_COMM_NULL) then
+          call mpi_comm_dup(nekcomm,commrs,ierr)
+          call MPI_Win_create(wk,
+     $                        win_size,
+     $                        disp_unit,
+     $                        MPI_INFO_NULL,
+     $                        commrs,rsH,ierr)
 
-        if (ierr .ne. 0 ) call exitti('MPI_Win_allocate failed!$',0)
+          if (ierr .ne. 0 ) call exitti('MPI_Win_allocate failed!$',0)
+          call rzero(wk,lwk) ! avoid un-initialized values, FE_INVALID, in h_refine
+        endif
       endif
 #endif
 
-      offs0   = iHeadersize + 4 + isize*nelgr
+      offs0   = nelgr ! cast to int*8
+      offs0   = iHeadersize + 4 + isize*offs0
       nxyzr8  = nxr*nyr*nzr
       strideB = nelBr* nxyzr8*wdsizr
       stride  = nelgr* nxyzr8*wdsizr
@@ -1376,6 +1422,15 @@ c-----------------------------------------------------------------------
         if(nid.eq.pid0r) call byte_close(ierr)
       endif
       call err_chk(ierr,'Error closing restart file, in mfi.$')
+
+#ifdef MPI
+      if (ifcrrs) then
+        if(nio.eq.0) write(6,31) cr_etime1,cr_etime2,cr_etime3
+        call fgslib_crystal_free(cr_mfi)
+      endif
+#endif
+
+  31  format(3x,'nekf_readfld:pack/cr/unpack :',3(1e9.2))
 
       return
       end

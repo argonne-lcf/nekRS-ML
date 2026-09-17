@@ -147,6 +147,14 @@ void registerEllipticKernels(std::string section, int poissonEquation)
   int nelgt, nelgv;
   const std::string meshFile = platform->options.getArgs("MESH FILE");
   re2::nelg(meshFile, nelgt, nelgv, platform->comm.mpiComm);
+  {
+    int nscale = 1;
+    platform->options.getArgs("MESH REFINEMENT SCALE", nscale);
+    if (nscale > 1) {
+      nelgt *= nscale;
+      nelgv *= nscale;
+    }
+  }
   const int NelemBenchmark = nelgv / platform->comm.mpiCommSize;
   bool verbose = platform->options.compareArgs("VERBOSE", "TRUE");
   const int verbosity = verbose ? 2 : 1;

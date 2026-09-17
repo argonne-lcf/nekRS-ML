@@ -160,17 +160,25 @@ int main(int argc, char** argv)
     auto parKeyValuePairs = readPar(cmdOpt->setupFile, comm);
 
     {
-      auto it = parKeyValuePairs.find("general");
-      if (it != parKeyValuePairs.end()) {
-        auto jt = it->second.find("redirectoutputto"); 
-        if (jt != it->second.end()) {
-          auto outputFile = jt->second;
-          if (rank == 0) std::cout << "redirecting output to " << outputFile << " ...\n";
-          const int fd = open(outputFile.c_str(), O_WRONLY|O_CREAT|O_APPEND, S_IWUSR|S_IRUSR);
-          dup2(fd, fileno(stderr));
-          dup2(fd, fileno(stdout));
+      if (!cmdOpt->redirectOutput.empty()) {
+        auto outputFile = cmdOpt->redirectOutput;
+        if (rank == 0) std::cout << "redirecting output to " << outputFile << " ...\n";
+        const int fd = open(outputFile.c_str(), O_WRONLY|O_CREAT|O_APPEND, S_IWUSR|S_IRUSR);
+        dup2(fd, fileno(stderr));
+        dup2(fd, fileno(stdout));
+      } else {
+        auto it = parKeyValuePairs.find("general");
+        if (it != parKeyValuePairs.end()) {
+          auto jt = it->second.find("redirectoutputto");
+          if (jt != it->second.end()) {
+            auto outputFile = jt->second;
+            if (rank == 0) std::cout << "redirecting output to " << outputFile << " ...\n";
+            const int fd = open(outputFile.c_str(), O_WRONLY|O_CREAT|O_APPEND, S_IWUSR|S_IRUSR);
+            dup2(fd, fileno(stderr));
+            dup2(fd, fileno(stdout));
+          }
         }
-      } 
+      }
     }
 
     if (rank == 0) {

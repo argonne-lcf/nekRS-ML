@@ -209,7 +209,6 @@ cds_t::cds_t(cdsConfig_t &cfg)
       if (!options.compareArgs("SCALAR" + sid + " REGULARIZATION METHOD", "NONE")) {
         scalarFilteringEnabled = true;
       }
-
       if (options.compareArgs("SCALAR" + sid + " REGULARIZATION METHOD", "AVM_AVERAGED_MODAL_DECAY")) {
         avmEnabled = true;
       }
@@ -244,6 +243,19 @@ cds_t::cds_t(cdsConfig_t &cfg)
         this->filterS[is] = filterS;
 
         this->o_filterRT.copyFrom(lowPassFilterSetup(this->mesh[is], filterNc),
+                                  Nmodes * Nmodes,
+                                  is * Nmodes * Nmodes);
+
+        applyFilterRT[is] = 1;
+        this->applyFilter = 1;
+      }
+
+      if (options.compareArgs("SCALAR" + sid + " REGULARIZATION METHOD", "EXPLICIT")) {
+        int filterNc = -1;
+        options.getArgs("SCALAR" + sid + " EXPLICIT FILTER MODES", filterNc);
+        dfloat filterS = 1.0;
+        options.getArgs("SCALAR" + sid + " EXPLICIT FILTER STRENGTH", filterS);
+        this->o_filterRT.copyFrom(explicitFilterSetup("s"+sid, this->mesh[is], filterNc, filterS),
                                   Nmodes * Nmodes,
                                   is * Nmodes * Nmodes);
 

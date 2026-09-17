@@ -22,6 +22,11 @@ static lpm_t *particles = nullptr;
 
 #endif
 
+void UDF_LoadKernels(deviceKernelProperties& kernelInfo)
+{
+  kernelInfo.define("p_pi") = M_PI;
+}
+
 void UDF_Setup0(MPI_Comm comm, setupAide &options)
 {
   int commSize;
@@ -45,7 +50,7 @@ void userRHS(nrs_t *nrs, lpm_t *lpm, double time, const deviceMemory<dfloat>& o_
   auto o_Uinterp = lpm->getInterpField("fluid_velocity");
 
   if (lpm->numParticles()) {
-    auto o_prop = particles->getProp("stokes_number"); 
+    auto o_prop = particles->getProp("stokes_number");
     particleRHS(lpm->numParticles(), offset, o_y, o_prop, o_Uinterp, o_ydot);
   }
 }
@@ -126,14 +131,14 @@ void UDF_Setup()
   const dlong nParticles = xPart.size();
 
   // interpolate initial fluid velocity onto particle positions
-  std::vector<dfloat> particleU0(nrs->NVfields * nParticles);
   auto interpolator = pointInterpolation_t(mesh, platform->comm.mpiComm);
   interpolator.setPoints(xPart, yPart, zPart);
   interpolator.find();
 
-  std::vector<dfloat> U(mesh->dim * nrs->fieldOffset);
-  nrs->o_U.copyTo(U.data(), U.size());
-  interpolator.eval(nrs->NVfields, nrs->fieldOffset, U, nParticles, particleU0);
+  auto o_particleU0 = platform->deviceMemoryPool.reserve<dfloat>(mesh->dim * nParticles);
+  interpolator.eval(nrs->NVfields, nrs->fieldOffset, nrs->o_U, nParticles, o_particleU0);
+  std::vector<dfloat> particleU0(nrs->NVfields * nParticles);
+  o_particleU0.copyTo(particleU0.data());
 
   // set particle initial positions and velocities
   std::vector<dfloat> y0(particles->nDOFs() * nParticles);
@@ -163,7 +168,7 @@ void UDF_Setup()
   // set Stokes number
   deviceMemory<dfloat> o_tmp(nParticles);
   platform->linAlg->fill(nParticles, Stk, o_tmp);
-  particles->setProp("stokes_number", o_tmp); 
+  particles->setProp("stokes_number", o_tmp);
 }
 
 void addNewParticles(nrs_t *nrs, double time, int tstep)

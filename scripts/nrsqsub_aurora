@@ -1,18 +1,15 @@
 #!/bin/bash
 set -e
 
-# PROJ_ID=
-
 #--------------------------------------
 : ${QUEUE:="prod"}
 : ${NEKRS_GPU_MPI:=0}
 : ${NEKRS_BACKEND:="dpcpp"}
 : ${RANKS_PER_NODE:=12}
 : ${RANKS_FOR_BUILD:=12}
-: ${CPU_BIND_LIST:="0-7,104-111:8-15,112-119:16-23,120-127:24-31,128-135:32-39,136-143:40-47,144-151:52-59,156-163:60-67,164-171:68-75,172-179:76-83,180-187:84-91,188-195:92-99,196-203"}
+: ${CPU_BIND_LIST:="1-8:9-16:17-24:25-32:33-40:41-48:53-60:61-68:69-76:77-84:85-92:93-100"}
 : ${OCCA_DPCPP_COMPILER_FLAGS:="-O3 -fsycl -fsycl-targets=intel_gpu_pvc -ftarget-register-alloc-mode=pvc:auto -fma"}
-: ${ONEAPI_SDK:=""}
-: ${FRAMEWORKS_MODULE:="frameworks"}
+: ${USE_ASCENT:=0}
 #--------------------------------------
 
 source $NEKRS_HOME/bin/nrsqsub_utils
@@ -21,13 +18,12 @@ setup $# 1
 TOTAL_RANKS=$(( nodes * RANKS_PER_NODE ))
 gpus_per_node=6
 tiles_per_gpu=2
-tiles_per_node=12
 
 chk_case $TOTAL_RANKS
 
 #--------------------------------------
 # Generate the submission script
-SFILE=submit_nekrs.sh
+SFILE=s.bin
 echo "#!/bin/bash" > $SFILE
 echo "#PBS -A $PROJ_ID" >>$SFILE
 echo "#PBS -N $jobname" >>$SFILE
@@ -38,23 +34,28 @@ echo "#PBS -l filesystems=home:flare" >>$SFILE
 echo "#PBS -k doe" >>$SFILE
 echo "#PBS -j oe" >>$SFILE
 
+echo "export TZ='/usr/share/zoneinfo/US/Central'" >> $SFILE
+
 # job to "run" from your submission directory
-echo -e "\ncd \$PBS_O_WORKDIR" >> $SFILE
+echo "cd \$PBS_O_WORKDIR" >> $SFILE
 
-echo -e "\nexport TZ='/usr/share/zoneinfo/US/Central'" >> $SFILE
-
-echo -e "\necho Jobid: \$PBS_JOBID" >>$SFILE
+echo "echo Jobid: \$PBS_JOBID" >>$SFILE
 echo "echo Running on host \`hostname\`" >>$SFILE
 echo "echo Running on nodes \`cat \$PBS_NODEFILE\`" >>$SFILE
 
-#if [ -n "$ONEAPI_SDK" ]; then
-#  echo "module load ${ONEAPI_SDK}" >> $SFILE
-#fi
-#echo "module load cmake" >> $SFILE
-echo "module load ${FRAMEWORKS_MODULE}" >> $SFILE
+echo "module load cmake" >> $SFILE
+if [ $USE_ASCENT -eq 1 ]; then
+  echo "module use /soft/modulefiles/" >> $SFILE
+  echo "module load ascent/develop/2025-03-19-c1f63e7-openmp" >> $SFILE
+fi
 echo "module list" >> $SFILE
 
-echo -e "\nexport NEKRS_HOME=$NEKRS_HOME" >>$SFILE
+if [ $USE_ASCENT -eq 1 ]; then
+  echo "export NEKRS_ASCENT_INSTALL_DIR=\"/soft/visualization/ascent/develop/2025-03-19-c1f63e7-openmp/ascent-checkout/\"" >>$SFILE
+  echo "export NEKRS_MPI_THREAD_MULTIPLE=1" >>$SFILE # ascent async mode
+fi
+
+echo "export NEKRS_HOME=$NEKRS_HOME" >>$SFILE
 echo "export NEKRS_GPU_MPI=$NEKRS_GPU_MPI" >>$SFILE
 
 echo "export OCCA_DPCPP_COMPILER_FLAGS=\"$OCCA_DPCPP_COMPILER_FLAGS\"" >> $SFILE
@@ -64,19 +65,35 @@ echo "export FI_CXI_RX_MATCH_MODE=hybrid" >> $SFILE # required by parRSB
 # Temporary workaround while waiting on bugfix in runtime
 echo "export UR_L0_USE_COPY_ENGINE=0" >> $SFILE
 
+# FIXME?
+echo "export MPIR_CVAR_COLL_SELECTION_TUNING_JSON_FILE=/opt/aurora/24.180.3/mpich/tuning/20230818-1024/MPIR_Coll_tuning.json" >> $SFILE
+
+# Required for correct device-side timings until upstream bugfixes are available
+# https://github.com/intel/llvm/pull/16233
+# https://github.com/oneapi-src/unified-runtime/pull/2410
+echo "export UR_L0_REUSE_DISCARDED_EVENTS=0" >> $SFILE
+echo "export UR_L0_DISABLE_EVENTS_CACHING=1" >> $SFILE
+echo "export SYCL_PI_LEVEL_ZERO_IMMEDIATE_COMMANDLISTS_EVENT_CLEANUP_THRESHOLD=-1" >> $SFILE
+echo "export SYCL_PI_LEVEL_ZERO_REUSE_DISCARDED_EVENTS=0" >> $SFILE
+
+# romio hint
+# https://docs.alcf.anl.gov/aurora/data-management/daos/daos-overview/?h=stripe#mpi-io-container-access
+s=.romio_hint
+echo "romio_cb_write enable" > $s
+echo "romio_cb_read enable" >> $s
+echo "cb_buffer_size 16777216" >> $s
+echo "cb_config_list *:8" >> $s
+echo "striping_unit 2097152" >> $s # should matchchunk size
+echo "export ROMIO_HINTS=.romio_hint" >> $SFILE # MPIIO-hint is for cray
+echo "export MPICH_MPIIO_STATS=1" >> $SFILE
+
 CMD=.lhelper
-if [ ${ZE_FLAT_DEVICE_HIERARCHY} == "COMPOSITE" ] || [[ -z "${ZE_FLAT_DEVICE_HIERARCHY}" ]]; then
-  echo "#!/bin/bash" > $CMD
-  echo "gpu_id=\$(((PALS_LOCAL_RANKID / ${tiles_per_gpu}) % ${gpus_per_node}))" >> $CMD
-  echo "tile_id=\$((PALS_LOCAL_RANKID % ${tiles_per_gpu}))" >> $CMD
-  echo "export ZE_AFFINITY_MASK=\$gpu_id.\$tile_id" >> $CMD
-  echo "\"\$@\"" >> $CMD
-elif [ ${ZE_FLAT_DEVICE_HIERARCHY} == "FLAT" ]; then
-  echo "#!/bin/bash" > $CMD
-  echo "tile_id=\$((PALS_LOCAL_RANKID % ${tiles_per_node}))" >> $CMD
-  echo "export ZE_AFFINITY_MASK=\$tile_id" >> $CMD
-  echo "\"\$@\"" >> $CMD
-fi
+rm -f $CMD; sleep 0.1s
+echo "#!/bin/bash" > $CMD
+echo "gpu_id=\$(((PALS_LOCAL_RANKID / ${tiles_per_gpu}) % ${gpus_per_node}))" >> $CMD
+echo "tile_id=\$((PALS_LOCAL_RANKID % ${tiles_per_gpu}))" >> $CMD
+echo "export ZE_AFFINITY_MASK=\$gpu_id.\$tile_id" >> $CMD
+echo "\"\$@\"" >> $CMD
 chmod u+x $CMD
 
 if [ $RUN_ONLY -eq 0 ]; then
@@ -92,4 +109,3 @@ if [ $BUILD_ONLY -eq 0 ]; then
 fi
 
 qsub -q $QUEUE $SFILE
-

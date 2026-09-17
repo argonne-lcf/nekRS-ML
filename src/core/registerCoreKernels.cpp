@@ -76,6 +76,14 @@ void registerCoreKernels()
   fileName = oklpath + "/core/" + kernelName + ".okl";
   platform->kernelRequests.add(section + kernelName, fileName, meshProps);
 
+  kernelName = "explicitFilter" + suffix;
+  fileName = oklpath + "/core/" + kernelName + ".okl";
+  platform->kernelRequests.add(section + kernelName, fileName, meshProps);
+
+  kernelName = "vectorExplicitFilter" + suffix;
+  fileName = oklpath + "/core/" + kernelName + ".okl";
+  platform->kernelRequests.add(section + kernelName, fileName, meshProps);
+
   kernelName = "tensorProduct1D" + suffix;
   fileName = oklpath + "/core/" + kernelName + ".okl";
   platform->kernelRequests.add(section + kernelName, fileName, meshProps);

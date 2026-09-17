@@ -9,14 +9,17 @@ USR_LFLAGS_:=$(shell echo $(USR_LFLAGS) | sed -E "s@-L$(left)[^ ]+$(right)@-Wl,-
 
 NI_LDFLAGS = $(LDFLAGS) -Wl,-rpath,. -L$(OBJDIR) -lnek5000 -ldl $(USR_LFLAGS_)
 
-$(OBJDIR)/nekInterface.o: $(NEKRS_NEKINTERFACE_DIR)/nekInterface.f $(LIB) 
-	$(FC) -c $(FL2) $< -o $@ 
+$(OBJDIR)/nekInterface.o: $(NEKRS_NEKINTERFACE_DIR)/nekInterface.f $(LIB)
+	$(FC) -c $(FL2) $< -o $@
+
+$(OBJDIR)/nekRefine.o: $(NEKRS_NEKINTERFACE_DIR)/nekRefine.f $(LIB)
+	$(FC) -c $(FL2) $< -o $@
 
 libnekInterface: lib$(CASENAME).so
 
-lib$(CASENAME).so: $(LIB) $(USRF) $(OBJDIR)/nekInterface.o
-	$(FC) $(FL2) -shared -o lib$(CASENAME).so $(USRF) $(OBJDIR)/nekInterface.o $(NI_LDFLAGS)
+lib$(CASENAME).so: $(LIB) $(USRF) $(OBJDIR)/nekInterface.o $(OBJDIR)/nekRefine.o
+	$(FC) $(FL2) -shared -o lib$(CASENAME).so $(USRF) $(OBJDIR)/nekInterface.o $(OBJDIR)/nekRefine.o $(NI_LDFLAGS)
 
 #.NOTPARALLEL:
 
-.PHONY: libnekInterface 
+.PHONY: libnekInterface

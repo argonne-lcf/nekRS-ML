@@ -1,19 +1,88 @@
 #!/bin/bash
 set -e
 
-if [ $# -ne 1 ] || [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+narg=1
+if [ $1 == "hpc" ]; then
+  narg=2
+fi
+
+if [ $# -ne $narg ] || [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
   echo "What manual page do you want?"
   echo "    par"
   echo "    env"
+  echo "    hpc [frontier, aurora, polaris, perlmutter, all]"
   exit 1
 fi
 
-case $1 in 
+function extract_hpc_section() {
+  local section_name="$1"
+  local file="$2"
+
+  awk -v target="$section_name" '
+    BEGIN {
+      found = 0
+      target_lc = tolower(target);
+      section = "";
+    }
+    /^[-]+$/ {
+      getline;         # Read section name
+      section = $0;
+      section_lc = tolower($2);
+      getline;         # Skip second dashed line
+      if (section_lc == target_lc) {
+        print "["section"]"
+      }
+      next;
+    }
+    section_lc == target_lc{
+      print;
+      found = 1;
+    }
+    END {
+      if (!found) {
+        print "hpcHelp.txt: HPC \"" target "\" not found.";
+        exit(1)
+      }
+    }
+  ' "$file"
+}
+
+function find_doc_path() {
+  local txt=$1
+
+  txt_path=""
+  if [ ! -z $NEKRS_HOME ]; then
+    txt_path=$NEKRS_HOME/doc/$txt
+  else
+    script_path="$(realpath "$0")"
+    script_dir="$(dirname "$script_path")"
+    txt_path=$script_dir"/../doc/"$txt
+  fi
+
+  if [[ -f "$txt_path" ]]; then
+    echo $txt_path
+  else
+    echo "ERROR: Cannot find the file at "$txt_path >&2
+    exit 1
+  fi
+}
+
+case $1 in
   "par")
-  cat $NEKRS_HOME/doc/parHelp.txt
+  txt=$(find_doc_path "envHelp.txt") || exit 1
+  cat $txt
   ;;
   "env")
-  cat $NEKRS_HOME/doc/envHelp.txt
+  txt=$(find_doc_path "envHelp.txt") || exit 1
+  cat $txt
+  ;;
+  "hpc")
+  txt=$(find_doc_path "hpcHelp.txt") || exit 1
+  if [ $2 == "all" ]; then
+    cat $txt
+  else
+    extract_hpc_section $2 $txt
+  fi
   ;;
 esac
 
