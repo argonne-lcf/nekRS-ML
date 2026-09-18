@@ -351,6 +351,26 @@ class NekRSMLTest(RunOnlyTest):
             "NEKRS_HOME": self.nekrs_home,
         }
 
+    def adios2_pythonpath_cmds(self):
+        """Put the ADIOS2 Python bindings shipped by the build on the path.
+
+        The bindings are installed under NEKRS_HOME/lib/python<X.Y>/
+        site-packages, which nothing else adds -- not the frameworks
+        module, and not the venv setup_case builds. Any test whose
+        Python side touches ADIOS2 needs this, whether that is the
+        trainer (AdiosSource) or repartition.cli; without it the import
+        in repartition.sources.open_bp_read raises ModuleNotFoundError.
+
+        The interpreter version is resolved at job time rather than
+        here: the version that matters is the one the venv activated a
+        few commands earlier, not whichever ReFrame happens to run on.
+        """
+        return [
+            "py_version=`python --version`",
+            "parsed_version=$(echo ${py_version#Python } | awk -F. '{print $1\".\"$2}')",
+            "export PYTHONPATH=$PYTHONPATH:${NEKRS_HOME}/lib/python${parsed_version}/site-packages",
+        ]
+
     def set_launcher_options(self, nn=None, rpn=None):
         cpu_bind_list = self.current_partition.extras["cpu_bind_list"]
         rpn_ = rpn if rpn is not None else self.num_tasks_per_node
@@ -899,15 +919,6 @@ class NekRSMLOnlineTest(NekRSMLTest):
             "export SR_SOCKET_TIMEOUT=10000",
         ]
 
-    def setup_adios_env_vars(self):
-        return [
-            "py_version=`python --version`",
-            "parsed_version=$(echo ${py_version#Python } | awk -F. '{print $1\".\"$2}')",
-            "export PYTHONPATH=$PYTHONPATH:${NEKRS_HOME}/lib/python${parsed_version}/site-packages",
-            "export OMP_PROC_BIND=spread",
-            "export OMP_PLACES=threads",
-        ]
-
     def create_traj_config(self):
         with open(f"{self.config_yaml}.reframe", "w") as f:
             if self.client == "smartredis":
@@ -1007,7 +1018,9 @@ class NekRSMLOnlineTest(NekRSMLTest):
             ),
             self.source_cmd(),
             *self.setup_torch_env_vars(),
-            *self.setup_adios_env_vars(),
+            *self.adios2_pythonpath_cmds(),
+            "export OMP_PROC_BIND=spread",
+            "export OMP_PLACES=threads",
             lst2cmd([
                 "cp",
                 f"{self.config_yaml}.reframe",

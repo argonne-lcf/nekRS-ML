@@ -177,6 +177,7 @@ void ogsGather(void *gv,
     if (ogs::hostBufSize < ogs->NhaloGather*Nbytes) {
       if (ogs::hostBufSize) free(ogs::hostBuf);
       ogs::hostBuf = (void *) malloc(ogs->NhaloGather*Nbytes);
+      ogs::hostBufSize = ogs->NhaloGather*Nbytes;
     }
   }
 

@@ -232,18 +232,18 @@ void ellipticBuildFEMHex3D(elliptic_t* elliptic,
 
   // Make the MPI_NONZERO_T data type
   MPI_Datatype MPI_NONZERO_T;
-  MPI_Datatype dtype[4] = {MPI_HLONG, MPI_HLONG, MPI_INT, MPI_DFLOAT};
-  int blength[4] = {1, 1, 1, 1};
-  MPI_Aint addr[4], displ[4];
+  // _pad is described explicitly so the type covers every byte of the extent;
+  // leaving the gap out makes the type non-contiguous (size 28 vs extent 32).
+  MPI_Datatype dtype[5] = {MPI_HLONG, MPI_HLONG, MPI_INT, MPI_INT, MPI_DFLOAT};
+  int blength[5] = {1, 1, 1, 1, 1};
+  MPI_Aint addr[5], displ[5];
   MPI_Get_address ( &(sendNonZeros[0]          ), addr + 0);
   MPI_Get_address ( &(sendNonZeros[0].col      ), addr + 1);
   MPI_Get_address ( &(sendNonZeros[0].ownerRank), addr + 2);
-  MPI_Get_address ( &(sendNonZeros[0].val      ), addr + 3);
-  displ[0] = 0;
-  displ[1] = addr[1] - addr[0];
-  displ[2] = addr[2] - addr[0];
-  displ[3] = addr[3] - addr[0];
-  MPI_Type_create_struct (4, blength, displ, dtype, &MPI_NONZERO_T);
+  MPI_Get_address ( &(sendNonZeros[0]._pad     ), addr + 3);
+  MPI_Get_address ( &(sendNonZeros[0].val      ), addr + 4);
+  for (int i = 0; i < 5; ++i) displ[i] = addr[i] - addr[0];
+  MPI_Type_create_struct (5, blength, displ, dtype, &MPI_NONZERO_T);
   MPI_Type_commit (&MPI_NONZERO_T);
 
   // count how many non-zeros to send to each process
@@ -509,18 +509,18 @@ void ellipticBuildFEMGalerkinHex3D(elliptic_t* elliptic,
 
   // Make the MPI_NONZERO_T data type
   MPI_Datatype MPI_NONZERO_T;
-  MPI_Datatype dtype[4] = {MPI_HLONG, MPI_HLONG, MPI_INT, MPI_DFLOAT};
-  int blength[4] = {1, 1, 1, 1};
-  MPI_Aint addr[4], displ[4];
+  // _pad is described explicitly so the type covers every byte of the extent;
+  // leaving the gap out makes the type non-contiguous (size 28 vs extent 32).
+  MPI_Datatype dtype[5] = {MPI_HLONG, MPI_HLONG, MPI_INT, MPI_INT, MPI_DFLOAT};
+  int blength[5] = {1, 1, 1, 1, 1};
+  MPI_Aint addr[5], displ[5];
   MPI_Get_address ( &(sendNonZeros[0]          ), addr + 0);
   MPI_Get_address ( &(sendNonZeros[0].col      ), addr + 1);
   MPI_Get_address ( &(sendNonZeros[0].ownerRank), addr + 2);
-  MPI_Get_address ( &(sendNonZeros[0].val      ), addr + 3);
-  displ[0] = 0;
-  displ[1] = addr[1] - addr[0];
-  displ[2] = addr[2] - addr[0];
-  displ[3] = addr[3] - addr[0];
-  MPI_Type_create_struct (4, blength, displ, dtype, &MPI_NONZERO_T);
+  MPI_Get_address ( &(sendNonZeros[0]._pad     ), addr + 3);
+  MPI_Get_address ( &(sendNonZeros[0].val      ), addr + 4);
+  for (int i = 0; i < 5; ++i) displ[i] = addr[i] - addr[0];
+  MPI_Type_create_struct (5, blength, displ, dtype, &MPI_NONZERO_T);
   MPI_Type_commit (&MPI_NONZERO_T);
 
   // count how many non-zeros to send to each process

@@ -277,7 +277,7 @@ def inference_rollout(
                 summary = " ".join([
                     f"[STEP {trainer.iteration}]",
                     f"t_step={t_step:.4g}sec",
-                    f"throughput={n_nodes_local / t_step / 1.0e6:.4g}nodes/sec",
+                    f"throughput={n_nodes_local / t_step / 1.0e6:.4g}Mnodes/sec",
                 ])
                 log.info(summary)
 

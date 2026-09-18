@@ -153,164 +153,144 @@ def make_reduced_graph(
 def get_reduced_halo_ids(
     COMM: MPI.COMM_WORLD, RANK: int, SIZE: int, data_reduced: Data
 ) -> torch.Tensor:
-    idx_halo_unique = torch.tensor([], dtype=torch.int64)
-    halo_ids = torch.tensor([], dtype=torch.int64)
-    halo_ids_full = torch.tensor([], dtype=torch.int64)
+    """Build this rank's halo triples [local_id, global_id, rank]."""
+    if SIZE == 1:
+        return torch.zeros((0, 3), dtype=torch.int64)
+
+    # What are the local ids of the halo nodes ?
+    # (the reduced graph is laid out locals-first, then halos)
+    n_local = int(data_reduced.local_unique_mask.sum().item())
+    n_halo = int(data_reduced.halo_unique_mask.sum().item())
+    idx_halo_unique = torch.arange(n_local, n_local + n_halo, dtype=torch.int64)
+
+    # What are the corresponding global ids? The sign of the global id marks
+    # ownership of a coincident node upstream, so canonicalize with abs().
+    gid_halo_unique = torch.abs(data_reduced.global_ids[idx_halo_unique]).to(
+        torch.int64
+    )
+
+    # What is the current rank?
+    rank_array = torch.full_like(gid_halo_unique, RANK)
+
+    # [local id, global id, rank]
+    return torch.stack((idx_halo_unique, gid_halo_unique, rank_array), dim=1)
+
+
+def _alltoallv_rows(
+    COMM: MPI.COMM_WORLD, SIZE: int, send_rows: np.ndarray, send_counts
+) -> np.ndarray:
+    """Alltoallv of a [M, W] int64 row block already grouped by destination.
+
+    send_counts[i] is the number of *rows* destined for rank i. Only the
+    O(SIZE) counts/displacement arrays scale with rank count here; the payload
+    is O(local halo size).
+    """
+    width = int(send_rows.shape[1])
+    send_rows = np.ascontiguousarray(send_rows, dtype=np.int64)
+
+    scount = np.ascontiguousarray(send_counts, dtype=np.int32)
+    rcount = np.empty(SIZE, dtype=np.int32)
+    COMM.Alltoall([scount, MPI.INT], [rcount, MPI.INT])
+
+    sdispl = np.zeros(SIZE, dtype=np.int32)
+    rdispl = np.zeros(SIZE, dtype=np.int32)
     if SIZE > 1:
-        # gid = data.global_ids
+        sdispl[1:] = np.cumsum(scount[:-1])
+        rdispl[1:] = np.cumsum(rcount[:-1])
 
-        # What are the local ids of the halo nodes ?
-        n_local = data_reduced.local_unique_mask.sum().item()
-        n_halo = data_reduced.halo_unique_mask.sum().item()
-        idx_halo_unique = torch.tensor(list(range(n_local, n_local + n_halo)))
-
-        # What are the corresponding global ids?
-        gid_halo_unique = data_reduced.global_ids[idx_halo_unique]
-
-        # What is the current rank?
-        rank_array = torch.ones_like(gid_halo_unique, dtype=torch.int64) * RANK
-
-        # [Local ids, global ids, rank]
-        halo_ids = torch.concat(
-            (
-                idx_halo_unique.view(-1, 1),
-                gid_halo_unique.view(-1, 1),
-                rank_array.view(-1, 1),
-            ),
-            dim=1,
-        )
-
-        halo_ids_shape_list = COMM.allgather(halo_ids.shape[0])
-        halo_ids_full_length = sum(halo_ids_shape_list)
-        halo_ids_full_width = halo_ids.shape[1]
-        halo_ids_full_type = halo_ids.dtype
-        halo_ids_full = torch.zeros(
-            halo_ids_full_length, halo_ids_full_width, dtype=halo_ids_full_type
-        )
-
-        count = [
-            halo_ids_shape_list[i] * halo_ids_full_width for i in range(SIZE)
-        ]
-        displ = [sum(count[:i]) for i in range(SIZE)]
-        # if args.LOG == 'debug' and RANK==0:
-        #    print(f'count={count}',flush=True)
-        #    print(f'displ={displ}',flush=True)
-        COMM.Allgatherv(
-            [halo_ids, MPI.LONG], [halo_ids_full, count, displ, MPI.LONG]
-        )
-    return halo_ids_full
+    recv_rows = np.empty((int(rcount.sum()), width), dtype=np.int64)
+    COMM.Alltoallv(
+        [send_rows, (scount * width, sdispl * width), MPI.INT64_T],
+        [recv_rows, (rcount * width, rdispl * width), MPI.INT64_T],
+    )
+    return recv_rows
 
 
-# Prepares the halo_info matrix for halo swap
+def _group_by_dest(rows: np.ndarray, dest: np.ndarray, SIZE: int):
+    """Stable-sort rows into destination-contiguous order.
+
+    Returns (rows, counts).
+    """
+    order = np.argsort(dest, kind="stable")
+    counts = np.bincount(dest, minlength=SIZE).astype(np.int32)
+    return np.ascontiguousarray(rows[order]), counts
+
+
+def _all_pairs_within_runs(starts: np.ndarray, counts: np.ndarray):
+    """For each run of length c, all ordered (owner, neighbor) pairs.
+
+    Fully vectorized: the previous implementation looped over every
+    globally unique halo node in Python and built a meshgrid per node.
+    """
+    npairs = counts * (counts - 1)
+    total = int(npairs.sum())
+    if total == 0:
+        empty = np.zeros(0, dtype=np.int64)
+        return empty, empty
+
+    run = np.repeat(np.arange(counts.shape[0], dtype=np.int64), npairs)
+    # offset of each pair inside its own run's block of c*(c-1) pairs
+    block_start = np.cumsum(npairs) - npairs
+    off = np.arange(total, dtype=np.int64) - np.repeat(block_start, npairs)
+
+    c = counts[run].astype(np.int64)
+    i = off // (c - 1)
+    j = off % (c - 1)
+    j = j + (j >= i)  # skip the diagonal
+
+    base = starts[run].astype(np.int64)
+    return base + i, base + j
+
+
+# Prepares the halo_info matrix for halo swap -- reference implementation.
+# Kept as the replicated oracle the distributed version is checked against;
+# it does its own Allgatherv so it still takes the local triples.
 def get_halo_info(
     COMM: MPI.COMM_WORLD,
     RANK: int,
     SIZE: int,
     data_reduced: Data,
-    halo_ids_full: torch.Tensor,
+    halo_ids_local: torch.Tensor,
 ) -> list:
     if SIZE == 1:
-        halo_info_glob = [torch.tensor([], dtype=torch.int64)]
-    else:
-        # Collect number of nodes
-        n_nodes = []
-        n_nodes.append(data_reduced.pos.shape[0])
-        n_nodes_glob = COMM.allgather(n_nodes[0])
+        return [torch.zeros((0, 4), dtype=torch.int64)]
 
-        # concatenate
-        # halo_ids_full = torch.cat(halo_ids_list)
-        # halo_ids_full = torch.cat(halo_ids_list_glob)
-        # del halo_ids_list_glob
+    # Replicate every rank's halo triples (this is the O(SIZE) step that
+    # get_halo_info_fast avoids).
+    halo_ids = halo_ids_local.to(torch.int64).reshape(-1, 3)
+    shape_list = COMM.allgather(halo_ids.shape[0])
+    halo_ids_full = torch.zeros(sum(shape_list), 3, dtype=torch.int64)
+    count = [shape_list[i] * 3 for i in range(SIZE)]
+    displ = [sum(count[:i]) for i in range(SIZE)]
+    COMM.Allgatherv(
+        [halo_ids.contiguous(), MPI.INT64_T],
+        [halo_ids_full, count, displ, MPI.INT64_T],
+    )
 
-        # take absolute value of global id
-        halo_ids_full[:, 1] = torch.abs(halo_ids_full[:, 1])
+    n_nodes_glob = COMM.allgather(data_reduced.pos.shape[0])
 
-        # sort in ascending order of global id
-        global_ids = halo_ids_full[:, 1]
-        _, idx_sort = torch.sort(global_ids)
-        halo_ids_full = halo_ids_full[idx_sort]
+    halo_ids_full[:, 1] = torch.abs(halo_ids_full[:, 1])
+    gid = halo_ids_full[:, 1].numpy()
+    rnk = halo_ids_full[:, 2].numpy()
+    loc = halo_ids_full[:, 0].numpy()
 
-        # get the frequency of nodes
-        global_ids = halo_ids_full[:, 1]
-        output = torch.unique_consecutive(
-            global_ids, return_inverse=True, return_counts=True
-        )
-        counts_unique = output[2]
-        counts = output[2][output[1]]
-        counts = counts.reshape((-1, 1))
-        if RANK == 0:
-            print(f"global_ids shape = {global_ids.shape}", flush=True)
-        if RANK == 0:
-            print(f"counts_unique shape = {counts_unique.shape}", flush=True)
-        if RANK == 0:
-            print(f"counts shape = {counts.shape}", flush=True)
+    # canonical order: (global id, rank)
+    order = np.lexsort((rnk, gid))
+    gid, rnk, loc = gid[order], rnk[order], loc[order]
 
-        # append the counts to halo_ids_full
-        halo_ids_full = torch.cat([halo_ids_full, counts], dim=1)
-        if RANK == 0:
-            print(f"halo_ids_full shape = {halo_ids_full.shape}", flush=True)
+    _, starts, counts = np.unique(gid, return_index=True, return_counts=True)
+    own_pos, nbr_pos = _all_pairs_within_runs(starts, counts)
 
-        # Get the number of halo nodes for each rank
-        # halo_info = []
-        halo_ids_rank = halo_ids_full[halo_ids_full[:, 2] == RANK]
-        Nhalo_rank = torch.sum(halo_ids_rank[:, 3] - 1)
-        # halo_info.append(torch.zeros((Nhalo_rank,4), dtype=torch.int64))
-        # halo_info_glob = COMM.allgather(halo_info[0])
-
-        # Halo_info_glob is a list of tensors. Each element is a tensor of shape (Nhalo_rank_glob[i],4).
-        # Columns in each element:[local_id of non halo nodes, local_id of halo nodes, global_id of nodes (same for local and halo), neighboring rank]
-        Nhalo_rank_glob = COMM.allgather(Nhalo_rank)
-        halo_info_glob = [
-            torch.zeros((Nhalo_rank_glob[i], 4), dtype=torch.int64)
-            for i in range(SIZE)
-        ]
-
-        # Loop through counts
-        halo_counts = [0] * SIZE
-        idx = 0
-        for i in range(len(counts_unique)):
-            count = counts_unique[i].item()
-            halo_temp = halo_ids_full[idx : idx + count]
-            # for j in range(count):
-            #    a = halo_ids_full[idx]
-
-            rank_list = halo_temp[:, 2]
-            for j in range(len(rank_list)):
-                rank = rank_list[j].item()
-
-                # get the current rank info
-                node_local_id = halo_temp[
-                    j, 0
-                ]  # local node id of sender on "rank"
-                node_global_id = halo_temp[
-                    j, 1
-                ]  # global node id of sender on "rank"
-
-                # loop through the same nodes not on this rank index
-                halo_temp_nbrs = halo_temp[torch.arange(len(halo_temp)) != j]
-                for k in range(len(halo_temp_nbrs)):
-                    neighbor_rank = halo_temp_nbrs[
-                        k, 2
-                    ]  # neighboring rank for this halo node
-                    node_halo_id = (
-                        n_nodes_glob[rank] + halo_counts[rank]
-                    )  # local node id of halo node on "rank"
-
-                    # update the halo info matrix
-                    halo_info_glob[rank][halo_counts[rank]][0] = node_local_id
-                    halo_info_glob[rank][halo_counts[rank]][1] = node_halo_id
-                    halo_info_glob[rank][halo_counts[rank]][2] = node_global_id
-                    halo_info_glob[rank][halo_counts[rank]][3] = neighbor_rank
-
-                    # update the count
-                    halo_counts[rank] += 1
-
-                    # print('[RANK %d] \t %d \t %d \t %d \n' %(rank, node_local_id, node_halo_id, neighbor_rank))
-
-            # print('count = %d, idx = %d' %(count, idx))
-            # print(a)
-            # print('\n')
-            idx += count
+    halo_info_glob = [torch.empty(0)] * SIZE
+    owner_ranks = rnk[own_pos]
+    for r in np.unique(owner_ranks):
+        m = owner_ranks == r
+        rows = np.zeros((int(m.sum()), 4), dtype=np.int64)
+        rows[:, 0] = loc[own_pos[m]]
+        rows[:, 1] = np.arange(rows.shape[0], dtype=np.int64) + n_nodes_glob[r]
+        rows[:, 2] = gid[own_pos[m]]
+        rows[:, 3] = rnk[nbr_pos[m]]
+        halo_info_glob[int(r)] = torch.from_numpy(rows)
     return halo_info_glob
 
 
@@ -320,71 +300,90 @@ def get_halo_info_fast(
     RANK: int,
     SIZE: int,
     data_reduced: Data,
-    halo_ids_full: torch.Tensor,
+    halo_ids_local: torch.Tensor,
 ) -> list:
+    """Build halo_info without replicating the global halo id table.
+
+    Each global id is assigned a rendezvous rank (gid % SIZE). Every rank
+    ships its halo triples to the rendezvous owner, which sees all copies of
+    the ids it owns, forms the (owner, neighbor) pairs, and ships each row
+    back to the rank that owns it. Per-rank cost is O(local halo size) in both
+    memory and work, independent of SIZE.
+
+    Returns a list of length SIZE in which
+      * entry RANK is this rank's full halo_info,
+        [local id, halo slot, global id, neighbor rank];
+      * entry S, for each neighbor S, holds only S's rows whose neighbor is
+        RANK -- cols 0 (S's local id), 2 (global id) and 3 (== RANK). That is
+        exactly the slice get_edge_weights filters out of it. Col 1 (S's halo
+        slot) is not reconstructed here because no caller reads it.
+      * all other entries are empty.
+    Rows are ordered by (global id, neighbor rank), so for any pair of ranks
+    R and S the rows R holds for S and the rows S holds for R agree
+    element-wise on global id, which is the ordering contract get_edge_weights
+    asserts and the halo swap masks depend on.
+    """
     if SIZE == 1:
         return [torch.zeros((0, 4), dtype=torch.int64)]
-    # — 1) sort by global_id and extract the three columns into separate vectors
-    halo_ids_full[:, 1] = torch.abs(halo_ids_full[:, 1])
-    _, idx_sort = torch.sort(halo_ids_full[:, 1])
-    halo_ids_full = halo_ids_full[idx_sort]
-    local_ids = halo_ids_full[:, 0]
-    global_ids = halo_ids_full[:, 1]
-    ranks = halo_ids_full[:, 2]
 
-    # — 2) find consecutive runs of the same global_id
-    _, inverse_idx, counts = torch.unique_consecutive(
-        global_ids, return_inverse=True, return_counts=True
+    triples = halo_ids_local.to(torch.int64).reshape(-1, 3).numpy()
+    local_ids = triples[:, 0]
+    gids = np.abs(triples[:, 1])
+
+    # ---- Phase 1: ship [gid, rank, local id] to each gid's rendezvous rank
+    dest = (gids % SIZE).astype(np.int64)
+    out = np.empty((triples.shape[0], 3), dtype=np.int64)
+    out[:, 0] = gids
+    out[:, 1] = RANK
+    out[:, 2] = local_ids
+    out, counts = _group_by_dest(out, dest, SIZE)
+    recv = _alltoallv_rows(COMM, SIZE, out, counts)
+
+    # ---- Phase 2: at the rendezvous, pair up every copy of each owned gid
+    if recv.shape[0]:
+        g, r, loc = recv[:, 0], recv[:, 1], recv[:, 2]
+        order = np.lexsort((r, g))  # canonical order: (global id, rank)
+        g, r, loc = g[order], r[order], loc[order]
+        _, starts, counts = np.unique(g, return_index=True, return_counts=True)
+        own_pos, nbr_pos = _all_pairs_within_runs(starts, counts)
+        # [owner local id, global id, neighbor rank, neighbor local id]
+        pairs = np.empty((own_pos.shape[0], 4), dtype=np.int64)
+        pairs[:, 0] = loc[own_pos]
+        pairs[:, 1] = g[own_pos]
+        pairs[:, 2] = r[nbr_pos]
+        pairs[:, 3] = loc[nbr_pos]
+        back_dest = r[own_pos].astype(np.int64)
+    else:
+        pairs = np.zeros((0, 4), dtype=np.int64)
+        back_dest = np.zeros(0, dtype=np.int64)
+
+    # ---- Phase 3: ship each row home to the rank that owns it
+    pairs, counts = _group_by_dest(pairs, back_dest, SIZE)
+    rows = _alltoallv_rows(COMM, SIZE, pairs, counts)
+
+    # ---- Phase 4: restore canonical order and assign halo slots
+    rows = rows[np.lexsort((rows[:, 2], rows[:, 1]))]
+    n_rows = rows.shape[0]
+
+    halo_info = np.zeros((n_rows, 4), dtype=np.int64)
+    halo_info[:, 0] = rows[:, 0]
+    halo_info[:, 1] = (
+        np.arange(n_rows, dtype=np.int64) + data_reduced.pos.shape[0]
     )
-    # compute the start index of each run
-    starts = torch.cat(
-        (
-            torch.tensor([0], device=counts.device),
-            torch.cumsum(counts, dim=0)[:-1],
-        ),
-        dim=0,
-    )
+    halo_info[:, 2] = rows[:, 1]
+    halo_info[:, 3] = rows[:, 2]
 
-    # — 3) build ALL (owner_idx, neighbor_idx) pairs for each run at once
-    pair_list = []
-    for start, cnt in zip(starts.tolist(), counts.tolist()):
-        idx = torch.arange(start, start + cnt, device=halo_ids_full.device)
-        I, J = torch.meshgrid(idx, idx, indexing="ij")
-        mask = I != J
-        pair_list.append(torch.stack((I[mask], J[mask]), dim=1))
-    pairs = torch.cat(pair_list, dim=0)  # [M,2] where M = Σ (cnt*(cnt-1))
-
-    # — 4) pull out the columns we need
-    owner_idx, nbr_idx = pairs[:, 0], pairs[:, 1]
-    owner_ranks = ranks[owner_idx]
-    owner_locals = local_ids[owner_idx]
-    owner_globals = global_ids[owner_idx]
-    neighbor_ranks = ranks[nbr_idx]
-
-    # — 5) build a big halo‐info tensor [M×4] with a placeholder in col 1
-    halo_flat = torch.zeros(
-        (pairs.size(0), 4), dtype=torch.int64, device=halo_ids_full.device
-    )
-    halo_flat[:, 0] = owner_locals
-    halo_flat[:, 2] = owner_globals
-    halo_flat[:, 3] = neighbor_ranks
-
-    # — 6) split out each rank’s rows, and assign the proper halo‐node IDs
-    #     (they start at n_nodes_glob[r] and count up by 1)
-    n_nodes_glob = COMM.allgather(data_reduced.pos.shape[0])
-    neighboring_procs = np.unique(halo_flat[owner_ranks == RANK, 3]).tolist()
-    neighboring_procs = [RANK] + neighboring_procs
     halo_info_glob = [torch.empty(0)] * SIZE
-    for r in neighboring_procs:
-        mask_r = owner_ranks == r
-        Hr = halo_flat[mask_r]
-        cnt_r = Hr.size(0)
-        if cnt_r:
-            Hr[:, 1] = (
-                torch.arange(cnt_r, dtype=torch.int64, device=Hr.device)
-                + n_nodes_glob[r]
-            )
-        halo_info_glob[r] = Hr
+    halo_info_glob[RANK] = torch.from_numpy(halo_info)
+
+    # The mirror rows each neighbor holds for us, needed by get_edge_weights.
+    for s in np.unique(rows[:, 2]):
+        m = rows[:, 2] == s
+        mirror = np.zeros((int(m.sum()), 4), dtype=np.int64)
+        mirror[:, 0] = rows[m, 3]  # neighbor's local id
+        mirror[:, 2] = rows[m, 1]  # global id
+        mirror[:, 3] = RANK
+        halo_info_glob[int(s)] = torch.from_numpy(mirror)
 
     return halo_info_glob
 
@@ -562,17 +561,17 @@ if __name__ == "__main__":
     # Make graph and reduced graph
     data, data_reduced, idx_keep = make_reduced_graph(COMM, RANK, SIZE)
 
-    # Get halo_ids for reduced graph
-    halo_ids_full = get_reduced_halo_ids(COMM, RANK, SIZE, data_reduced)
+    # Get this rank's halo triples for the reduced graph (local, no comm)
+    halo_ids_local = get_reduced_halo_ids(COMM, RANK, SIZE, data_reduced)
 
     # Compute the halo_info
     if RANK == 0:
         print("Computing halo_info ...", flush=True)
     COMM.Barrier()
     t_start = MPI.Wtime()
-    # halo_info_glob = get_halo_info(data_reduced, halo_ids_full)
+    # halo_info_glob = get_halo_info(COMM, RANK, SIZE, data_reduced, halo_ids_local)
     halo_info_glob = get_halo_info_fast(
-        COMM, RANK, SIZE, data_reduced, halo_ids_full
+        COMM, RANK, SIZE, data_reduced, halo_ids_local
     )
     t_end = MPI.Wtime()
     local_time = t_end - t_start
