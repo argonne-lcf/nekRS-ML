@@ -256,6 +256,8 @@ class OnlineClient:
         not be flushed yet. Opening it and requiring the variables we need is
         the cheapest reliable completion test.
         """
+        if self.rank == 0:
+            log.info(f"Waiting for {path} ...")
         tic = perf_counter()
         while True:
             if os.path.exists(path):
@@ -303,7 +305,11 @@ class OnlineClient:
 
             if src.src_size == self.size:
                 self.repart = None
+                ticc = perf_counter()
                 graph_data.update(self._read_own_graph_block(src))
+                self.comm.Barrier()
+                if self.rank == 0:
+                    log.info(f"Read graph.bp in {perf_counter() - ticc:.2f} s")
             else:
                 if self.rank == 0:
                     log.info(
@@ -314,7 +320,11 @@ class OnlineClient:
                         method,
                     )
                 self.repart = Repartitioner(src, self.comm, method=method)
+                ticc = perf_counter()
                 arrs = self.repart.graph_arrays()
+                self.comm.Barrier()
+                if self.rank == 0:
+                    log.info(f"Read and repartitioned graph.bp in {perf_counter() - ticc:.2f} s")
                 graph_data["pos"] = arrs["pos"]
                 graph_data["global_ids"] = arrs["global_ids"].reshape(-1)
                 graph_data["local_unique_mask"] = arrs["local_unique_mask"]
@@ -374,10 +384,22 @@ class OnlineClient:
         n = self.N_list[r]
         fo = self.fieldOffset_list[r]
         base = sum(self.fieldOffset_list[:r]) * ncols
-        out = np.empty((n, ncols), dtype=np.float64)
-        for c in range(ncols):
-            out[:, c] = stream.read(name, [base + c * fo], [n]).reshape(-1)
-        return out
+        #out = np.empty((n, ncols), dtype=np.float64)
+        read_time = 0.0
+        #for c in range(ncols):
+        #    self.comm.Barrier()
+        #    tic = perf_counter()
+        #    tmp = stream.read(name, [base + c * fo], [n])
+        #    self.comm.Barrier()
+        #    read_time += perf_counter() - tic
+        #    out[:, c] = tmp.reshape(-1)
+        self.comm.Barrier()
+        tic = perf_counter()
+        tmp = stream.read(name, [base], [fo*3])
+        self.comm.Barrier()
+        read_time += perf_counter() - tic
+        out = tmp.reshape((-1, ncols), order="F")
+        return out, read_time
 
     def get_checkpoint_from_file(
         self,
@@ -413,7 +435,7 @@ class OnlineClient:
             if self.repart is not None:
                 arr = self.repart.read_field((stream, var), ncols)
             else:
-                arr = self._read_own_field_block(var, ncols, stream=stream)
+                arr, time = self._read_own_field_block(var, ncols, stream=stream)
             stream.end_step()
         return arr
 
@@ -421,6 +443,7 @@ class OnlineClient:
         """Get the solution from a stream"""
         self.comm.Barrier()
         tic = perf_counter()
+        transfer_times = []
         if self.backend == "adios":
             if self.solutionStream is None:
                 if self.rank == 0:
@@ -445,19 +468,21 @@ class OnlineClient:
             # see
             #   - https://github.com/ornladios/ADIOS2/blob/67f771b7a2f88ce59b6808cc4356159d86255f1d/python/adios2/stream.py#L331
             #   - https://github.com/ornladios/ADIOS2/blob/67f771b7a2f88ce59b6808cc4356159d86255f1d/python/adios2/engine.py#L123)
-            ticc = perf_counter()
             if self.repart is not None:
                 self.graph_source.attach_field_stream(self.solutionStream)
-                inputs = self.repart.read_field("in_u", ncols=3)
-                outputs = self.repart.read_field("out_u", ncols=3)
+                inputs, time = self.repart.read_field("in_u", ncols=3)
+                transfer_times.append(time)
+                outputs, time = self.repart.read_field("out_u", ncols=3)
+                transfer_times.append(time)
             else:
-                inputs = self._read_own_field_block("in_u", 3)
-                outputs = self._read_own_field_block("out_u", 3)
-            transfer_time = perf_counter() - ticc
+                inputs, time = self._read_own_field_block("in_u", 3)
+                transfer_times.append(time)
+                outputs, time = self._read_own_field_block("out_u", 3)
+                transfer_times.append(time)
 
             self.solutionStream.end_step()
         self.timers["data"].append(perf_counter() - tic)
-        return inputs, outputs, transfer_time
+        return inputs, outputs, transfer_times
 
     def stop_nekRS(self) -> None:
         """Communicate to nekRS to stop running and exit cleanly"""

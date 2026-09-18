@@ -362,7 +362,7 @@ def inference_rollout(
         log.info("FOM:")
         min_val, max_val, avg_val = utils.min_max_avg(fom_gather)
         log.info(
-            f"\tFOM_inference [million graph nodes x inference steps / inference time]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+            f"\tFOM_inference [million graph nodes x inference steps / inference time]: {max_val:.4g}"
         )
 
 
