@@ -12,6 +12,7 @@ from statistics import harmonic_mean
 
 log = logging.getLogger(__name__)
 
+
 class ShootingWorkflow:
     """Class for the solution shooting workflow alternating between
     fine-tuning a surrogate from an ongoing simulation and deploying
@@ -94,7 +95,9 @@ class ShootingWorkflow:
         else:
             self.sim_nodes = ",".join(self.nodelist)
             self.train_nodes = str(self.sim_nodes)
-            log.info(f"nekRS and training running on {self.cfg.run_args.sim_nodes} nodes:")
+            log.info(
+                f"nekRS and training running on {self.cfg.run_args.sim_nodes} nodes:"
+            )
             log.info(f"{self.sim_nodes}\n")
 
         # Inference takes the first infer_nodes nodes of the job

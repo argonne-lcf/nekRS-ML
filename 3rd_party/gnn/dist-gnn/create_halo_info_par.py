@@ -153,8 +153,7 @@ def make_reduced_graph(
 def get_reduced_halo_ids(
     COMM: MPI.COMM_WORLD, RANK: int, SIZE: int, data_reduced: Data
 ) -> torch.Tensor:
-    """Build this rank's halo triples [local_id, global_id, rank].
-    """
+    """Build this rank's halo triples [local_id, global_id, rank]."""
     if SIZE == 1:
         return torch.zeros((0, 3), dtype=torch.int64)
 
@@ -174,9 +173,7 @@ def get_reduced_halo_ids(
     rank_array = torch.full_like(gid_halo_unique, RANK)
 
     # [local id, global id, rank]
-    return torch.stack(
-        (idx_halo_unique, gid_halo_unique, rank_array), dim=1
-    )
+    return torch.stack((idx_halo_unique, gid_halo_unique, rank_array), dim=1)
 
 
 def _alltoallv_rows(
@@ -347,9 +344,7 @@ def get_halo_info_fast(
         g, r, loc = recv[:, 0], recv[:, 1], recv[:, 2]
         order = np.lexsort((r, g))  # canonical order: (global id, rank)
         g, r, loc = g[order], r[order], loc[order]
-        _, starts, counts = np.unique(
-            g, return_index=True, return_counts=True
-        )
+        _, starts, counts = np.unique(g, return_index=True, return_counts=True)
         own_pos, nbr_pos = _all_pairs_within_runs(starts, counts)
         # [owner local id, global id, neighbor rank, neighbor local id]
         pairs = np.empty((own_pos.shape[0], 4), dtype=np.int64)
