@@ -5,10 +5,12 @@ from omegaconf import DictConfig, OmegaConf
 import hydra
 import subprocess
 import socket
+import logging
 from time import sleep
 from typing import Optional, Tuple
 from statistics import harmonic_mean
 
+log = logging.getLogger(__name__)
 
 class ShootingWorkflow:
     """Class for the solution shooting workflow alternating between
@@ -85,20 +87,20 @@ class ShootingWorkflow:
                     + self.cfg.run_args.ml_nodes
                 ]
             )
-            print(f"nekRS running on {self.cfg.run_args.sim_nodes} nodes:")
-            print(self.sim_nodes)
-            print(f"Training running on {self.cfg.run_args.ml_nodes} nodes:")
-            print(self.train_nodes)
+            log.info(f"nekRS running on {self.cfg.run_args.sim_nodes} nodes:")
+            log.info(f"{self.sim_nodes}")
+            log.info(f"Training running on {self.cfg.run_args.ml_nodes} nodes:")
+            log.info(f"{self.train_nodes}")
         else:
             self.sim_nodes = ",".join(self.nodelist)
             self.train_nodes = str(self.sim_nodes)
-            print(f"nekRS and training running on {self.cfg.run_args.sim_nodes} nodes:")
-            print(self.sim_nodes, "\n", flush=True)
+            log.info(f"nekRS and training running on {self.cfg.run_args.sim_nodes} nodes:")
+            log.info(f"{self.sim_nodes}\n")
 
         # Inference takes the first infer_nodes nodes of the job
         self.inference_nodes = ",".join(self.nodelist[0 : self.infer_nodes])
-        print(f"Inference running on {self.infer_nodes} nodes:")
-        print(self.inference_nodes, "\n", flush=True)
+        log.info(f"Inference running on {self.infer_nodes} nodes:")
+        log.info(f"{self.inference_nodes}\n")
 
     def launchNekRS(self) -> None:
         """Launch the nekRS simulation"""
@@ -114,7 +116,7 @@ class ShootingWorkflow:
         if self.cfg.debug and self.cfg.system == "aurora":
             cmd += "gdb-oneapi -batch -ex run -ex bt --args "
         cmd += f"{self.cfg.sim.executable} {self.cfg.sim.arguments}"
-        print("Launching nekRS ...")
+        log.info("Launching nekRS ...")
         self.nekrs_proc["process"] = subprocess.Popen(
             cmd,
             executable="/bin/bash",
@@ -128,7 +130,7 @@ class ShootingWorkflow:
             env=os.environ.copy(),
         )
         self.nekrs_proc["status"] = "running"
-        print("Done\n", flush=True)
+        log.info("Done\n")
 
     def launchTrainer(self) -> None:
         """Launch the GNN trainer"""
@@ -148,7 +150,7 @@ class ShootingWorkflow:
             cmd += "gdb-oneapi -batch -ex run -ex bt --args "
         cmd += f"python {self.cfg.train.executable} {self.cfg.train.arguments}"
         cmd += f" master_addr={self.train_nodes.split(',')[0]}"
-        print("Launching GNN training ...")
+        log.info("Launching GNN training ...")
         self.train_proc["process"] = subprocess.Popen(
             cmd,
             executable="/bin/bash",
@@ -162,7 +164,7 @@ class ShootingWorkflow:
             env=os.environ.copy(),
         )
         self.train_proc["status"] = "running"
-        print("Done\n", flush=True)
+        log.info("Done\n")
 
     def launchInference(self) -> None:
         """Launch the GNN model for inference.
@@ -175,7 +177,7 @@ class ShootingWorkflow:
         inferprocs = int(self.cfg.run_args.inferprocs)
         inferprocs_pn = int(self.cfg.run_args.inferprocs_pn)
         infer_cpu_bind = self.cfg.run_args.infer_cpu_bind
-        print(
+        log.info(
             f"\nInference sizing: {inferprocs} ranks, {inferprocs_pn} per node "
             f"(training used {self.cfg.run_args.mlprocs})"
         )
@@ -193,7 +195,7 @@ class ShootingWorkflow:
             + f"{self.cfg.inference.arguments} model_dir={self.run_dir}/saved_models/"
             + f" master_addr={self.inference_nodes.split(',')[0]}"
         )
-        print("Launching GNN inference ...")
+        log.info("Launching GNN inference ...")
         self.infer_proc["process"] = subprocess.Popen(
             cmd,
             executable="/bin/bash",
@@ -207,7 +209,7 @@ class ShootingWorkflow:
             env=os.environ.copy(),
         )
         self.infer_proc["status"] = "running"
-        print("Done\n", flush=True)
+        log.info("Done\n")
 
     def kill_processes(self, processes: list) -> None:
         """Kill processes"""
@@ -215,7 +217,7 @@ class ShootingWorkflow:
             if proc["process"] is not None:
                 proc["process"].terminate()
                 proc["process"].wait()
-                print(f"Killed process {proc['name']}", flush=True)
+                log.info(f"Killed process {proc['name']}")
 
     def poll_processes(self, processes: list, interval: Optional[int] = 5) -> None:
         """Poll the list of processes passed to the function and return
@@ -238,14 +240,14 @@ class ShootingWorkflow:
                             else:
                                 proc["status"] = "failed"
                                 failure = True
-                        print(f"{proc['name']} status: {proc['status']}", flush=True)
+                        log.info(f"{proc['name']} status: {proc['status']}")
                 if finished == len(processes):
                     all_finished = True
                 if failure:
                     self.kill_processes(processes)
                     sys.exit(0)
         except KeyboardInterrupt:
-            print("\nCtrl+C detected!", flush=True)
+            log.info("\nCtrl+C detected!")
             self.kill_processes(processes)
             sys.exit(0)
 
@@ -317,23 +319,23 @@ class ShootingWorkflow:
         fom_nekrs = self.compute_fom_nekrs()
         fom_train, fom_transfer = self.compute_fom_train()
         fom_inference = self.compute_fom_inference()
-        print("\n\nWorkflow FOM:")
-        print(
+        log.info("\n\nWorkflow FOM:")
+        log.info(
             f"\tFOM_nekrs [million mesh nodes x nekRS steps / nekRS time] = {fom_nekrs:.4g}"
         )
-        print(
+        log.info(
             f"\tFOM_train [million graph nodes x train steps / train time] = {fom_train:.4g}"
         )
-        print(f"\tFOM_transfer [GB / transfer time] = {fom_transfer:.4g}")
-        print(
+        log.info(f"\tFOM_transfer [GB / transfer time] = {fom_transfer:.4g}")
+        log.info(
             f"\tFOM_inference [million graph nodes x inference steps / inference time] = {fom_inference:.4g}"
         )
         fom_finetune = harmonic_mean([fom_nekrs, fom_train, fom_transfer])
-        print(f"\tFOM_finetune = {fom_finetune:.4g}")
+        log.info(f"\tFOM_finetune = {fom_finetune:.4g}")
         dt_ratio = 10.0
         fom_shoot = fom_inference * dt_ratio / fom_nekrs
-        print(f"\tFOM_shoot = {fom_shoot:.4g}")
-        print("\n", flush=True)
+        log.info(f"\tFOM_shoot = {fom_shoot:.4g}")
+        log.info("\n")
 
 
 ## Main function
@@ -349,7 +351,7 @@ def main(cfg: DictConfig):
     workflow.compute_fom()
 
     # Quit
-    print("Quitting")
+    log.info("Quitting")
 
 
 ## Run main
