@@ -324,7 +324,9 @@ class OnlineClient:
                 arrs = self.repart.graph_arrays()
                 self.comm.Barrier()
                 if self.rank == 0:
-                    log.info(f"Read and repartitioned graph.bp in {perf_counter() - ticc:.2f} s")
+                    log.info(
+                        f"Read and repartitioned graph.bp in {perf_counter() - ticc:.2f} s"
+                    )
                 graph_data["pos"] = arrs["pos"]
                 graph_data["global_ids"] = arrs["global_ids"].reshape(-1)
                 graph_data["local_unique_mask"] = arrs["local_unique_mask"]
@@ -384,9 +386,9 @@ class OnlineClient:
         n = self.N_list[r]
         fo = self.fieldOffset_list[r]
         base = sum(self.fieldOffset_list[:r]) * ncols
-        #out = np.empty((n, ncols), dtype=np.float64)
+        # out = np.empty((n, ncols), dtype=np.float64)
         read_time = 0.0
-        #for c in range(ncols):
+        # for c in range(ncols):
         #    self.comm.Barrier()
         #    tic = perf_counter()
         #    tmp = stream.read(name, [base + c * fo], [n])
@@ -395,7 +397,7 @@ class OnlineClient:
         #    out[:, c] = tmp.reshape(-1)
         self.comm.Barrier()
         tic = perf_counter()
-        tmp = stream.read(name, [base], [fo*3])
+        tmp = stream.read(name, [base], [fo * 3])
         self.comm.Barrier()
         read_time += perf_counter() - tic
         out = tmp.reshape((-1, ncols), order="F")
@@ -435,7 +437,9 @@ class OnlineClient:
             if self.repart is not None:
                 arr = self.repart.read_field((stream, var), ncols)
             else:
-                arr, time = self._read_own_field_block(var, ncols, stream=stream)
+                arr, time = self._read_own_field_block(
+                    var, ncols, stream=stream
+                )
             stream.end_step()
         return arr
 

@@ -316,9 +316,9 @@ class AdiosSource(ElementSource):
             self.comm.Barrier()
             self.read_time += perf_counter() - tic
             out[:, c] = tmp.reshape(-1)
-            #out[:, c] = np.asarray(
+            # out[:, c] = np.asarray(
             #    stream.read(name, [start], [int(nrows)])
-            #).reshape(-1)
+            # ).reshape(-1)
         return out
 
     def read_elements(self, comm):
