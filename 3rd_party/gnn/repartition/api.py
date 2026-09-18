@@ -1,5 +1,7 @@
 """Top-level repartitioning driver."""
 
+from time import perf_counter
+
 from .partition import partition_elements
 from .rebuild import rebuild_graph_arrays
 from .redistribute import redistribute_elements
@@ -39,7 +41,12 @@ class Repartitioner:
     def read_field(self, path_for_src_rank, ncols):
         """Read a source node-level field and route it to the new layout."""
         local = self.source.read_node_field(self.comm, path_for_src_rank, ncols)
-        return self.routing.route_node_array(local, self.comm)
+        read_time = self.source.read_time
+        tic = perf_counter()
+        redistributed_field = self.routing.route_node_array(local, self.comm)
+        redistribute_time = perf_counter() - tic
+        total_time = read_time + redistribute_time
+        return redistributed_field, total_time
 
     @property
     def n_nodes_local(self):
