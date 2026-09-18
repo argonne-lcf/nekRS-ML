@@ -1682,7 +1682,9 @@ class Trainer:
                 )
                 toc = time.time()
                 self.online_timers["trainDataTime"].append(toc - tic)
-                self.online_timers["trainDataSize"].append(data_x_i.nbytes / GB_SIZE)
+                self.online_timers["trainDataSize"].append(
+                    data_x_i.nbytes / GB_SIZE
+                )
                 self.online_timers["trainDataThroughput"].append(
                     data_x_i.nbytes / GB_SIZE / (toc - tic)
                 )
@@ -1701,7 +1703,9 @@ class Trainer:
                 )
                 toc = time.time()
                 self.online_timers["trainDataTime"].append(toc - tic)
-                self.online_timers["trainDataSize"].append(data_y_i.nbytes / GB_SIZE)
+                self.online_timers["trainDataSize"].append(
+                    data_y_i.nbytes / GB_SIZE
+                )
                 self.online_timers["trainDataThroughput"].append(
                     data_y_i.nbytes / GB_SIZE / (toc - tic)
                 )
@@ -1718,20 +1722,20 @@ class Trainer:
                     self.client.get_train_data_from_stream()
                 )
                 self.online_timers["trainDataTime"].extend(ttimes)
-                self.online_timers["trainDataSize"].extend(
-                    [data_x_i.nbytes / GB_SIZE,
-                    data_y_i.nbytes / GB_SIZE]
-                )
-                self.online_timers["trainDataThroughput"].extend(
-                    [data_x_i.nbytes / GB_SIZE / ttimes[0],
-                    data_y_i.nbytes / GB_SIZE / ttimes[1]]
-                )
+                self.online_timers["trainDataSize"].extend([
+                    data_x_i.nbytes / GB_SIZE,
+                    data_y_i.nbytes / GB_SIZE,
+                ])
+                self.online_timers["trainDataThroughput"].extend([
+                    data_x_i.nbytes / GB_SIZE / ttimes[0],
+                    data_y_i.nbytes / GB_SIZE / ttimes[1],
+                ])
                 glob_in_size = self.comm.allreduce(data_x_i.nbytes)
                 glob_out_size = self.comm.allreduce(data_y_i.nbytes)
-                self.online_timers["trainDataGlobThroughput"].extend(
-                    [glob_in_size / GB_SIZE / ttimes[0],
-                     glob_out_size / GB_SIZE / ttimes[0]]
-                )
+                self.online_timers["trainDataGlobThroughput"].extend([
+                    glob_in_size / GB_SIZE / ttimes[0],
+                    glob_out_size / GB_SIZE / ttimes[0],
+                ])
                 data_x_i = self.prepare_snapshot_data(data_x_i)
                 data_y_i = self.prepare_snapshot_data(data_y_i)
                 self.data_list.append({"x": data_x_i, "y": data_y_i})
@@ -2053,7 +2057,9 @@ class Trainer:
                     )
                     toc = time.time()
                     self.online_timers["trainDataTime"].append(toc - tic)
-                    self.online_timers["trainDataSize"].append(data_x_i.nbytes / GB_SIZE)
+                    self.online_timers["trainDataSize"].append(
+                        data_x_i.nbytes / GB_SIZE
+                    )
                     self.online_timers["trainDataThroughput"].append(
                         data_x_i.nbytes / GB_SIZE / (toc - tic)
                     )
@@ -2072,7 +2078,9 @@ class Trainer:
                     )
                     toc = time.time()
                     self.online_timers["trainDataTime"].append(toc - tic)
-                    self.online_timers["trainDataSize"].append(data_y_i.nbytes / GB_SIZE)
+                    self.online_timers["trainDataSize"].append(
+                        data_y_i.nbytes / GB_SIZE
+                    )
                     self.online_timers["trainDataThroughput"].append(
                         data_y_i.nbytes / GB_SIZE / (toc - tic)
                     )
@@ -2083,22 +2091,24 @@ class Trainer:
                     data_y_i = self.prepare_snapshot_data(data_y_i)
                     self.data_list.append({"x": data_x_i, "y": data_y_i})
         elif self.cfg.client.backend == "adios":
-            data_x_i, data_y_i, ttimes = self.client.get_train_data_from_stream()
+            data_x_i, data_y_i, ttimes = (
+                self.client.get_train_data_from_stream()
+            )
             self.online_timers["trainDataTime"].extend(ttimes)
-            self.online_timers["trainDataSize"].extend(
-                [data_x_i.nbytes / GB_SIZE,
-                data_y_i.nbytes / GB_SIZE]
-            )
-            self.online_timers["trainDataThroughput"].extend(
-                [data_x_i.nbytes / GB_SIZE / ttimes[0],
-                data_y_i.nbytes / GB_SIZE / ttimes[1]]
-            )
+            self.online_timers["trainDataSize"].extend([
+                data_x_i.nbytes / GB_SIZE,
+                data_y_i.nbytes / GB_SIZE,
+            ])
+            self.online_timers["trainDataThroughput"].extend([
+                data_x_i.nbytes / GB_SIZE / ttimes[0],
+                data_y_i.nbytes / GB_SIZE / ttimes[1],
+            ])
             glob_in_size = self.comm.allreduce(data_x_i.nbytes)
             glob_out_size = self.comm.allreduce(data_y_i.nbytes)
-            self.online_timers["trainDataGlobThroughput"].extend(
-                [glob_in_size / GB_SIZE / ttimes[0],
-                    glob_out_size / GB_SIZE / ttimes[0]]
-            )
+            self.online_timers["trainDataGlobThroughput"].extend([
+                glob_in_size / GB_SIZE / ttimes[0],
+                glob_out_size / GB_SIZE / ttimes[0],
+            ])
             data_x_i = self.prepare_snapshot_data(data_x_i)
             data_y_i = self.prepare_snapshot_data(data_y_i)
             self.data_list.append({"x": data_x_i, "y": data_y_i})

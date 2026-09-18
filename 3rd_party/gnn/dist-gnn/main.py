@@ -244,7 +244,7 @@ def train(cfg: DictConfig, client: Optional[OnlineClient] = None) -> None:
             )
             # trainDataGlobThroughput is okay on rank 0 only due to barriers around train data sream.read()
             log.info(
-                f"\tParallel transfer throughput [GB / sec]: min={min(trainer.online_timers["trainDataGlobThroughput"]):.4g}, max={max(trainer.online_timers["trainDataGlobThroughput"]):.4g}, mean={sum(trainer.online_timers["trainDataGlobThroughput"])/len(trainer.online_timers["trainDataGlobThroughput"]):.4g}"
+                f"\tParallel transfer throughput [GB / sec]: min={min(trainer.online_timers['trainDataGlobThroughput']):.4g}, max={max(trainer.online_timers['trainDataGlobThroughput']):.4g}, mean={sum(trainer.online_timers['trainDataGlobThroughput']) / len(trainer.online_timers['trainDataGlobThroughput']):.4g}"
             )
 
     # Print FOM
@@ -255,7 +255,9 @@ def train(cfg: DictConfig, client: Optional[OnlineClient] = None) -> None:
     )
     gnn_fom_gather = COMM.gather(gnn_fom, root=0)
     if cfg.online:
-        data_transfer_fom = max(trainer.online_timers["trainDataGlobThroughput"])
+        data_transfer_fom = max(
+            trainer.online_timers["trainDataGlobThroughput"]
+        )
     if RANK == 0:
         log.info("FOM:")
         min_val, max_val, avg_val = utils.min_max_avg(gnn_fom_gather)
