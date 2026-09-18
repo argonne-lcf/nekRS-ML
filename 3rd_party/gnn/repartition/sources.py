@@ -18,6 +18,7 @@ rows >= N per source rank (fieldOffset alignment padding at the end).
 import glob
 import os
 import re
+from time import perf_counter
 
 import numpy as np
 
@@ -81,6 +82,9 @@ class BinSource(ElementSource):
             for s in range(src_size)
         ])
 
+        # Bin read timer
+        self.read_time = 0.0
+
     @staticmethod
     def detect_size(src_dir):
         pat = os.path.join(src_dir, "pos_node_rank_0_size_*.bin")
@@ -104,10 +108,13 @@ class BinSource(ElementSource):
 
     def _read_node_slices(self, o0, o1, path_fn, dtype, ncols):
         np_pts = self.Np
+        self.read_time = 0.0
+        tic = perf_counter()
         parts = [
             _read_slice(path_fn(s), dtype, ncols, el0 * np_pts, nel * np_pts)
             for s, el0, nel in self._overlaps(o0, o1)
         ]
+        self.read_time += perf_counter() - tic
         if parts:
             return np.concatenate(parts, axis=0)
         return np.empty((0, ncols), dtype=dtype)
@@ -272,6 +279,9 @@ class AdiosSource(ElementSource):
 
         self._field_stream = None
 
+        # Stream read timer
+        self.read_time = 0.0
+
     @staticmethod
     def _read_field_offsets(stream, w):
         """Per-writer fieldOffset as published by the writer, or None.
@@ -303,11 +313,18 @@ class AdiosSource(ElementSource):
         inside it, [row0, row0+nrows) the rows wanted. Returns (nrows, ncols).
         """
         out = np.empty((nrows, ncols), dtype=dtype)
+        self.read_time = 0.0
         for c in range(ncols):
             start = int(base + c * stride + row0)
-            out[:, c] = np.asarray(
-                stream.read(name, [start], [int(nrows)])
-            ).reshape(-1)
+            self.comm.Barrier()
+            tic = perf_counter()
+            tmp = stream.read(name, [start], [int(nrows)])
+            self.comm.Barrier()
+            self.read_time += perf_counter() - tic
+            out[:, c] = tmp.reshape(-1)
+            # out[:, c] = np.asarray(
+            #    stream.read(name, [start], [int(nrows)])
+            # ).reshape(-1)
         return out
 
     def read_elements(self, comm):

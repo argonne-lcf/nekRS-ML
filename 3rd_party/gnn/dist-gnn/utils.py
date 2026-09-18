@@ -70,19 +70,23 @@ def collect_stats(
 
 
 def collect_online_stats(
-    COMM, local_time: list, local_throughput: list
+    COMM, local_time: list, local_size: list, local_throughput: list
 ) -> dict:
-    gather_time = np.zeros(len(local_time) * COMM.Get_size())
-    gather_time_tot = np.zeros(COMM.Get_size())
-    gather_throughput = np.zeros(len(local_throughput) * COMM.Get_size())
+    size = COMM.Get_size()
+    gather_time = np.zeros(len(local_time) * size)
+    gather_time_tot = np.zeros(size)
+    gather_size = np.zeros(len(local_size) * size)
+    gather_throughput = np.zeros(len(local_throughput) * size)
     COMM.Allgather(np.array(local_time), gather_time)
     COMM.Allgather(np.array(sum(local_time)), gather_time_tot)
+    COMM.Allgather(np.array(local_size), gather_size)
     COMM.Allgather(np.array(local_throughput), gather_throughput)
     global_throughput = np.zeros(len(local_throughput))
     COMM.Allreduce(np.array(local_throughput), global_throughput, op=MPI.SUM)
     return {
         "time": gather_time,
         "tot_time": gather_time_tot,
+        "size": gather_size,
         "throughput": gather_throughput,
         "glob_throughput": global_throughput,
     }

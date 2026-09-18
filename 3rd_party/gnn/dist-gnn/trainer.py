@@ -54,7 +54,7 @@ log = logging.getLogger(__name__)
 Tensor = torch.Tensor
 NP_FLOAT_DTYPE = np.float32
 SMALL = 1e-12
-GB_SIZE = 1024**3
+GB_SIZE = 1.0e9
 
 
 class Trainer:
@@ -1168,10 +1168,10 @@ class Trainer:
                         self.data_reduced,
                         halo_ids,
                     )
+                    self.comm.Barrier()
                     if self.rank == 0:
                         log.info(
-                            "[RANK %d]: computed halo info in %f sec"
-                            % (self.rank, time.time() - tic)
+                            f"Computed halo info in {time.time() - tic:.2f} sec"
                         )
                     halo_info = halo_info_glob[self.rank]
                     if cache_halo:
@@ -1179,7 +1179,6 @@ class Trainer:
                             f"halo_info_rank_{self.rank}_size_{self.size}",
                             halo_info.numpy(),
                         )
-                    self.comm.Barrier()
 
                     tic = time.time()
                     node_degree = get_node_degree(
@@ -1189,17 +1188,16 @@ class Trainer:
                         self.data_reduced,
                         halo_info,
                     )
+                    self.comm.Barrier()
                     if self.rank == 0:
                         log.info(
-                            "[RANK %d]: computed node degree in %f sec"
-                            % (self.rank, time.time() - tic)
+                            f"Computed node degree in {time.time() - tic:.2f} sec"
                         )
                     if cache_halo:
                         self.client.put_array(
                             f"node_degree_rank_{self.rank}_size_{self.size}",
                             node_degree.numpy(),
                         )
-                    self.comm.Barrier()
 
                     tic = time.time()
                     edge_freq = get_edge_weights(
@@ -1210,10 +1208,10 @@ class Trainer:
                         halo_info_glob,
                     )
                     edge_weight = (1.0 / edge_freq).to(self.torch_dtype)
+                    self.comm.Barrier()
                     if self.rank == 0:
                         log.info(
-                            "[RANK %d]: computed edge weights in %f sec"
-                            % (self.rank, time.time() - tic)
+                            f"Computed edge weights in {time.time() - tic:.2f} sec"
                         )
                     if cache_halo:
                         self.client.put_array(
@@ -1684,8 +1682,15 @@ class Trainer:
                 )
                 toc = time.time()
                 self.online_timers["trainDataTime"].append(toc - tic)
+                self.online_timers["trainDataSize"].append(
+                    data_x_i.nbytes / GB_SIZE
+                )
                 self.online_timers["trainDataThroughput"].append(
                     data_x_i.nbytes / GB_SIZE / (toc - tic)
+                )
+                glob_in_size = self.comm.allreduce(data_x_i.nbytes)
+                self.online_timers["trainDataGlobThroughput"].append(
+                    glob_in_size / GB_SIZE / toc - tic
                 )
                 data_x_i = self.prepare_snapshot_data(data_x_i)
 
@@ -1698,24 +1703,39 @@ class Trainer:
                 )
                 toc = time.time()
                 self.online_timers["trainDataTime"].append(toc - tic)
+                self.online_timers["trainDataSize"].append(
+                    data_y_i.nbytes / GB_SIZE
+                )
                 self.online_timers["trainDataThroughput"].append(
                     data_y_i.nbytes / GB_SIZE / (toc - tic)
+                )
+                glob_out_size = self.comm.allreduce(data_y_i.nbytes)
+                self.online_timers["trainDataGlobThroughput"].append(
+                    glob_out_size / GB_SIZE / toc - tic
                 )
                 data_y_i = self.prepare_snapshot_data(data_y_i)
                 self.data_list.append({"x": data_x_i, "y": data_y_i})
         elif self.cfg.online and self.cfg.client.backend == "adios":
             iter = 5 if self.cfg.target_loss != 0 else 1
             for i in range(iter):
-                data_x_i, data_y_i, ttime = (
+                data_x_i, data_y_i, ttimes = (
                     self.client.get_train_data_from_stream()
                 )
-                self.online_timers["trainDataTime"].append(ttime)
-                self.online_timers["trainDataSize"].append(
-                    (data_x_i.nbytes + data_y_i.nbytes) / GB_SIZE
-                )
-                self.online_timers["trainDataThroughput"].append(
-                    self.online_timers["trainDataSize"][-1] / (ttime)
-                )
+                self.online_timers["trainDataTime"].extend(ttimes)
+                self.online_timers["trainDataSize"].extend([
+                    data_x_i.nbytes / GB_SIZE,
+                    data_y_i.nbytes / GB_SIZE,
+                ])
+                self.online_timers["trainDataThroughput"].extend([
+                    data_x_i.nbytes / GB_SIZE / ttimes[0],
+                    data_y_i.nbytes / GB_SIZE / ttimes[1],
+                ])
+                glob_in_size = self.comm.allreduce(data_x_i.nbytes)
+                glob_out_size = self.comm.allreduce(data_y_i.nbytes)
+                self.online_timers["trainDataGlobThroughput"].extend([
+                    glob_in_size / GB_SIZE / ttimes[0],
+                    glob_out_size / GB_SIZE / ttimes[0],
+                ])
                 data_x_i = self.prepare_snapshot_data(data_x_i)
                 data_y_i = self.prepare_snapshot_data(data_y_i)
                 self.data_list.append({"x": data_x_i, "y": data_y_i})
@@ -2037,8 +2057,15 @@ class Trainer:
                     )
                     toc = time.time()
                     self.online_timers["trainDataTime"].append(toc - tic)
+                    self.online_timers["trainDataSize"].append(
+                        data_x_i.nbytes / GB_SIZE
+                    )
                     self.online_timers["trainDataThroughput"].append(
                         data_x_i.nbytes / GB_SIZE / (toc - tic)
+                    )
+                    glob_in_size = self.comm.allreduce(data_x_i.nbytes)
+                    self.online_timers["trainDataGlobThroughput"].append(
+                        glob_in_size / GB_SIZE / toc - tic
                     )
                     data_x_i = self.prepare_snapshot_data(data_x_i)
 
@@ -2051,20 +2078,37 @@ class Trainer:
                     )
                     toc = time.time()
                     self.online_timers["trainDataTime"].append(toc - tic)
+                    self.online_timers["trainDataSize"].append(
+                        data_y_i.nbytes / GB_SIZE
+                    )
                     self.online_timers["trainDataThroughput"].append(
                         data_y_i.nbytes / GB_SIZE / (toc - tic)
+                    )
+                    glob_out_size = self.comm.allreduce(data_y_i.nbytes)
+                    self.online_timers["trainDataGlobThroughput"].append(
+                        glob_out_size / GB_SIZE / toc - tic
                     )
                     data_y_i = self.prepare_snapshot_data(data_y_i)
                     self.data_list.append({"x": data_x_i, "y": data_y_i})
         elif self.cfg.client.backend == "adios":
-            data_x_i, data_y_i, ttime = self.client.get_train_data_from_stream()
-            self.online_timers["trainDataTime"].append(ttime)
-            self.online_timers["trainDataSize"].append(
-                (data_x_i.nbytes + data_y_i.nbytes) / GB_SIZE
+            data_x_i, data_y_i, ttimes = (
+                self.client.get_train_data_from_stream()
             )
-            self.online_timers["trainDataThroughput"].append(
-                self.online_timers["trainDataSize"][-1] / (ttime)
-            )
+            self.online_timers["trainDataTime"].extend(ttimes)
+            self.online_timers["trainDataSize"].extend([
+                data_x_i.nbytes / GB_SIZE,
+                data_y_i.nbytes / GB_SIZE,
+            ])
+            self.online_timers["trainDataThroughput"].extend([
+                data_x_i.nbytes / GB_SIZE / ttimes[0],
+                data_y_i.nbytes / GB_SIZE / ttimes[1],
+            ])
+            glob_in_size = self.comm.allreduce(data_x_i.nbytes)
+            glob_out_size = self.comm.allreduce(data_y_i.nbytes)
+            self.online_timers["trainDataGlobThroughput"].extend([
+                glob_in_size / GB_SIZE / ttimes[0],
+                glob_out_size / GB_SIZE / ttimes[0],
+            ])
             data_x_i = self.prepare_snapshot_data(data_x_i)
             data_y_i = self.prepare_snapshot_data(data_y_i)
             self.data_list.append({"x": data_x_i, "y": data_y_i})
@@ -2128,6 +2172,7 @@ class Trainer:
         timers["trainDataTime"] = []
         timers["trainDataSize"] = []
         timers["trainDataThroughput"] = []
+        timers["trainDataGlobThroughput"] = []
         return timers
 
     def update_timer(self, key: str, tstep: int, time: float):
