@@ -82,6 +82,9 @@ class BinSource(ElementSource):
             for s in range(src_size)
         ])
 
+        # Bin read timer
+        self.read_time = 0.0
+
     @staticmethod
     def detect_size(src_dir):
         pat = os.path.join(src_dir, "pos_node_rank_0_size_*.bin")
@@ -105,10 +108,13 @@ class BinSource(ElementSource):
 
     def _read_node_slices(self, o0, o1, path_fn, dtype, ncols):
         np_pts = self.Np
+        self.read_time = 0.0
+        tic = perf_counter()
         parts = [
             _read_slice(path_fn(s), dtype, ncols, el0 * np_pts, nel * np_pts)
             for s, el0, nel in self._overlaps(o0, o1)
         ]
+        self.read_time += perf_counter() - tic
         if parts:
             return np.concatenate(parts, axis=0)
         return np.empty((0, ncols), dtype=dtype)
