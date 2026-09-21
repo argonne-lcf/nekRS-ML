@@ -182,7 +182,6 @@ fi
 echo "source ${VENV_PATH}" >> $RFILE
 echo "module list" >> $RFILE
 
-echo "export ZE_FLAT_DEVICE_HIERARCHY=FLAT" >> $RFILE
 echo -e "\nexport NEKRS_HOME=$NEKRS_HOME" >>$RFILE
 echo "export OCCA_DPCPP_COMPILER_FLAGS=\"$OCCA_DPCPP_COMPILER_FLAGS\"" >> $RFILE
 echo "export FI_CXI_RX_MATCH_MODE=hybrid" >> $RFILE # required by parRSB
@@ -207,7 +206,6 @@ echo "export CCL_ALLTOALLV=topo" >> $RFILE
 echo "export CCL_ALLTOALLV_SCALEOUT=topo" >> $RFILE
 echo "export CCL_ALLTOALLV_MONOLITHIC_KERNEL=0" >> $RFILE
 echo "export CCL_LOG_LEVEL=error" >> $RFILE
-echo "export LD_LIBRARY_PATH=/opt/aurora/26.181.0/frameworks/aurora_frameworks-2026.1.0/lib:\$LD_LIBRARY_PATH" >> $RFILE
 
 echo -e "\nulimit -c unlimited" >> $RFILE
 

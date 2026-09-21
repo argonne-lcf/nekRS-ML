@@ -951,7 +951,9 @@ class Trainer:
         if bp_graph:
             # N comes from shape("N")[0] in the file itself, so gnn_outputs_size
             # is neither needed nor consulted on this path.
-            src = repartition.AdiosSource(graph_path, comm=self.comm)
+            src = repartition.AdiosSource(
+                graph_path, comm=self.comm, timers=True
+            )
         else:
             src = repartition.BinSource(graph_path, src_size=src_size or None)
             if src.src_size == self.size and have_native:
@@ -1171,7 +1173,7 @@ class Trainer:
                     self.comm.Barrier()
                     if self.rank == 0:
                         log.info(
-                            f"Computed halo info in {time.time() - tic:.2f} sec"
+                            f"Computed halo info in {time.time() - tic:.3f} sec"
                         )
                     halo_info = halo_info_glob[self.rank]
                     if cache_halo:
@@ -1191,7 +1193,7 @@ class Trainer:
                     self.comm.Barrier()
                     if self.rank == 0:
                         log.info(
-                            f"Computed node degree in {time.time() - tic:.2f} sec"
+                            f"Computed node degree in {time.time() - tic:.3f} sec"
                         )
                     if cache_halo:
                         self.client.put_array(
@@ -1211,7 +1213,7 @@ class Trainer:
                     self.comm.Barrier()
                     if self.rank == 0:
                         log.info(
-                            f"Computed edge weights in {time.time() - tic:.2f} sec"
+                            f"Computed edge weights in {time.time() - tic:.3f} sec"
                         )
                     if cache_halo:
                         self.client.put_array(

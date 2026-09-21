@@ -226,11 +226,21 @@ class AdiosSource(ElementSource):
     """
 
     def __init__(
-        self, graph_path="graph.bp", comm=None, np_pts=None, itemsize=8
+        self,
+        graph_path="graph.bp",
+        comm=None,
+        np_pts=None,
+        itemsize=8,
+        timers=False,
     ):
         self.graph_path = graph_path
         self.comm = comm
         self.itemsize = itemsize
+        # Timing a stream read means bracketing it with barriers, so that the
+        # interval covers every rank's read and not just this one's. That is
+        # a synchronization this path does not otherwise need, so it is only
+        # paid when the caller asks for the numbers.
+        self.timers = timers
 
         with open_bp_read(graph_path, comm) as stream:
             stream.begin_step()
@@ -312,19 +322,26 @@ class AdiosSource(ElementSource):
         base is the block's global start, stride the per-component stride
         inside it, [row0, row0+nrows) the rows wanted. Returns (nrows, ncols).
         """
-        out = np.empty((nrows, ncols), dtype=dtype)
         self.read_time = 0.0
+        if self.timers and self.comm is not None:
+            self.comm.Barrier()
+        tic = perf_counter()
+        # One read spanning all ncols components. The components sit stride
+        # apart inside the block, so the span reaches from the first row of
+        # component 0 to the last row of component ncols-1; the gap between
+        # them is fetched and dropped. A single read beats ncols reads even
+        # so, because the overhead is per-read, not per-byte.
+        span = (ncols - 1) * int(stride) + int(nrows)
+        raw = stream.read(name, [int(base + row0)], [span])
+        buf = np.asarray(raw).reshape(-1)
+        if self.timers and self.comm is not None:
+            self.comm.Barrier()
+        self.read_time += perf_counter() - tic
+
+        out = np.empty((nrows, ncols), dtype=dtype)
         for c in range(ncols):
-            start = int(base + c * stride + row0)
-            self.comm.Barrier()
-            tic = perf_counter()
-            tmp = stream.read(name, [start], [int(nrows)])
-            self.comm.Barrier()
-            self.read_time += perf_counter() - tic
-            out[:, c] = tmp.reshape(-1)
-            # out[:, c] = np.asarray(
-            #    stream.read(name, [start], [int(nrows)])
-            # ).reshape(-1)
+            off = c * int(stride)
+            out[:, c] = buf[off : off + int(nrows)]
         return out
 
     def read_elements(self, comm):

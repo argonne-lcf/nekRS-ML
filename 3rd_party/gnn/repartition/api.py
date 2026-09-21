@@ -25,6 +25,10 @@ class Repartitioner:
         self.method = method
         self.Np = source.Np
 
+        # Per-call cost of the last read_field, for callers collecting timers.
+        self.read_time = 0.0
+        self.route_time = 0.0
+
         elems_src, self.template = source.read_elements(comm)
         dest = partition_elements(elems_src, comm, method=method)
         self.elems, self.routing = redistribute_elements(elems_src, dest, comm)
@@ -39,14 +43,24 @@ class Repartitioner:
         return self._arrays
 
     def read_field(self, path_for_src_rank, ncols):
-        """Read a source node-level field and route it to the new layout."""
+        """Read a source node-level field and route it to the new layout.
+
+        Returns the routed array. A caller that wants the cost of the last
+        such call reads ``rp.read_time`` (the stream/file read) and
+        ``rp.route_time`` (the redistribution) afterwards; both are set on
+        every call, so the timing never changes what this returns.
+        """
         local = self.source.read_node_field(self.comm, path_for_src_rank, ncols)
-        read_time = self.source.read_time
+        self.read_time = getattr(self.source, "read_time", 0.0)
         tic = perf_counter()
         redistributed_field = self.routing.route_node_array(local, self.comm)
-        redistribute_time = perf_counter() - tic
-        total_time = read_time + redistribute_time
-        return redistributed_field, total_time
+        self.route_time = perf_counter() - tic
+        return redistributed_field
+
+    @property
+    def field_time(self):
+        """Cost of the last read_field: stream read plus redistribution."""
+        return self.read_time + self.route_time
 
     @property
     def n_nodes_local(self):

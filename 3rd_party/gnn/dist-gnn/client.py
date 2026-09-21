@@ -37,6 +37,9 @@ class OnlineClient:
         # Initialize timers
         self.timers = self.setup_timers()
 
+        # Initialize read time
+        self.read_time = 0.0
+
         # Initialize the client backend
         clients = ["smartredis", "adios"]
         if self.backend not in clients:
@@ -294,7 +297,7 @@ class OnlineClient:
         if self.backend == "adios":
             self._wait_for_graph("graph.bp")
             AdiosSource, Repartitioner = self._import_repartition()
-            src = AdiosSource("graph.bp", comm=self.comm)
+            src = AdiosSource("graph.bp", comm=self.comm, timers=True)
             self.graph_source = src
 
             # writer-side per-block metadata, kept for the solution stream
@@ -372,36 +375,19 @@ class OnlineClient:
     def _read_own_field_block(
         self, name: str, ncols: int, stream=None
     ) -> np.ndarray:
-        """Read writer block self.rank of a node field (W == M).
-
-        in_u/out_u and checkpoint are component-major with a per-writer
-        stride of fieldOffset = alignStride(N), not N, so the N rows of each
-        component must be read separately; a single contiguous N*ncols read
-        silently picks up padding and shears the components whenever
-        N % 32 != 0.
-        """
+        """Read writer block self.rank of a node field."""
         if stream is None:
             stream = self.solutionStream
         r = self.rank
         n = self.N_list[r]
         fo = self.fieldOffset_list[r]
         base = sum(self.fieldOffset_list[:r]) * ncols
-        # out = np.empty((n, ncols), dtype=np.float64)
-        read_time = 0.0
-        # for c in range(ncols):
-        #    self.comm.Barrier()
-        #    tic = perf_counter()
-        #    tmp = stream.read(name, [base + c * fo], [n])
-        #    self.comm.Barrier()
-        #    read_time += perf_counter() - tic
-        #    out[:, c] = tmp.reshape(-1)
         self.comm.Barrier()
         tic = perf_counter()
-        tmp = stream.read(name, [base], [fo * 3])
+        tmp = stream.read(name, [base], [fo * ncols])
         self.comm.Barrier()
-        read_time += perf_counter() - tic
-        out = tmp.reshape((-1, ncols), order="F")
-        return out, read_time
+        self.read_time = perf_counter() - tic
+        return tmp.reshape((-1, ncols), order="F")[:n]
 
     def get_checkpoint_from_file(
         self,
@@ -437,9 +423,7 @@ class OnlineClient:
             if self.repart is not None:
                 arr = self.repart.read_field((stream, var), ncols)
             else:
-                arr, time = self._read_own_field_block(
-                    var, ncols, stream=stream
-                )
+                arr = self._read_own_field_block(var, ncols, stream=stream)
             stream.end_step()
         return arr
 
@@ -474,15 +458,15 @@ class OnlineClient:
             #   - https://github.com/ornladios/ADIOS2/blob/67f771b7a2f88ce59b6808cc4356159d86255f1d/python/adios2/engine.py#L123)
             if self.repart is not None:
                 self.graph_source.attach_field_stream(self.solutionStream)
-                inputs, time = self.repart.read_field("in_u", ncols=3)
-                transfer_times.append(time)
-                outputs, time = self.repart.read_field("out_u", ncols=3)
-                transfer_times.append(time)
+                inputs = self.repart.read_field("in_u", ncols=3)
+                transfer_times.append(self.repart.field_time)
+                outputs = self.repart.read_field("out_u", ncols=3)
+                transfer_times.append(self.repart.field_time)
             else:
-                inputs, time = self._read_own_field_block("in_u", 3)
-                transfer_times.append(time)
-                outputs, time = self._read_own_field_block("out_u", 3)
-                transfer_times.append(time)
+                inputs = self._read_own_field_block("in_u", 3)
+                transfer_times.append(self.read_time)
+                outputs = self._read_own_field_block("out_u", 3)
+                transfer_times.append(self.read_time)
 
             self.solutionStream.end_step()
         self.timers["data"].append(perf_counter() - tic)
