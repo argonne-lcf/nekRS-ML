@@ -181,7 +181,7 @@ class ShootingWorkflow:
         inferprocs_pn = int(self.cfg.run_args.inferprocs_pn)
         infer_cpu_bind = self.cfg.run_args.infer_cpu_bind
         log.info(
-            f"\nInference sizing: {inferprocs} ranks, {inferprocs_pn} per node "
+            f"Inference sizing: {inferprocs} ranks, {inferprocs_pn} per node "
             f"(training used {self.cfg.run_args.mlprocs})"
         )
         cmd = (
@@ -246,6 +246,7 @@ class ShootingWorkflow:
                         log.info(f"{proc['name']} status: {proc['status']}")
                 if finished == len(processes):
                     all_finished = True
+                    log.info("")
                 if failure:
                     self.kill_processes(processes)
                     sys.exit(0)
@@ -300,11 +301,9 @@ class ShootingWorkflow:
         with open(f"{self.log_dir}/train_0.out", "r") as fh:
             for l in fh:
                 if "FOM_train" in l:
-                    fom_train = float(l.split("]:")[-1].split(",")[-1].split("=")[-1])
+                    fom_train = float(l.split("]:")[-1])
                 if "FOM_transfer" in l:
-                    fom_transfer = float(
-                        l.split("]:")[-1].split(",")[-1].split("=")[-1]
-                    )
+                    fom_transfer = float(l.split("]:")[-1])
         return fom_train, fom_transfer
 
     def compute_fom_inference(self) -> float:
@@ -312,9 +311,7 @@ class ShootingWorkflow:
         with open(f"{self.log_dir}/infer_0.out", "r") as fh:
             for l in fh:
                 if "FOM_inference" in l:
-                    fom_inference = float(
-                        l.split("]:")[-1].split(",")[-1].split("=")[-1]
-                    )
+                    fom_inference = float(l.split("]:")[-1])
         return fom_inference
 
     def compute_fom(self) -> None:
@@ -322,22 +319,22 @@ class ShootingWorkflow:
         fom_nekrs = self.compute_fom_nekrs()
         fom_train, fom_transfer = self.compute_fom_train()
         fom_inference = self.compute_fom_inference()
-        log.info("\n\nWorkflow FOM:")
+        log.info("Workflow FOM:")
         log.info(
-            f"\tFOM_nekrs [million mesh nodes x nekRS steps / nekRS time] = {fom_nekrs:.4g}"
+            f"\tFOM_nekrs [million mesh nodes x nekRS steps / nekRS time] = {fom_nekrs:.3f}"
         )
         log.info(
-            f"\tFOM_train [million graph nodes x train steps / train time] = {fom_train:.4g}"
+            f"\tFOM_train [million graph nodes x train steps / train time] = {fom_train:.3f}"
         )
-        log.info(f"\tFOM_transfer [GB / transfer time] = {fom_transfer:.4g}")
+        log.info(f"\tFOM_transfer [GB / transfer time] = {fom_transfer:.3f}")
         log.info(
-            f"\tFOM_inference [million graph nodes x inference steps / inference time] = {fom_inference:.4g}"
+            f"\tFOM_inference [million graph nodes x inference steps / inference time] = {fom_inference:.3f}"
         )
         fom_finetune = harmonic_mean([fom_nekrs, fom_train, fom_transfer])
-        log.info(f"\tFOM_finetune = {fom_finetune:.4g}")
+        log.info(f"\tFOM_finetune = {fom_finetune:.3f}")
         dt_ratio = 10.0
         fom_shoot = fom_inference * dt_ratio / fom_nekrs
-        log.info(f"\tFOM_shoot = {fom_shoot:.4g}")
+        log.info(f"\tFOM_shoot = {fom_shoot:..3f}")
         log.info("\n")
 
 

@@ -105,7 +105,7 @@ def train(cfg: DictConfig, client: Optional[OnlineClient] = None) -> None:
                     f"[STEP {trainer.iteration}]",
                     f"loss={loss:.4e}",
                     f"r_loss={running_loss:.4e}",  # Include average loss in your logging
-                    f"t_step={t_step:.4g}sec",
+                    f"t_step={t_step:.3f}sec",
                     f"lr={trainer.optimizer.param_groups[0]['lr']:.3e}",
                 ])
                 sepstr = "-" * len(summary_train)
@@ -128,20 +128,20 @@ def train(cfg: DictConfig, client: Optional[OnlineClient] = None) -> None:
                     t_optimizerStep = trainer.timers["optimizerStep"][
                         trainer.timer_step - 1
                     ]
-                    log.info(f"t_dataTransfer: {t_dataTransfer:.4g} sec")
-                    log.info(f"t_bufferInit: {t_bufferInit:.4g} sec")
+                    log.info(f"t_dataTransfer: {t_dataTransfer:.3f} sec")
+                    log.info(f"t_bufferInit: {t_bufferInit:.3f} sec")
                     log.info(
-                        f"t_forwardPass: {t_forwardPass:.4g} sec [{n_nodes_local / t_forwardPass:.4e} nodes/sec]"
+                        f"t_forwardPass: {t_forwardPass:.3f} sec [{n_nodes_local / t_forwardPass:.3f} nodes/sec]"
                     )
                     log.info(
-                        f"t_loss: {t_loss:.4g} sec [{n_nodes_local / t_loss:.4e} nodes/sec]"
+                        f"t_loss: {t_loss:.3f} sec [{n_nodes_local / t_loss:.3f} nodes/sec]"
                     )
                     log.info(
-                        f"t_backwardPass: {t_backwardPass:.4g} sec [{n_nodes_local / t_backwardPass:.4e} nodes/sec]"
+                        f"t_backwardPass: {t_backwardPass:.3f} sec [{n_nodes_local / t_backwardPass:.3f} nodes/sec]"
                     )
-                    log.info(f"t_optimizerStep: {t_optimizerStep:.4g} sec")
+                    log.info(f"t_optimizerStep: {t_optimizerStep:.3f} sec")
                 if cfg.postprocess:
-                    log.info(f"grad norm: {postproc_out[0]:.6g}")
+                    log.info(f"grad norm: {postproc_out[0]:.3f}")
 
             # Checkpoint
             if trainer.iteration % cfg.ckptfreq == 0:
@@ -196,24 +196,25 @@ def train(cfg: DictConfig, client: Optional[OnlineClient] = None) -> None:
         log.info(f"\tTotal number of iterations: {trainer.iteration - 1}")
         min_val, max_val, avg_val = utils.min_max_avg(global_stats["time"])
         log.info(
-            f"\tStep time [sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+            f"\tStep time [sec]: min={min_val:.3f}, max={max_val:.3f}, mean={avg_val:.3f}"
         )
         min_val, max_val, avg_val = utils.min_max_avg(
             global_stats["throughput"]
         )
         log.info(
-            f"\tLocal step throughput [million nodes / sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+            f"\tLocal step throughput [million nodes / sec]: min={min_val:.3f}, max={max_val:.3f}, mean={avg_val:.3f}"
         )
         min_val, max_val, avg_val = utils.min_max_avg(
             global_stats["glob_throughput"]
         )
         log.info(
-            f"\tParallel step throughput [million nodes / sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+            f"\tParallel step throughput [million nodes / sec]: min={min_val:.3f}, max={max_val:.3f}, mean={avg_val:.3f}"
         )
     if cfg.online:
         glob_online_stats = utils.collect_online_stats(
             COMM,
             trainer.online_timers["trainDataTime"],
+            trainer.online_timers["trainDataSize"],
             trainer.online_timers["trainDataThroughput"],
         )
         if RANK == 0:
@@ -221,25 +222,29 @@ def train(cfg: DictConfig, client: Optional[OnlineClient] = None) -> None:
                 glob_online_stats["time"]
             )
             log.info(
-                f"\tTransfer time per stream [sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+                f"\tTransfer time per stream [sec]: min={min_val:.3f}, max={max_val:.3f}, mean={avg_val:.3f}"
             )
             min_val, max_val, avg_val = utils.min_max_avg(
                 glob_online_stats["tot_time"]
             )
             log.info(
-                f"\tTotal transfer time [sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+                f"\tTotal transfer time [sec]: min={min_val:.3f}, max={max_val:.3f}, mean={avg_val:.3f}"
+            )
+            min_val, max_val, avg_val = utils.min_max_avg(
+                glob_online_stats["size"]
+            )
+            log.info(
+                f"\tData size per transfer [GB]: min={min_val:.3f}, max={max_val:.3f}, mean={avg_val:.3f}"
             )
             min_val, max_val, avg_val = utils.min_max_avg(
                 glob_online_stats["throughput"]
             )
             log.info(
-                f"\tLocal transfer throughput [GB / sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+                f"\tLocal transfer throughput [GB / sec]: min={min_val:.3f}, max={max_val:.3f}, mean={avg_val:.3f}"
             )
-            min_val, max_val, avg_val = utils.min_max_avg(
-                glob_online_stats["glob_throughput"]
-            )
+            # trainDataGlobThroughput is okay on rank 0 only due to barriers around train data sream.read()
             log.info(
-                f"\tParallel transfer throughput [GB / sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+                f"\tParallel transfer throughput [GB / sec]: min={min(trainer.online_timers['trainDataGlobThroughput']):.3f}, max={max(trainer.online_timers['trainDataGlobThroughput']):.3f}, mean={sum(trainer.online_timers['trainDataGlobThroughput']) / len(trainer.online_timers['trainDataGlobThroughput']):.3f}"
             )
 
     # Print FOM
@@ -250,17 +255,18 @@ def train(cfg: DictConfig, client: Optional[OnlineClient] = None) -> None:
     )
     gnn_fom_gather = COMM.gather(gnn_fom, root=0)
     if cfg.online:
-        data_transfer_fom = glob_online_stats["glob_throughput"]
+        data_transfer_fom = max(
+            trainer.online_timers["trainDataGlobThroughput"]
+        )
     if RANK == 0:
         log.info("FOM:")
         min_val, max_val, avg_val = utils.min_max_avg(gnn_fom_gather)
         log.info(
-            f"\tFOM_train [million graph nodes x train steps / train time]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+            f"\tFOM_train [million graph nodes x train steps / train time in sec]: {max_val:.3f}"
         )
         if cfg.online:
-            min_val, max_val, avg_val = utils.min_max_avg(data_transfer_fom)
             log.info(
-                f"\tFOM_transfer [GB / transfer time]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+                f"\tFOM_transfer [total train data in GB / transfer time in sec]: {data_transfer_fom:.3f}"
             )
 
 

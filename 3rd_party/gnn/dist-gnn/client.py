@@ -37,6 +37,9 @@ class OnlineClient:
         # Initialize timers
         self.timers = self.setup_timers()
 
+        # Initialize read time
+        self.read_time = 0.0
+
         # Initialize the client backend
         clients = ["smartredis", "adios"]
         if self.backend not in clients:
@@ -256,6 +259,8 @@ class OnlineClient:
         not be flushed yet. Opening it and requiring the variables we need is
         the cheapest reliable completion test.
         """
+        if self.rank == 0:
+            log.info(f"Waiting for {path} ...")
         tic = perf_counter()
         while True:
             if os.path.exists(path):
@@ -292,7 +297,7 @@ class OnlineClient:
         if self.backend == "adios":
             self._wait_for_graph("graph.bp")
             AdiosSource, Repartitioner = self._import_repartition()
-            src = AdiosSource("graph.bp", comm=self.comm)
+            src = AdiosSource("graph.bp", comm=self.comm, timers=True)
             self.graph_source = src
 
             # writer-side per-block metadata, kept for the solution stream
@@ -303,7 +308,11 @@ class OnlineClient:
 
             if src.src_size == self.size:
                 self.repart = None
+                ticc = perf_counter()
                 graph_data.update(self._read_own_graph_block(src))
+                self.comm.Barrier()
+                if self.rank == 0:
+                    log.info(f"Read graph.bp in {perf_counter() - ticc:.2f} s")
             else:
                 if self.rank == 0:
                     log.info(
@@ -314,7 +323,13 @@ class OnlineClient:
                         method,
                     )
                 self.repart = Repartitioner(src, self.comm, method=method)
+                ticc = perf_counter()
                 arrs = self.repart.graph_arrays()
+                self.comm.Barrier()
+                if self.rank == 0:
+                    log.info(
+                        f"Read and repartitioned graph.bp in {perf_counter() - ticc:.2f} s"
+                    )
                 graph_data["pos"] = arrs["pos"]
                 graph_data["global_ids"] = arrs["global_ids"].reshape(-1)
                 graph_data["local_unique_mask"] = arrs["local_unique_mask"]
@@ -360,24 +375,19 @@ class OnlineClient:
     def _read_own_field_block(
         self, name: str, ncols: int, stream=None
     ) -> np.ndarray:
-        """Read writer block self.rank of a node field (W == M).
-
-        in_u/out_u and checkpoint are component-major with a per-writer
-        stride of fieldOffset = alignStride(N), not N, so the N rows of each
-        component must be read separately; a single contiguous N*ncols read
-        silently picks up padding and shears the components whenever
-        N % 32 != 0.
-        """
+        """Read writer block self.rank of a node field."""
         if stream is None:
             stream = self.solutionStream
         r = self.rank
         n = self.N_list[r]
         fo = self.fieldOffset_list[r]
         base = sum(self.fieldOffset_list[:r]) * ncols
-        out = np.empty((n, ncols), dtype=np.float64)
-        for c in range(ncols):
-            out[:, c] = stream.read(name, [base + c * fo], [n]).reshape(-1)
-        return out
+        self.comm.Barrier()
+        tic = perf_counter()
+        tmp = stream.read(name, [base], [fo * ncols])
+        self.comm.Barrier()
+        self.read_time = perf_counter() - tic
+        return tmp.reshape((-1, ncols), order="F")[:n]
 
     def get_checkpoint_from_file(
         self,
@@ -421,6 +431,7 @@ class OnlineClient:
         """Get the solution from a stream"""
         self.comm.Barrier()
         tic = perf_counter()
+        transfer_times = []
         if self.backend == "adios":
             if self.solutionStream is None:
                 if self.rank == 0:
@@ -445,19 +456,21 @@ class OnlineClient:
             # see
             #   - https://github.com/ornladios/ADIOS2/blob/67f771b7a2f88ce59b6808cc4356159d86255f1d/python/adios2/stream.py#L331
             #   - https://github.com/ornladios/ADIOS2/blob/67f771b7a2f88ce59b6808cc4356159d86255f1d/python/adios2/engine.py#L123)
-            ticc = perf_counter()
             if self.repart is not None:
                 self.graph_source.attach_field_stream(self.solutionStream)
                 inputs = self.repart.read_field("in_u", ncols=3)
+                transfer_times.append(self.repart.field_time)
                 outputs = self.repart.read_field("out_u", ncols=3)
+                transfer_times.append(self.repart.field_time)
             else:
                 inputs = self._read_own_field_block("in_u", 3)
+                transfer_times.append(self.read_time)
                 outputs = self._read_own_field_block("out_u", 3)
-            transfer_time = perf_counter() - ticc
+                transfer_times.append(self.read_time)
 
             self.solutionStream.end_step()
         self.timers["data"].append(perf_counter() - tic)
-        return inputs, outputs, transfer_time
+        return inputs, outputs, transfer_times
 
     def stop_nekRS(self) -> None:
         """Communicate to nekRS to stop running and exit cleanly"""

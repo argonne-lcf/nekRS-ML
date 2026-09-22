@@ -61,13 +61,17 @@ def make_stub(bp_dir):
     c.backend = "adios"
     c.comm, c.rank, c.size = COMM, RANK, SIZE
     c.timers = {"init": [], "data": [], "meta_data": []}
+    # __init__ is bypassed here, so the read-timing state it sets up must be
+    # supplied by hand. Barriers on, so the timed path is what gets tested.
+    c.timers_on = True
+    c.read_time = 0.0
     c.solutionStream = None
     c.graph_source = None
     c.repart = None
     sys.path.insert(0, GNN)
     from repartition import AdiosSource
 
-    src = AdiosSource(os.path.join(bp_dir, "graph.bp"), comm=COMM)
+    src = AdiosSource(os.path.join(bp_dir, "graph.bp"), comm=COMM, timers=True)
     c.graph_source = src
     c.N_list = [int(n) for n in src.n_per_src]
     c.num_edges_list = [int(e) for e in src.num_edges_per_src]

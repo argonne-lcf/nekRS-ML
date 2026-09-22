@@ -276,8 +276,8 @@ def inference_rollout(
             if RANK == 0:
                 summary = " ".join([
                     f"[STEP {trainer.iteration}]",
-                    f"t_step={t_step:.4g}sec",
-                    f"throughput={n_nodes_local / t_step / 1.0e6:.4g}Mnodes/sec",
+                    f"t_step={t_step:.3f}sec",
+                    f"throughput={n_nodes_local / t_step / 1.0e6:.3f}Mnodes/sec",
                 ])
                 log.info(summary)
 
@@ -336,19 +336,19 @@ def inference_rollout(
         log.info(f"\tTotal number of iterations: {trainer.iteration - 1}")
         min_val, max_val, avg_val = utils.min_max_avg(global_stats["time"])
         log.info(
-            f"\tStep time [sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+            f"\tStep time [sec]: min={min_val:.3f}, max={max_val:.3f}, mean={avg_val:.3f}"
         )
         min_val, max_val, avg_val = utils.min_max_avg(
             global_stats["throughput"]
         )
         log.info(
-            f"\tStep throughput [million nodes / sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+            f"\tStep throughput [million nodes / sec]: min={min_val:.3f}, max={max_val:.3f}, mean={avg_val:.3f}"
         )
         min_val, max_val, avg_val = utils.min_max_avg(
             global_stats["glob_throughput"]
         )
         log.info(
-            f"\tParallel throughput [million nodes / sec]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+            f"\tParallel throughput [million nodes / sec]: min={min_val:.3f}, max={max_val:.3f}, mean={avg_val:.3f}"
         )
 
     # Print FOM
@@ -362,7 +362,7 @@ def inference_rollout(
         log.info("FOM:")
         min_val, max_val, avg_val = utils.min_max_avg(fom_gather)
         log.info(
-            f"\tFOM_inference [million graph nodes x inference steps / inference time]: min={min_val:.4g}, max={max_val:.4g}, mean={avg_val:.4g}"
+            f"\tFOM_inference [million graph nodes x inference steps / inference time]: {max_val:.3f}"
         )
 
 
