@@ -1692,7 +1692,7 @@ class Trainer:
                 )
                 glob_in_size = self.comm.allreduce(data_x_i.nbytes)
                 self.online_timers["trainDataGlobThroughput"].append(
-                    glob_in_size / GB_SIZE / toc - tic
+                    glob_in_size / GB_SIZE / (toc - tic)
                 )
                 data_x_i = self.prepare_snapshot_data(data_x_i)
 
@@ -1713,7 +1713,7 @@ class Trainer:
                 )
                 glob_out_size = self.comm.allreduce(data_y_i.nbytes)
                 self.online_timers["trainDataGlobThroughput"].append(
-                    glob_out_size / GB_SIZE / toc - tic
+                    glob_out_size / GB_SIZE / (toc - tic)
                 )
                 data_y_i = self.prepare_snapshot_data(data_y_i)
                 self.data_list.append({"x": data_x_i, "y": data_y_i})
@@ -1736,7 +1736,7 @@ class Trainer:
                 glob_out_size = self.comm.allreduce(data_y_i.nbytes)
                 self.online_timers["trainDataGlobThroughput"].extend([
                     glob_in_size / GB_SIZE / ttimes[0],
-                    glob_out_size / GB_SIZE / ttimes[0],
+                    glob_out_size / GB_SIZE / ttimes[1],
                 ])
                 data_x_i = self.prepare_snapshot_data(data_x_i)
                 data_y_i = self.prepare_snapshot_data(data_y_i)
@@ -2067,7 +2067,7 @@ class Trainer:
                     )
                     glob_in_size = self.comm.allreduce(data_x_i.nbytes)
                     self.online_timers["trainDataGlobThroughput"].append(
-                        glob_in_size / GB_SIZE / toc - tic
+                        glob_in_size / GB_SIZE / (toc - tic)
                     )
                     data_x_i = self.prepare_snapshot_data(data_x_i)
 
@@ -2088,7 +2088,7 @@ class Trainer:
                     )
                     glob_out_size = self.comm.allreduce(data_y_i.nbytes)
                     self.online_timers["trainDataGlobThroughput"].append(
-                        glob_out_size / GB_SIZE / toc - tic
+                        glob_out_size / GB_SIZE / (toc - tic)
                     )
                     data_y_i = self.prepare_snapshot_data(data_y_i)
                     self.data_list.append({"x": data_x_i, "y": data_y_i})
@@ -2109,7 +2109,7 @@ class Trainer:
             glob_out_size = self.comm.allreduce(data_y_i.nbytes)
             self.online_timers["trainDataGlobThroughput"].extend([
                 glob_in_size / GB_SIZE / ttimes[0],
-                glob_out_size / GB_SIZE / ttimes[0],
+                glob_out_size / GB_SIZE / ttimes[1],
             ])
             data_x_i = self.prepare_snapshot_data(data_x_i)
             data_y_i = self.prepare_snapshot_data(data_y_i)

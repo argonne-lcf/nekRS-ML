@@ -321,20 +321,20 @@ class ShootingWorkflow:
         fom_inference = self.compute_fom_inference()
         log.info("Workflow FOM:")
         log.info(
-            f"\tFOM_nekrs [million mesh nodes x nekRS steps / nekRS time] = {fom_nekrs:.4g}"
+            f"\tFOM_nekrs [million mesh nodes x nekRS steps / nekRS time] = {fom_nekrs:.3f}"
         )
         log.info(
-            f"\tFOM_train [million graph nodes x train steps / train time] = {fom_train:.4g}"
+            f"\tFOM_train [million graph nodes x train steps / train time] = {fom_train:.3f}"
         )
-        log.info(f"\tFOM_transfer [GB / transfer time] = {fom_transfer:.4g}")
+        log.info(f"\tFOM_transfer [GB / transfer time] = {fom_transfer:.3f}")
         log.info(
-            f"\tFOM_inference [million graph nodes x inference steps / inference time] = {fom_inference:.4g}"
+            f"\tFOM_inference [million graph nodes x inference steps / inference time] = {fom_inference:.3f}"
         )
         fom_finetune = harmonic_mean([fom_nekrs, fom_train, fom_transfer])
-        log.info(f"\tFOM_finetune = {fom_finetune:.4g}")
+        log.info(f"\tFOM_finetune = {fom_finetune:.3f}")
         dt_ratio = 10.0
         fom_shoot = fom_inference * dt_ratio / fom_nekrs
-        log.info(f"\tFOM_shoot = {fom_shoot:.4g}")
+        log.info(f"\tFOM_shoot = {fom_shoot:..3f}")
         log.info("\n")
 
 
