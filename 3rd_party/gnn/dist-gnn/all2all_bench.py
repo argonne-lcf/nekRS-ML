@@ -226,6 +226,7 @@ def get_neighbors(args):
             COMM.Barrier()
     return neighbors, shared
 
+
 def buffer_lengths(args, neighbors, shared):
     """Element count for each neighbor's buffer.
 
