@@ -101,7 +101,7 @@ endfunction()
 ## TESTS ##
 
 add("ethier-buildOnly" 2 "ethier.par" "1" "${USE_FP32}" "${EXAMPLES_DIR}/ethier" ON)
-add("ethier" 2 "ethier.par" "1;2;4;7;8;9;10;11;12;14;15;19;23" "${USE_FP32}" "${dir}" "${BUILD_ONLY}")
+add("ethier" 2 "ethier.par" "1;2;4;7;8;9;10;11;12;14;15;19;23;29;30" "${USE_FP32}" "${dir}" "${BUILD_ONLY}")
 
 if(NOT BACKEND STREQUAL "DPCPP")
   add("ethier" 2 "ethier.par" "3" "${USE_FP32}" "${dir}" "${BUILD_ONLY}")
@@ -110,6 +110,9 @@ endif()
 add("ethier" 2 "mv_ethier.par" "5;6" "${USE_FP32}" "${dir}" "${BUILD_ONLY}")
 add("ethier" 2 "ethierScalar.par" "13" "${USE_FP32}" "${dir}" "${BUILD_ONLY}")
 add("ethier" 2 "ethier.par" "22" ON "${dir}" "${BUILD_ONLY}")
+
+add("ethierRefine-buildOnly" 2 "ethierRefine.par" "24" "${USE_FP32}" "${EXAMPLES_DIR}/ethier" ON)
+add("ethierRefine" 2 "ethierRefine.par" "24;25;26;27" "${USE_FP32}" "${EXAMPLES_DIR}/ethier" "${BUILD_ONLY}")
 
 add("lowMach" 2 "lowMach.par" "1" "${USE_FP32}" "${dir}" "${BUILD_ONLY}")
 

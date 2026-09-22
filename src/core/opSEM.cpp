@@ -83,7 +83,7 @@ void strongDivergence(mesh_t *mesh, dlong offset, const occa::memory &o_in, occa
 occa::memory strongDivergence(mesh_t *mesh, dlong offset, const occa::memory &o_in)
 {
   auto o_out = platform->deviceMemoryPool.reserve<dfloat>(mesh->Nlocal);
-  strongDivergence(mesh, offset, o_in);
+  strongDivergence(mesh, offset, o_in, o_out);
   return o_out;
 }
 

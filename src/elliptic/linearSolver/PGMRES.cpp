@@ -25,6 +25,7 @@ int _pgmres(elliptic_t *elliptic,
   const auto verbose = platform->verbose;
   const auto serial = platform->serial;
   const auto flexible = elliptic->gmresData->flexible;
+  const auto algrbraicZeroMean = platform->options.compareArgs("PGMRES NULLSPACE ZERO MEAN ALGEBRAIC NORM", "TRUE");
 
   auto &o_tmp = elliptic->gmresData->o_p;
   auto &o_w = elliptic->gmresData->o_Ap;
@@ -44,6 +45,53 @@ int _pgmres(elliptic_t *elliptic,
 
   auto &o_weight = elliptic->o_residualWeight;
 
+  if (algrbraicZeroMean && elliptic->nullspace) {
+    auto &o_invWght = elliptic->o_invDegree;
+
+    dfloat rhsRes, rhsRs2, wgtsum;
+    if (elliptic->Nfields==1) {
+      rhsRes = linAlg.innerProd(mesh->Nlocal, o_invWght, o_r, platform->comm.mpiComm);
+    } else {
+      // sum <r_i,o_invWght> over i = 1, 2, ... , Nfield
+      linAlg.weightedInnerProdMulti(mesh->Nlocal,
+                                    elliptic->Nfields,
+                                    0,
+                                    elliptic->fieldOffset,
+                                    o_NULL,
+                                    o_r,
+                                    o_invWght,
+                                    platform->comm.mpiComm,
+                                    &rhsRes,
+                                    0,
+                                    0);
+    }
+
+    wgtsum = linAlg.sum(mesh->Nlocal, o_invWght, platform->comm.mpiComm) * elliptic->Nfields;
+    linAlg.add(mesh->Nlocal, -rhsRes / wgtsum, o_r);
+
+    if (verbose) {
+      if (elliptic->Nfields==1) {
+        rhsRs2 = linAlg.innerProd(mesh->Nlocal, o_invWght, o_r, platform->comm.mpiComm);
+      } else {
+        linAlg.weightedInnerProdMulti(mesh->Nlocal,
+                                      elliptic->Nfields,
+                                      0,
+                                      elliptic->fieldOffset,
+                                      o_NULL,
+                                      o_r,
+                                      o_invWght,
+                                      platform->comm.mpiComm,
+                                      &rhsRs2,
+                                      0,
+                                      0);
+      }
+      if (platform->comm.mpiRank == 0) {
+        printf("%s zero mean in pgmres.cppA: %.15e\n", elliptic->name.c_str(), rhsRes);
+        printf("%s zero mean in pgmres.cppB: %.15e\n", elliptic->name.c_str(), rhsRs2);
+      }
+    }
+  }
+
   o_r0.copyFrom(o_r, o_r.size());
 
   dfloat nr = rdotr;
@@ -53,6 +101,9 @@ int _pgmres(elliptic_t *elliptic,
       printf("PFGMRES ");
     } else {
       printf("PGMRES ");
+    }
+    if (algrbraicZeroMean) {
+      printf("(algebraicZeroMean=T) ");
     }
     printf("%s: initial res norm %.15e target %e \n", elliptic->name.c_str(), rdotr, tol);
   }

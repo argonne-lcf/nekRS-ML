@@ -103,6 +103,7 @@ namespace nek {
 
 struct fldData {
   double time = 0;
+  int step = 0;
   double p0th = 0;
   std::vector<occa::memory> o_x; 
   std::vector<occa::memory> o_u;
@@ -112,7 +113,7 @@ struct fldData {
 };
 
 fldData openFld(const std::string& filename, std::vector<std::string>& _availableVariables);
-void readFld(fldData& data);
+void readFld(fldData& data, std::vector<int> refineSchedule = {});
 void writeFld(const std::string& filename,
               const fldData& data,
               bool FP64 = false,

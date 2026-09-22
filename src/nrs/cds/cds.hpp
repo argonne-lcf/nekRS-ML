@@ -128,6 +128,7 @@ public:
   occa::kernel subCycleStrongCubatureVolumeKernel;
   occa::kernel subCycleStrongVolumeKernel;
   occa::kernel filterRTKernel;
+  occa::kernel explicitFilterKernel;
   occa::kernel advectionVolumeKernel;
   occa::kernel advectionSurfaceKernel;
   occa::kernel advectionCubatureVolumeKernel;

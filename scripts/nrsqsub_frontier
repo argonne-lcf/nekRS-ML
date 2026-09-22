@@ -2,6 +2,11 @@
 set -e
 
 : ${QUEUE:="batch"}
+
+: ${USE_COMPILER:="amd"} # or gnu
+: ${USE_ASCENT:=0}
+: ${NEKRS_GPU_MPI:=0}
+
 NEKRS_CACHE_BCAST=1
 
 source $NEKRS_HOME/bin/nrsqsub_utils
@@ -30,6 +35,16 @@ fi
 
 MPICH_MPIIO_HINTS="*:cray_cb_write_lock_mode=2:cray_cb_nodes_multiplier=4:striping_unit=${striping_unit}:striping_factor=${striping_factor}:romio_cb_write=enable:romio_ds_write=disable:romio_no_indep_rw=true"
 
+USE_COMPILER=`echo $USE_COMPILER | tr '[:upper:]' '[:lower:]'`
+function check_frontier_compiler() {
+  pe=`echo $PE_ENV | tr '[:upper:]' '[:lower:]'`
+  if [ "$pe" != "$USE_COMPILER" ]; then
+    echo -e "\nNekRS-WARNING: Attempt to submit job under different PrgEnv than current!"
+    echo -e "    PE=$pe  USE_COMPILER=$USE_COMPILER\n"
+  fi
+}
+check_frontier_compiler
+
 # sbatch
 SFILE=s.bin
 echo "#!/bin/bash" > $SFILE
@@ -45,16 +60,36 @@ echo "#SBATCH --ntasks-per-node=$gpu_per_node" >>$SFILE
 echo "#SBATCH --gpus-per-task=1" >>$SFILE
 echo "#SBATCH --gpu-bind=closest" >>$SFILE
 echo "#SBATCH --cpus-per-task=$cores_per_numa" >>$SFILE
-echo "module load PrgEnv-amd" >> $SFILE
-echo "module load craype-accel-amd-gfx90a" >> $SFILE
-echo "module load cray-mpich" >> $SFILE
-echo "module load rocm" >> $SFILE
-echo "module load cmake" >> $SFILE
-#echo "module use /sw/frontier/ascent/modulefiles/" >> $SFILE
-#echo "module load ascent/0.9.2-gpu-mpi-omp" >> $SFILE
-echo "module unload cray-libsci" >> $SFILE
-echo "module list" >> $SFILE
 
+if [ $USE_COMPILER == "amd" ]; then
+  echo "module load PrgEnv-amd" >> $SFILE
+  echo "module load craype-accel-amd-gfx90a" >> $SFILE
+  echo "module load cray-mpich" >> $SFILE
+  echo "module load rocm" >> $SFILE
+  echo "module load cmake" >> $SFILE
+  if [ $USE_ASCENT -eq 1 ]; then
+    echo "module load ascent/0.9.3-mpi-omp" >> $SFILE
+  fi
+  echo "module unload cray-libsci" >> $SFILE
+
+elif [ $USE_COMPILER == "gnu" ]; then
+  echo "module load PrgEnv-gnu" >> $SFILE
+  echo "module load module load gcc-native/13.2" >> $SFILE
+  echo "module load craype-accel-amd-gfx90a" >> $SFILE
+  echo "module load cray-mpich/8.1.31" >> $SFILE
+  echo "module load rocm" >> $SFILE
+  echo "module load cmake" >> $SFILE
+  if [ $USE_ASCENT -eq 1 ]; then
+    echo "module load ascent/0.9.3-mpi-omp" >> $SFILE
+  fi
+  echo "module unload cray-libsci" >> $SFILE
+
+else
+  echo -e "\nERROR: PrgEnv-"$USE_COMPILER" is not set. Use amd (recommanded) or gnu.\n"
+  exit 1
+fi
+
+echo "module list" >> $SFILE
 echo "rocm-smi" >>$SFILE
 echo "rocm-smi --showpids" >>$SFILE
 
@@ -62,8 +97,10 @@ echo "squeue -u \$USER" >>$SFILE
 
 echo "export MPICH_GPU_SUPPORT_ENABLED=1" >>$SFILE
 
-# Ascent (the module is brocken for lacking VTKH after 07/16/24)
-#echo "export NEKRS_ASCENT_INSTALL_DIR=\"$OLCF_ASCENT_ROOT/\"" >> $SFILE
+if [ $USE_ASCENT -eq 1 ]; then
+  echo "export NEKRS_ASCENT_INSTALL_DIR=\"$OLCF_ASCENT_ROOT/\"" >> $SFILE
+  echo "export NEKRS_MPI_THREAD_MULTIPLE=1" >>$SFILE # ascent async mode
+fi
 
 ## These must be set before compiling so the executable picks up GTL
 echo "export PE_MPICH_GTL_DIR_amd_gfx90a=\"-L${CRAY_MPICH_ROOTDIR}/gtl/lib\"" >> $SFILE
@@ -71,7 +108,7 @@ echo "export PE_MPICH_GTL_LIBS_amd_gfx90a=\"-lmpi_gtl_hsa\"" >> $SFILE
 
 echo "ulimit -s unlimited " >>$SFILE
 echo "export NEKRS_HOME=$NEKRS_HOME" >>$SFILE
-echo "export NEKRS_GPU_MPI=1 " >>$SFILE
+echo "export NEKRS_GPU_MPI=$NEKRS_GPU_MPI" >>$SFILE
 echo "export OOGS_ENABLE_NBC_DEVICE=1" >>$SFILE
 
 echo "export NVME_HOME=$NVME_HOME" >>$SFILE

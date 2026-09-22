@@ -105,6 +105,11 @@ static void assignKernels(nrs_t *nrs)
     kernelName = "vectorFilterRT" + suffix;
     nrs->filterRTKernel = platform->kernelRequests.load("core-" + kernelName);
 
+    kernelName = "vectorExplicitFilter" + suffix;
+    nrs->vectorExplicitFilterKernel = platform->kernelRequests.load("core-" + kernelName);
+    kernelName = "explicitFilter" + suffix;
+    nrs->scalarExplicitFilterKernel = platform->kernelRequests.load("core-" + kernelName);
+
     kernelName = "sumMakef";
     nrs->sumMakefKernel = platform->kernelRequests.load(section + kernelName);
 
@@ -532,6 +537,8 @@ void nrsSetDefaultSettings(setupAide *options)
   options->setArgs("PRESSURE VISCOUS TERMS", "TRUE");
 
   options->setArgs("VARIABLE DT", "FALSE");
+
+  options->setArgs("LINEAR SOLVER STOPPING CRITERION TYPE", "LEGACY");
 }
 
 nrs_t::nrs_t()
@@ -564,6 +571,14 @@ void nrs_t::init()
     int nelgt, nelgv;
     const std::string meshFile = platform->options.getArgs("MESH FILE");
     re2::nelg(meshFile, nelgt, nelgv, platform->comm.mpiComm);
+    {
+      int nscale = 1;
+      platform->options.getArgs("MESH REFINEMENT SCALE", nscale);
+      if (nscale > 1) {
+        nelgt *= nscale;
+        nelgv *= nscale;
+      }
+    }
 
     nekrsCheck(nelgt != nelgv && platform->options.compareArgs("MOVING MESH", "TRUE"),
                platform->comm.mpiComm,
@@ -781,6 +796,14 @@ void nrs_t::init()
     this->o_filterRT = lowPassFilterSetup(mesh, nModes);
   }
 
+  if (platform->options.compareArgs("VELOCITY REGULARIZATION METHOD", "EXPLICIT FILTER")) {
+    int nModes = -1;
+    dfloat strength = 1.0;
+    platform->options.getArgs("VELOCITY EXPLICIT FILTER STRENGTH", strength);
+    platform->options.getArgs("VELOCITY EXPLICIT FILTER MODES", nModes);
+    this->o_filterRT = explicitFilterSetup("vel", mesh, nModes, strength);
+  }
+
   assignKernels(this);
 
   if (this->Nscalar) {
@@ -810,6 +833,7 @@ void nrs_t::init()
     cfg.alpha0Ref = &this->alpha0Ref;
 
     this->cds = new cds_t(cfg);
+    this->cds->explicitFilterKernel = this->scalarExplicitFilterKernel;
 
     this->qqtT = this->cds->qqtT;
 
@@ -909,6 +933,19 @@ void nrs_t::restartFromFile(const std::string &restartStr)
     return found;
   }();
 
+  auto hRefine = [&]() {
+    auto it = std::find_if(options.begin(), options.end(), [](const std::string &s) {
+      return s.find("refine") != std::string::npos;
+    });
+
+    std::string val;
+    if (it != options.end()) {
+      val = serializeString(*it, '=').at(1);
+      options.erase(it);
+    }
+    return val;
+  }();
+
   const auto requestedFields = [&]() {
     std::vector<std::string> flds;
     for (const auto &entry : {"x", "u", "p", "t", "s"}) {
@@ -920,7 +957,9 @@ void nrs_t::restartFromFile(const std::string &restartStr)
       if (it != options.end()) {
         std::string s = *it;
         lowerCase(s);
-        std::cout << "requested field: " << s << std::endl;
+        if (platform->comm.mpiRank == 0) {
+          std::cout << "requested field: " << s << std::endl;
+        }
         flds.push_back(s);
       }
     }
@@ -997,7 +1036,7 @@ void nrs_t::restartFromFile(const std::string &restartStr)
     const auto scalarStart = (o_iofldT.size()) ? 1 : 0;
     for (int i = scalarStart; i < Nscalar; i++) {
       const auto sid = scalarDigitStr(i - scalarStart);
-      if (checkOption("s" + sid) && isAvailable("scalar" + sid)) {
+      if (checkOption("s") && isAvailable("scalar" + sid)) {
         auto o_Si = cds->o_S.slice(cds->fieldOffsetScan[i], mesh->Nlocal);
         std::vector<occa::memory> o_iofldSi = {o_Si};
         iofld->addVariable("scalar" + sid, o_iofldSi);
@@ -1009,10 +1048,31 @@ void nrs_t::restartFromFile(const std::string &restartStr)
     iofld->readAttribute("interpolate", "true");
   }
 
+  if (hRefine.size()) {
+    std::replace(hRefine.begin(), hRefine.end(), ';', ',');
+    iofld->readAttribute("refine", hRefine);
+  }
+
   iofld->process();
   iofld->close();
 
   platform->options.setArgs("START TIME", (requestedTime.size()) ? requestedTime : to_string_f(time));
+}
+
+void nrs_t::restartFromFiles(const std::string &restartStr)
+{
+  // split string with comma
+  std::vector<std::string> list = serializeString(restartStr, ',');
+
+  for (std::string fileStr : list) {
+    if (!fileStr.empty()) {
+      if (platform->comm.mpiRank == 0 && platform->verbose) {
+        printf("restart string: |%s|\n", fileStr.c_str());
+        fflush(stdout);
+      }
+      restartFromFile(fileStr);
+    }
+  }
 }
 
 void nrs_t::setIC()
@@ -1020,8 +1080,22 @@ void nrs_t::setIC()
   getICFromNek();
 
   if (!platform->options.getArgs("RESTART FILE NAME").empty()) {
-    restartFromFile(platform->options.getArgs("RESTART FILE NAME"));
+    // split string with comma
+    std::string fileList;
+    platform->options.getArgs("RESTART FILE NAME", fileList);
+    if (platform->comm.mpiRank == 0 && platform->verbose) {
+      printf("Initial restart string: |%s|\n", fileList.c_str());
+      fflush(stdout);
+    }
+    restartFromFiles(fileList);
   }
+
+  double startTime;
+  const bool updateMesh = true;
+  platform->options.getArgs("START TIME", startTime);
+  copyToNek(startTime, 0, updateMesh); // copy all, including mesh
+  nek::userchk(); // always call userchk
+  copyFromNek(updateMesh); // recompute geometry
 
   if (platform->comm.mpiRank == 0) {
     std::cout << "calling UDF_Setup ... \n" << std::flush;
@@ -1058,8 +1132,6 @@ void nrs_t::setIC()
     }
   }
 
-  double startTime;
-  platform->options.getArgs("START TIME", startTime);
   copyToNek(startTime, 0, true); // ensure both codes are in sync
 
   nekrsCheck(platform->options.compareArgs("LOWMACH", "TRUE") && p0th[0] <= 1e-6,
@@ -1158,7 +1230,7 @@ void nrs_t::printRunStat(int step)
     return tag.find("neknek_t::") != std::string::npos && tag.find("localEvalKernel") != std::string::npos;
   };
 
-  const double tudf = platform->timer.query("udfExecuteStep", "HOST:MAX");
+  const double tudf = platform->timer.query("udfExecuteStep", "DEVICE:MAX");
   platform->timer.printStatEntry("  udfExecuteStep                 ", tudf, tudf);
 
   platform->timer.printStatEntry("    checkpointing       ",
@@ -1169,7 +1241,6 @@ void nrs_t::printRunStat(int step)
                                  "udfExecuteStep",
                                  "DEVICE:MAX",
                                  tElapsedTimeSolve);
-  //const double tudf = platform->timer.query("udfExecuteStep", "DEVICE:MAX");
   platform->timer.printStatEntry("      lpm integrate     ", "lpm_t::integrate", "DEVICE:MAX", tudf);
   const double tlpm = platform->timer.query("lpm_t::integrate", "DEVICE:MAX");
   platform->timer.printStatEntry("        userRHS         ", "lpm_t::integrate::userRHS", "DEVICE:MAX", tlpm);
@@ -1455,7 +1526,13 @@ void nrs_t::printStepInfo(double time, int tstep, bool printStepInfo, bool print
   const double elapsedStep = platform->timer.query("elapsedStep", "DEVICE:MAX");
   const double elapsedStepSum = platform->timer.query("elapsedStepSum", "DEVICE:MAX");
   bool verboseInfo = platform->options.compareArgs("VERBOSE SOLVER INFO", "TRUE");
-  const auto cfl = this->computeCFL();
+  bool computeCFL = (printStepInfo) ? true : false;
+
+  dfloat cfl = 0.0;
+  if (computeCFL) {
+    cfl = this->computeCFL();
+  }
+
   dfloat divUErrVolAvg, divUErrL2;
 
   if (verboseInfo) {
@@ -1542,13 +1619,17 @@ void nrs_t::printStepInfo(double time, int tstep, bool printStepInfo, bool print
     }
   }
 
-  bool largeCFLCheck = (cfl > 30) && this->numberActiveFields();
+  if (computeCFL) {
+    int maxCFL = 30;
+    platform->options.getArgs("MAXIMIUM CFL", maxCFL);
+    bool largeCFLCheck = (cfl > maxCFL) && this->numberActiveFields();
 
-  nekrsCheck(largeCFLCheck || std::isnan(cfl) || std::isinf(cfl),
-             platform->comm.mpiComm,
-             EXIT_FAILURE,
-             "%s\n",
-             "Unreasonable CFL!");
+    nekrsCheck(largeCFLCheck || std::isnan(cfl) || std::isinf(cfl),
+               platform->comm.mpiComm,
+               EXIT_FAILURE,
+               "Unreasonable CFL! %.4e\n",
+               cfl);
+  }
 }
 
 void nrs_t::writeCheckpoint(double t, int step, bool enforceOutXYZ, bool enforceFP64, int N_, bool uniform)
@@ -1611,6 +1692,7 @@ void nrs_t::writeCheckpoint(double t, int step, bool enforceOutXYZ, bool enforce
   checkpointWriter->writeAttribute("outputMesh", (outXYZ) ? "true" : "false");
 
   checkpointWriter->addVariable("time", t);
+  checkpointWriter->addVariable("step", step);
 
   for (const auto &entry : userCheckpointFields) {
     checkpointWriter->addVariable(entry.first, entry.second);
@@ -1738,21 +1820,35 @@ void nrs_t::copyToNek(double time, bool updateMesh_)
   }
 }
 
-void nrs_t::copyFromNek()
+void nrs_t::copyFromNek(bool updateMesh)
 {
   double time; // dummy
-  copyFromNek(time);
+  copyFromNek(time, updateMesh);
 }
 
-void nrs_t::copyFromNek(double &time)
+void nrs_t::copyFromNek(double &time, bool updateMesh)
 {
   if (platform->comm.mpiRank == 0) {
-    printf("copying solution from nek\n");
+    printf("copying solution from nek %s\n",
+           (updateMesh) ? "(updateMesh=T)" : "");
     fflush(stdout);
   }
 
   time = *(nekData.time);
   p0th[0] = *(nekData.p0th);
+
+  if (updateMesh) { // call mesh->update() afterwards for geom_reset
+    auto mesh = (cht) ? cds->mesh[0] : this->mesh;
+    auto [x, y, z] = mesh->xyzHost();
+    for (int i = 0; i < mesh->Nlocal; i++) {
+        x[i] = nekData.xm1[i];
+        y[i] = nekData.ym1[i];
+        z[i] = nekData.zm1[i];
+    }
+    mesh->o_x.copyFrom(x.data(), mesh->Nlocal);
+    mesh->o_y.copyFrom(y.data(), mesh->Nlocal);
+    mesh->o_z.copyFrom(z.data(), mesh->Nlocal);
+  }
 
   {
     auto U = platform->memoryPool.reserve<dfloat>(mesh->dim * fieldOffset);

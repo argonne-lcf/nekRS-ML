@@ -489,8 +489,12 @@ void UDF_ExecuteStep(double time, int tstep)
     }
   }
 
-  if (ciMode == 23) {
+  if (ciMode == 23 || ciMode == 26 || ciMode == 27) {
     ciCheckpointing(nrs);
+  }
+
+  if (tstep == 0 && ciMode == 30) {
+    ciTestExplicitFilter(nrs);
   }
 
   // only ciMode 1 exercises the particles path

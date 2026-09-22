@@ -18,7 +18,7 @@ void iofldNek::validateUserFields(const std::string &name)
 
 void iofldNek::validateUserSingleValues(const std::string &name)
 {
-  std::vector<std::string> validNames = {"time", "p0th"};
+  std::vector<std::string> validNames = {"time", "step", "p0th"};
 
   auto valid = false;
   if (std::find(validNames.begin(), validNames.end(), name) != validNames.end()) {
@@ -77,6 +77,9 @@ size_t iofldNek::write()
     nek::fldData data;
     if (auto buf = inquireVariable<double>("time")) {
       data.time = buf->get();
+    }
+    if (auto buf = inquireVariable<int>("step")) {
+      data.step = buf->get();
     }
     if (auto buf = inquireVariable<dfloat>("p0th")) {
       data.p0th = buf->get();
@@ -140,7 +143,7 @@ size_t iofldNek::read()
 {
   nekrsCheck(pointInterpolation, MPI_COMM_SELF, EXIT_FAILURE, "%s\n", "read attribute interpolate not supported!");
 
-  nek::readFld(fldData);
+  nek::readFld(fldData, refineSchedule);
 
   if (auto time = inquireVariable<double>("time")) {
     time->get() = fldData.time;

@@ -11,16 +11,12 @@
 
 namespace
 {
-boundaryAlignment_t computeAlignment(mesh_t *mesh, dlong element, dlong face)
+boundaryAlignment_t computeAlignment(mesh_t *mesh, std::vector<dfloat> &sgeo, dlong element, dlong face)
 {
   const dfloat alignmentTol = 1e-3;
   dfloat nxDiff = 0.0;
   dfloat nyDiff = 0.0;
   dfloat nzDiff = 0.0;
-
-  std::vector<dfloat> sgeo;
-  sgeo.reserve(mesh->o_sgeo.length());
-  mesh->o_sgeo.copyTo(sgeo.data());
 
   for (int fp = 0; fp < mesh->Nfp; ++fp) {
     const dlong sid = mesh->Nsgeo * (mesh->Nfaces * mesh->Nfp * element + mesh->Nfp * face + fp);
@@ -657,6 +653,9 @@ void setBcMap(std::string field, int *map, int nIDs)
 
 void checkBoundaryAlignment(mesh_t *mesh)
 {
+  std::vector<dfloat> sgeo(mesh->o_sgeo.length());
+  mesh->o_sgeo.copyTo(sgeo.data());
+
   bool bail = false;
   for (auto &&field : fields) {
     if (field != std::string("velocity") && field != std::string("mesh")) {
@@ -705,7 +704,7 @@ void checkBoundaryAlignment(mesh_t *mesh)
             break;
           }
 
-          auto alignment = computeAlignment(mesh, e, f);
+          auto alignment = computeAlignment(mesh, sgeo, e, f);
           if (alignment != expectedAlignment) {
             expectedAlignmentInvalidBIDs[bid] = expectedAlignment;
             actualAlignmentsInvalidBIDs[bid].insert(alignment);
@@ -777,11 +776,15 @@ void checkBoundaryAlignment(mesh_t *mesh)
   }
 
   nekrsCheck(bail, platform->comm.mpiComm, EXIT_FAILURE, "%s\n", "");
+  sgeo.clear();
 }
 
 void remapUnalignedBoundaries(mesh_t *mesh)
 {
   return; // disable to avoid invalid combinations
+
+  std::vector<dfloat> sgeo(mesh->o_sgeo.length());
+  mesh->o_sgeo.copyTo(sgeo.data());
 
   for (auto &&field : fields) {
     if (field != std::string("velocity") && field != std::string("mesh")) {
@@ -802,7 +805,7 @@ void remapUnalignedBoundaries(mesh_t *mesh)
       for (int f = 0; f < mesh->Nfaces; f++) {
         int bid = mesh->EToB[f + e * mesh->Nfaces];
         int bc = id(bid, field);
-        auto alignment = computeAlignment(mesh, e, f);
+        auto alignment = computeAlignment(mesh, sgeo, e, f);
         if (alignmentBID.count(bid) == 0) {
           alignmentBID[bid] = alignment;
         }
@@ -857,6 +860,7 @@ void remapUnalignedBoundaries(mesh_t *mesh)
       }
     }
   }
+  sgeo.clear();
 }
 
 bool unalignedMixedBoundary(std::string field)
