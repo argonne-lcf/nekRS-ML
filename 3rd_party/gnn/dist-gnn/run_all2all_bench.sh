@@ -20,13 +20,18 @@ if [ ${SYSTEM} == "aurora" ]; then
   export CCL_PROCESS_LAUNCHER=pmix
   export CCL_ATL_TRANSPORT=mpi
   export CCL_KVS_MODE=mpi
+  export CCL_BCAST=double_tree
+  export CCL_CONFIGURATION_PATH=""
+  export CCL_CONFIGURATION=cpu_gpu_dpcpp
+  export CCL_KVS_CONNECTION_TIMEOUT=600
+  export CCL_ZE_CACHE_OPEN_IPC_HANDLES_THRESHOLD=1024
+  export CCL_KVS_USE_MPI_RANKS=1
   export CCL_ENABLE_SYCL_KERNELS=1
   export CCL_ALLTOALLV=topo
   export CCL_ALLTOALLV_SCALEOUT=topo
   export CCL_ALLTOALLV_MONOLITHIC_KERNEL=0
-  export CCL_CONFIGURATION=cpu_gpu_dpcpp
-  #export CCL_LOG_LEVEL=debug
-  #unset ONEAPI_DEVICE_SELECTOR
+  export CCL_LOG_LEVEL=error
+
 
   # Other env variables
   #export FI_CXI_DEFAULT_CQ_SIZE=1048576
@@ -50,5 +55,7 @@ NRANKS=$(( NNODES * RANKS_PER_NODE ))
 
 mpiexec --np ${NRANKS} -ppn ${RANKS_PER_NODE} --cpu-bind  $CPU_BINDING \
         python $EXE \
-        --all_to_all_buff optimized \
-        --logging verbose
+        --all_to_all_buff neighbor \
+        --buff_size 1572500 \
+        --neighbors rcb_box \
+        --logging info
