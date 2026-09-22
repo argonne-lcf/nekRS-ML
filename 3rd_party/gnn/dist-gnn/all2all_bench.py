@@ -17,6 +17,7 @@ TORCH_ITEMSIZE = torch.empty(0, dtype=TORCH_DTYPE).element_size()
 MB_SIZE = 1000 * 1000
 
 from mpi4py import MPI
+
 SIZE = MPI.COMM_WORLD.Get_size()
 RANK = MPI.COMM_WORLD.Get_rank()
 COMM = MPI.COMM_WORLD
@@ -70,14 +71,14 @@ def init_process_group(
         MASTER_ADDR = socket.gethostname() if RANK == 0 else None
     MASTER_ADDR = MPI.COMM_WORLD.bcast(MASTER_ADDR, root=0)
     os.environ["MASTER_ADDR"] = MASTER_ADDR
-    
+
     if WITH_CUDA:
         backend = "nccl" if backend is None else str(backend)
     elif WITH_XPU:
         backend = "xccl" if backend is None else str(backend)
     else:
         backend = "gloo" if backend is None else str(backend)
-    
+
     dist.init_process_group(
         backend,
         rank=int(RANK),
@@ -85,8 +86,10 @@ def init_process_group(
         init_method="env://",
     )
 
+
 def cleanup() -> None:
     dist.destroy_process_group()
+
 
 def rcb_box_neighbors():
     """Neighbor list reproducing the shooting workflow's rcb partitioning.
@@ -183,6 +186,7 @@ def rcb_box_neighbors():
         )
     return neighbors
 
+
 def get_neighbors(args):
     neighbors = []
     if "neighbor" in args.all_to_all_buff:
@@ -206,6 +210,7 @@ def get_neighbors(args):
             print(f"[{RANK}] neighbor list: {neighbors}", flush=True)
             COMM.Barrier()
     return neighbors
+
 
 def build_buffers(args, neighbors):
     buff_send_sz = [0] * SIZE
@@ -301,6 +306,7 @@ def build_buffers(args, neighbors):
 
     return [buff_send, buff_recv]
 
+
 def halo_exchange(args, neighbors, buffers):
     buff_send_safe = buffers[0]
     buff_recv_safe = buffers[1]
@@ -352,9 +358,12 @@ def halo_exchange(args, neighbors, buffers):
     min_time = min(times)
     return avg_time, min_time
 
+
 def main() -> None:
     # Parse arguments
-    parser = ArgumentParser(description="PyTorch distributed nn alltoall benchmark")
+    parser = ArgumentParser(
+        description="PyTorch distributed nn alltoall benchmark"
+    )
     parser.add_argument(
         "--all_to_all_buff",
         default="naive",
