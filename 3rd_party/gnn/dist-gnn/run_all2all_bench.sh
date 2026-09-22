@@ -1,14 +1,14 @@
 #!/bin/bash -l
-##PBS -S /bin/bash
-##PBS -N a2av_bench
-##PBS -l select=8
-##PBS -l walltime=00:30:00
-##PBS -l filesystems=home
-##PBS -A datascience
-##PBS -q workq
-##PBS -k doe
-##PBS -j oe
-#cd $PBS_O_WORKDIR
+#PBS -S /bin/bash
+#PBS -N a2av_bench
+#PBS -l select=1
+#PBS -l walltime=00:30:00
+#PBS -l filesystems=home:flare
+#PBS -A datascience
+#PBS -q debug
+#PBS -k doe
+#PBS -j oe
+cd $PBS_O_WORKDIR
 
 SYSTEM="aurora"
 
@@ -32,7 +32,6 @@ if [ ${SYSTEM} == "aurora" ]; then
   export CCL_ALLTOALLV_MONOLITHIC_KERNEL=0
   export CCL_LOG_LEVEL=error
 
-
   # Other env variables
   #export FI_CXI_DEFAULT_CQ_SIZE=1048576
 
@@ -52,10 +51,13 @@ fi
 EXE=./all2all_bench.py
 NNODES=`wc -l < $PBS_NODEFILE`
 NRANKS=$(( NNODES * RANKS_PER_NODE ))
+BUFF_SIZE=1572500
+NEIGHBORS=rcb_box
 
 mpiexec --np ${NRANKS} -ppn ${RANKS_PER_NODE} --cpu-bind  $CPU_BINDING \
         python $EXE \
         --all_to_all_buff neighbor \
-        --buff_size 1572500 \
-        --neighbors rcb_box \
-        --logging info
+        --buff_size $BUFF_SIZE \
+        --neighbors $NEIGHBORS \
+        --logging info \
+        2>&1 | tee a2a_bench_n${NNODES}_r${NRANKS}_buff${BUFF_SIZE}_neigh${NEIGHBORS}.log

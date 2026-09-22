@@ -4,7 +4,6 @@ import socket
 from typing import Optional
 from argparse import ArgumentParser
 from time import perf_counter
-import random
 import math
 from pprint import pprint
 
@@ -106,9 +105,10 @@ def rcb_box_neighbors():
     here, but they are cheap to carry and keep the cut planes on element
     boundaries the way parRSB places them.
 
-    Returns this rank's neighbors. The relation is symmetric by construction,
-    so every rank the list names also names this one -- required for
-    all_to_all, where a one-sided entry is a buffer size mismatch.
+    Returns this rank's neighbors and, for each of them, the number of gll
+    nodes the two partitions share. Both are symmetric by construction, since
+    both come from the one geometric intersection of the two boxes -- required
+    for all_to_all, where a one-sided entry is a buffer size mismatch.
     """
     ranks_per_node = int(os.getenv("PALS_LOCAL_SIZE", 12))
     sim_nodes = max(1, SIZE // ranks_per_node)
@@ -122,6 +122,7 @@ def rcb_box_neighbors():
         f += 1
     gx = sim_nodes // gz
 
+    poly_order = 7
     nx, ny, nz = 42 * gx, 18, 26 * ranks_per_node * gz
     lx, ly, lz = 2 * math.pi * gx, 2.0, math.pi * ranks_per_node * gz
     dx, dy, dz = lx / nx, ly / ny, lz / nz
@@ -156,24 +157,37 @@ def rcb_box_neighbors():
 
     bisect((0, nx, 0, ny, 0, nz), SIZE)
 
-    def touches(a, b):
-        """True when boxes a and b share at least a corner, wrap included."""
+    def shared_nodes(a, b):
+        """Gll nodes boxes a and b share, 0 when they do not touch at all.
+
+        An overlap of k elements spans k*P+1 nodes in that direction, so
+        boxes that merely abut still share one plane of nodes (k = 0) and
+        boxes that miss each other share none. The product over the three
+        directions is the shared surface, and hence the halo, between the
+        two ranks -- face contact is large, edge contact smaller, corner
+        contact a single node.
+        """
+        count = 1
         for d in range(3):
             lo_a, hi_a = a[2 * d], a[2 * d + 1]
             lo_b, hi_b = b[2 * d], b[2 * d + 1]
             shifts = [0]
             if periodic[d]:
                 shifts += [n_elem[d], -n_elem[d]]
-            if not any(
-                min(hi_a, hi_b + s) >= max(lo_a, lo_b + s) for s in shifts
-            ):
-                return False
-        return True
+            overlap = max(
+                min(hi_a, hi_b + s) - max(lo_a, lo_b + s) for s in shifts
+            )
+            if overlap < 0:
+                return 0
+            count *= overlap * poly_order + 1
+        return count
 
     mine = boxes[RANK]
-    neighbors = [
-        r for r in range(SIZE) if r != RANK and touches(mine, boxes[r])
-    ]
+    contact = (
+        (r, shared_nodes(mine, boxes[r])) for r in range(SIZE) if r != RANK
+    )
+    shared = {r: n for r, n in contact if n > 0}
+    neighbors = list(shared)
 
     if RANK == 0:
         print(
@@ -181,38 +195,63 @@ def rcb_box_neighbors():
             f"mesh {nx} x {ny} x {nz}, box {lx:.1f} x {ly:.1f} x {lz:.1f}",
             flush=True,
         )
-    return neighbors
+    return neighbors, shared
 
 def get_neighbors(args):
+    """Neighbor ranks, and the gll nodes shared with each where known.
+
+    The shared counts are only available from rcb_box, which knows the
+    geometry; nearest neighbors carries no notion of contact area, so it
+    returns None and every buffer ends up the same size.
+    """
     neighbors = []
+    shared = None
     if "neighbor" in args.all_to_all_buff:
         if SIZE == 1:
             neighbors = [0]
         else:
-            rank_list = [i for i in range(SIZE)]
-            if args.neighbors == "random":
-                while len(neighbors) < args.num_neighbors:
-                    rank = random.choice(rank_list)
-                    if rank not in neighbors and rank != RANK:
-                        neighbors.append(rank)
-            elif args.neighbors == "nearest":
+            if args.neighbors == "nearest":
                 for i in range(args.num_neighbors):
                     left_rank = (RANK - (1 + i)) % SIZE
                     right_rank = (RANK + (1 + i)) % SIZE
                     neighbors.extend([left_rank, right_rank])
             elif args.neighbors == "rcb_box":
-                neighbors = rcb_box_neighbors()
+                neighbors, shared = rcb_box_neighbors()
         if args.logging == "verbose":
             print(f"[{RANK}] neighbor list: {neighbors}", flush=True)
             COMM.Barrier()
-    return neighbors
+    return neighbors, shared
 
-def build_buffers(args, neighbors):
+def buffer_lengths(args, neighbors, shared):
+    """Element count for each neighbor's buffer.
+
+    Uniform, unless the neighbor generator also reported how many gll nodes
+    each pair of ranks shares, in which case every buffer is scaled by that
+    contact area and --buff_size becomes the size of the largest buffer in
+    the job. That reproduces the lopsidedness of a real halo, where a rank
+    trades hundreds of times more data with the neighbors it meets face on
+    than with the ones it only touches along an edge.
+
+    The scale factor is a global max rather than a per-rank one: all_to_all
+    pairs rank i's send with rank j's recv, so the two have to agree on the
+    size of the buffer between them, and a per-rank normalization would have
+    them disagree whenever their busiest neighbors differ.
+    """
+    n_max = args.buff_size // TORCH_ITEMSIZE
+    if shared is None:
+        return dict.fromkeys(neighbors, n_max)
+
+    largest = COMM.allreduce(max(shared.values(), default=1), op=MPI.MAX)
+    return {i: max(1, round(n_max * shared[i] / largest)) for i in neighbors}
+
+
+def build_buffers(args, neighbors, shared=None):
     buff_send_sz = [0] * SIZE
     buff_recv_sz = [0] * SIZE
 
     # --buff_size is the per-buffer payload in bytes; turn it into a length
     n_elements = args.buff_size // TORCH_ITEMSIZE
+    lengths = buffer_lengths(args, neighbors, shared)
 
     if args.all_to_all_buff == "naive":
         buff_send = [torch.empty(0, device=DEVICE)] * SIZE
@@ -243,7 +282,7 @@ def build_buffers(args, neighbors):
         buff_recv = [torch.empty(0, device=DEVICE)] * SIZE
         for i in neighbors:
             buff_send[i] = torch.empty(
-                n_elements,
+                lengths[i],
                 dtype=TORCH_DTYPE,
                 device=DEVICE,
             )
@@ -253,7 +292,7 @@ def build_buffers(args, neighbors):
                 / MB_SIZE
             )
             buff_recv[i] = torch.empty(
-                n_elements,
+                lengths[i],
                 dtype=TORCH_DTYPE,
                 device=DEVICE,
             )
@@ -267,7 +306,7 @@ def build_buffers(args, neighbors):
         buff_recv = [torch.zeros(1, device=DEVICE)] * SIZE
         for i in neighbors:
             buff_send[i] = torch.zeros(
-                n_elements,
+                lengths[i],
                 dtype=TORCH_DTYPE,
                 device=DEVICE,
             )
@@ -277,7 +316,7 @@ def build_buffers(args, neighbors):
                 / MB_SIZE
             )
             buff_recv[i] = torch.zeros(
-                n_elements,
+                lengths[i],
                 dtype=TORCH_DTYPE,
                 device=DEVICE,
             )
@@ -291,10 +330,6 @@ def build_buffers(args, neighbors):
     if args.logging == "verbose":
         print(
             f"[RANK {RANK}]: Send buffers of size [MB]: {buff_send_sz}",
-            flush=True,
-        )
-        print(
-            f"[RANK {RANK}]: Receive buffers of size [MB]: {buff_recv_sz}",
             flush=True,
         )
         COMM.Barrier()
@@ -366,15 +401,18 @@ def main() -> None:
         "--buff_size",
         default=1_000_000,
         type=int,
-        help="Buffer size to the all_to_all in bytes",
+        help="Buffer size to the all_to_all in bytes. With --neighbors "
+        "rcb_box this is the size of the largest buffer in the job and the "
+        "rest scale down with contact area",
     )
     parser.add_argument(
         "--neighbors",
         default="nearest",
         type=str,
-        choices=["nearest", "random", "rcb_box"],
+        choices=["nearest", "rcb_box"],
         help="Strategy for gathering neighbors. rcb_box reproduces the "
-        "shooting workflow's rcb partitioning and ignores --num_neighbors",
+        "shooting workflow's rcb partitioning, sizes each buffer by the "
+        "contact area with that neighbor, and ignores --num_neighbors",
     )
     parser.add_argument(
         "--num_neighbors",
@@ -417,15 +455,10 @@ def main() -> None:
             f"{(args.buff_size // TORCH_ITEMSIZE) * TORCH_ITEMSIZE} bytes",
             flush=True,
         )
-    if args.neighbors == "random":
-        assert args.num_neighbors <= SIZE, (
-            "Number of neighbors must be less than or equal to the number of ranks"
+    if args.neighbors == "nearest" and SIZE > 1:
+        assert args.num_neighbors * 2 <= SIZE, (
+            "Number of neighbors x 2 must be less than or equal to the number of ranks"
         )
-    elif args.neighbors == "nearest":
-        if SIZE > 1:
-            assert args.num_neighbors * 2 <= SIZE, (
-                "Number of neighbors x 2 must be less than or equal to the number of ranks"
-            )
 
     if RANK == 0:
         print("\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
@@ -439,8 +472,8 @@ def main() -> None:
     init_process_group()
 
     # Get neighbor ranks and build buffers
-    neighbors = get_neighbors(args)
-    buffers = build_buffers(args, neighbors)
+    neighbors, shared = get_neighbors(args)
+    buffers = build_buffers(args, neighbors, shared)
     COMM.Barrier()
 
     # Run halo exchange
