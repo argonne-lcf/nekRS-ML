@@ -125,7 +125,8 @@ def rcb_box_neighbors():
         f += 1
     gx = sim_nodes // gz
 
-    poly_order = 7
+    # Match the polynomial order to the shooting workflow example
+    poly_order = 2
     nx, ny, nz = 42 * gx, 18, 26 * ranks_per_node * gz
     lx, ly, lz = 2 * math.pi * gx, 2.0, math.pi * ranks_per_node * gz
     dx, dy, dz = lx / nx, ly / ny, lz / nz
@@ -146,7 +147,9 @@ def rcb_box_neighbors():
             (box[3] - box[2]) * dy,
             (box[5] - box[4]) * dz,
         ]
-        d = extent.index(max(extent))
+        # On a tie parRSB takes the later direction, so z beats x beats y.
+        longest = max(extent)
+        d = len(extent) - 1 - extent[::-1].index(longest)
         lo_parts = nparts // 2
         a, b = box[2 * d], box[2 * d + 1]
         cut = a + round((b - a) * lo_parts / nparts)

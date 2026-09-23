@@ -679,12 +679,12 @@ class Trainer:
                 buff_send_sz[i] = (
                     torch.numel(buff_send[i])
                     * buff_send[i].element_size()
-                    / 1024
+                    / 1000
                 )
                 buff_recv_sz[i] = (
                     torch.numel(buff_recv[i])
                     * buff_recv[i].element_size()
-                    / 1024
+                    / 1000
                 )
 
             # Print information about the buffers
