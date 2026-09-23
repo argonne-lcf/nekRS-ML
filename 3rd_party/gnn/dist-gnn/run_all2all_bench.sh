@@ -18,15 +18,15 @@ if [ ${SYSTEM} == "aurora" ]; then
 
   # oneCCL env variables
   export CCL_PROCESS_LAUNCHER=pmix
-  export CCL_ATL_TRANSPORT=mpi
-  export CCL_KVS_MODE=mpi
-  export CCL_BCAST=double_tree
-  export CCL_CONFIGURATION_PATH=""
-  export CCL_CONFIGURATION=cpu_gpu_dpcpp
-  export CCL_KVS_CONNECTION_TIMEOUT=600
-  export CCL_ZE_CACHE_OPEN_IPC_HANDLES_THRESHOLD=1024
-  export CCL_KVS_USE_MPI_RANKS=1
-  export CCL_ENABLE_SYCL_KERNELS=1
+  #export CCL_ATL_TRANSPORT=mpi
+  #export CCL_KVS_MODE=mpi
+  #export CCL_BCAST=double_tree
+  #export CCL_CONFIGURATION_PATH=""
+  #export CCL_CONFIGURATION=cpu_gpu_dpcpp
+  #export CCL_KVS_CONNECTION_TIMEOUT=600
+  #export CCL_ZE_CACHE_OPEN_IPC_HANDLES_THRESHOLD=1024
+  #export CCL_KVS_USE_MPI_RANKS=1
+  #export CCL_ENABLE_SYCL_KERNELS=1
   export CCL_ALLTOALLV=topo
   export CCL_ALLTOALLV_SCALEOUT=topo
   export CCL_ALLTOALLV_MONOLITHIC_KERNEL=0
@@ -51,13 +51,14 @@ fi
 EXE=./all2all_bench.py
 NNODES=`wc -l < $PBS_NODEFILE`
 NRANKS=$(( NNODES * RANKS_PER_NODE ))
+A2A=neighbor
 BUFF_SIZE=1572500
 NEIGHBORS=rcb_box
 
 mpiexec --np ${NRANKS} -ppn ${RANKS_PER_NODE} --cpu-bind  $CPU_BINDING \
         python $EXE \
-        --all_to_all_buff neighbor \
+        --all_to_all_buff $A2A \
         --buff_size $BUFF_SIZE \
         --neighbors $NEIGHBORS \
         --logging info \
-        2>&1 | tee a2a_bench_n${NNODES}_r${NRANKS}_buff${BUFF_SIZE}_neigh${NEIGHBORS}.log
+        2>&1 | tee a2aBench_n${NNODES}_r${NRANKS}_buff${BUFF_SIZE}__${A2A}_${NEIGHBORS}.log

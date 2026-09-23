@@ -210,7 +210,7 @@ def get_neighbors(args):
     """
     neighbors = []
     shared = None
-    if "neighbor" in args.all_to_all_buff:
+    if args.all_to_all_buff == "neighbor":
         if SIZE == 1:
             neighbors = [0]
         else:
@@ -253,7 +253,7 @@ def build_buffers(args, neighbors, shared=None):
     buff_send_sz = [0] * SIZE
     buff_recv_sz = [0] * SIZE
 
-    # --buff_size is the per-buffer payload in bytes; turn it into a length
+    # turn buffer size into array length
     n_elements = args.buff_size // TORCH_ITEMSIZE
     lengths = buffer_lengths(args, neighbors, shared)
 
@@ -305,30 +305,6 @@ def build_buffers(args, neighbors, shared=None):
                 * buff_recv[i].element_size()
                 / MB_SIZE
             )
-    elif args.all_to_all_buff == "semi-optimized":
-        buff_send = [torch.zeros(1, device=DEVICE)] * SIZE
-        buff_recv = [torch.zeros(1, device=DEVICE)] * SIZE
-        for i in neighbors:
-            buff_send[i] = torch.zeros(
-                lengths[i],
-                dtype=TORCH_DTYPE,
-                device=DEVICE,
-            )
-            buff_send_sz[i] = (
-                torch.numel(buff_send[i])
-                * buff_send[i].element_size()
-                / MB_SIZE
-            )
-            buff_recv[i] = torch.zeros(
-                lengths[i],
-                dtype=TORCH_DTYPE,
-                device=DEVICE,
-            )
-            buff_recv_sz[i] = (
-                torch.numel(buff_recv[i])
-                * buff_recv[i].element_size()
-                / MB_SIZE
-            )
 
     # Print information about the buffers
     if args.logging == "verbose":
@@ -358,17 +334,19 @@ def halo_exchange(args, neighbors, buffers):
         if args.all_to_all_buff == "naive":
             for i in range(SIZE):
                 buff_send[i].fill_(RANK)
-        elif "neighbor" in args.all_to_all_buff:
+        elif args.all_to_all_buff == "neighbor":
             for i in neighbors:
                 buff_send[i].fill_(RANK)
 
         # Perform the all_to_all
+        COMM.Barrier()
         tic = perf_counter()
         distnn.all_to_all(buff_recv, buff_send)
         if WITH_CUDA:
             torch.cuda.synchronize()
         elif WITH_XPU:
             torch.xpu.synchronize()
+        COMM.Barrier()
         toc = perf_counter()
         times.append(toc - tic)
 
@@ -402,7 +380,7 @@ def main() -> None:
         "--all_to_all_buff",
         default="naive",
         type=str,
-        choices=["naive", "neighbor", "semi-optimized"],
+        choices=["naive", "neighbor"],
         help="Type of all_to_all buffers",
     )
     parser.add_argument(
