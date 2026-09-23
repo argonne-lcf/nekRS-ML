@@ -1,13 +1,7 @@
-from __future__ import absolute_import, division, print_function, annotations
-from typing import Optional, Union, Callable, List
+from typing import Optional, Callable, List
 import torch
 from torch import Tensor
-import torch.nn as nn
-import torch.nn.functional as F
-import torch_geometric.nn as tgnn
 from torch_geometric.nn.conv import MessagePassing
-from torch_geometric.typing import Adj, OptTensor, PairTensor
-import torch.distributed as dist
 import torch.distributed.nn as distnn
 
 
