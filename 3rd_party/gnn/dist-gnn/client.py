@@ -427,7 +427,7 @@ class OnlineClient:
                 f"reading {path}: its blocks are the writer's, whose sizes "
                 "only graph.bp announces"
             )
-        #self._wait_for_bp(path, {var}, timeout)
+        # self._wait_for_bp(path, {var}, timeout)
         with self._open_bp_read(path) as stream:
             stream.begin_step()
             if self.repart is not None:
