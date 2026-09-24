@@ -1843,7 +1843,7 @@ class Trainer:
             data_x = self._load_snapshot(path_x, 3)
         else:
             if self.cfg.client.backend == "adios":
-                data_x = self.client.get_checkpoint_from_file(ncols=3)
+                data_x = self.client.get_checkpoint_from_file(path="checkpoint.bp", ncols=3)
             else:
                 file = f"checkpt_u_rank_{self.rank}_size_{self.size}"
                 data_x = self.client.get_array(file).reshape((-1, 3))
