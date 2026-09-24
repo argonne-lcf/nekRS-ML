@@ -247,20 +247,12 @@ class AdiosSource(ElementSource):
             shape = stream.available_variables()["N"]["Shape"]
             self.src_size = int(str(shape).split(",")[0])
             w = self.src_size
-            n_list = np.asarray(
-                stream.read("N", [0], [w]), dtype=np.int64
-            ).reshape(-1)
-            self.num_edges_per_src = np.asarray(
-                stream.read("num_edges", [0], [w]), dtype=np.int64
-            ).reshape(-1)
-            self.Np = (
-                int(np_pts)
-                if np_pts is not None
-                else int(np.asarray(stream.read("Np")).reshape(-1)[0])
+            n_list, num_edges, self.Np, fo_list = self._read_manifest(
+                stream, w, np_pts
             )
-            fo_list = self._read_field_offsets(stream, w)
             stream.end_step()
 
+        self.num_edges_per_src = num_edges
         self.n_per_src = n_list
         if np.any(n_list % self.Np):
             raise RuntimeError(
@@ -291,6 +283,46 @@ class AdiosSource(ElementSource):
 
         # Stream read timer
         self.read_time = 0.0
+
+    def _read_manifest(self, stream, w, np_pts):
+        """Per-writer manifest (N, num_edges, Np, field_offset), read once.
+
+        These are only ever wanted whole, and a whole-array get costs one
+        filesystem read per writer block: BP5 stores a block per writer and
+        BP5Deserializer::GenerateReadRequests emits a request for every block
+        a get intersects, never coalescing adjacent ones. Letting every rank
+        issue that get multiplies it by the reader count -- 12288 readers x 3
+        variables x 12288 blocks is 453M scattered 8-byte reads over 1024
+        subfiles, which is what hung the 2048-node run. Rank 0 reads and the
+        rest are told.
+
+        gnn.cpp now writes the manifest as a single rank-0 block, which fixes
+        the same cost at the source; this keeps it cheap for graph.bp files
+        written before that change, where the blocks are still per-rank.
+        """
+        rank = self.comm.Get_rank() if self.comm is not None else 0
+        payload = None
+        if rank == 0:
+            n_list = np.asarray(
+                stream.read("N", [0], [w]), dtype=np.int64
+            ).reshape(-1)
+            num_edges = np.asarray(
+                stream.read("num_edges", [0], [w]), dtype=np.int64
+            ).reshape(-1)
+            np_val = (
+                int(np_pts)
+                if np_pts is not None
+                else int(np.asarray(stream.read("Np")).reshape(-1)[0])
+            )
+            payload = (
+                n_list,
+                num_edges,
+                np_val,
+                self._read_field_offsets(stream, w),
+            )
+        if self.comm is not None:
+            payload = self.comm.bcast(payload, root=0)
+        return payload
 
     @staticmethod
     def _read_field_offsets(stream, w):

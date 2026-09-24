@@ -296,18 +296,14 @@ void gnn_t::gnnWriteADIOS(adios_client_t* client)
                                                             {client->_offset_num_edges * 2}, 
                                                             {client->_num_edges * 2});
     auto NpInts = client->_write_io.DefineVariable<dlong>("Np", {1}, {0}, {1});
-    auto NInts = client->_write_io.DefineVariable<hlong>("N", {_size}, {_rank}, {1});
-    auto numedgesInts = client->_write_io.DefineVariable<hlong>("num_edges", {_size}, {_rank}, {1});
-    auto fieldOffsetInts = client->_write_io.DefineVariable<hlong>("field_offset", {_size}, {_rank}, {1});
+    auto NInts = client->_write_io.DefineVariable<hlong>("N", {_size}, {0}, {_size});
+    auto numedgesInts = client->_write_io.DefineVariable<hlong>("num_edges", {_size}, {0}, {_size});
+    auto fieldOffsetInts = client->_write_io.DefineVariable<hlong>("field_offset", {_size}, {0}, {_size});
 
     // Write the graph data
-    //adios2::Engine graphWriter = client->_stream_io.Open("graphStream", adios2::Mode::Write);
     adios2::Engine graphWriter = client->_write_io.Open("graph_tmp.bp", adios2::Mode::Write);
     graphWriter.BeginStep();
 
-    graphWriter.Put<hlong>(NInts, _N);
-    graphWriter.Put<hlong>(numedgesInts, _num_edges);
-    graphWriter.Put<hlong>(fieldOffsetInts, _field_offset);
     graphWriter.Put<dfloat>(posFloats, pos_node);
     graphWriter.Put<dlong>(locInts, local_unique_mask);
     graphWriter.Put<dlong>(haloInts, halo_unique_mask);
@@ -315,10 +311,16 @@ void gnn_t::gnnWriteADIOS(adios_client_t* client)
     graphWriter.Put<dlong>(edgeInts, edge_index);
     if (rank == 0) {
         graphWriter.Put<dlong>(NpInts, &mesh->Np);
+        graphWriter.Put<hlong>(NInts, gathered_N);
+        graphWriter.Put<hlong>(numedgesInts, gathered_num_edges);
+        graphWriter.Put<hlong>(fieldOffsetInts, gathered_field_offset);
     }
 
     graphWriter.EndStep();
     graphWriter.Close();
+    delete[] gathered_N;
+    delete[] gathered_num_edges;
+    delete[] gathered_field_offset;
     MPI_Barrier(comm);
     if (rank == 0) {
         std::rename("graph_tmp.bp", "graph.bp");

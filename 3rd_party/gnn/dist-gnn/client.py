@@ -280,7 +280,17 @@ class OnlineClient:
             sleep(1)
 
     def _wait_for_graph(self, path: str = "graph.bp", timeout: float = 600.0):
-        self._wait_for_bp(path, {"N", "num_edges", "pos_node"}, timeout)
+        """Block until graph.bp exists"""
+        if self.rank == 0:
+            log.info(f"Waiting for {path} ...")
+        tic = perf_counter()
+        while not os.path.exists(path):
+            if perf_counter() - tic > timeout:
+                raise TimeoutError(
+                    f"{path} did not appear within {timeout:.0f}s"
+                )
+            sleep(1)
+        self.comm.Barrier()
 
     def get_graph_data_from_stream(self, method: str = "parrsb") -> dict:
         """Get the entire set of graph datasets from a stream.
@@ -417,7 +427,7 @@ class OnlineClient:
                 f"reading {path}: its blocks are the writer's, whose sizes "
                 "only graph.bp announces"
             )
-        self._wait_for_bp(path, {var}, timeout)
+        #self._wait_for_bp(path, {var}, timeout)
         with self._open_bp_read(path) as stream:
             stream.begin_step()
             if self.repart is not None:
