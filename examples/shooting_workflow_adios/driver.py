@@ -334,7 +334,7 @@ class ShootingWorkflow:
         log.info(f"\tFOM_finetune = {fom_finetune:.3f}")
         dt_ratio = 10.0
         fom_shoot = fom_inference * dt_ratio / fom_nekrs
-        log.info(f"\tFOM_shoot = {fom_shoot:..3f}")
+        log.info(f"\tFOM_shoot = {fom_shoot:.3f}")
         log.info("\n")
 
 

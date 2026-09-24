@@ -1,6 +1,6 @@
 from typing import Optional, Callable, List
 import torch
-from torch import Tensor
+from torch import Tensor, LongTensor
 from torch_geometric.nn.conv import MessagePassing
 import torch.distributed.nn as distnn
 

@@ -251,36 +251,18 @@ class OnlineClient:
 
         return open_bp_read(path, self.comm)
 
-    def _wait_for_bp(self, path: str, need: set, timeout: float = 600.0):
-        """Block until nekRS has finished writing a BP file.
-
-        The writer produces the file in a single step and closes it, so
-        waiting for the directory to appear is not enough -- the metadata may
-        not be flushed yet. Opening it and requiring the variables we need is
-        the cheapest reliable completion test.
-        """
+    def _wait_for_bp(self, path: str, timeout: float = 600.0):
+        """Block until nekRS has finished writing a BP file."""
         if self.rank == 0:
             log.info(f"Waiting for {path} ...")
         tic = perf_counter()
-        while True:
-            if os.path.exists(path):
-                try:
-                    with self._open_bp_read(path) as stream:
-                        stream.begin_step()
-                        have = set(stream.available_variables())
-                        stream.end_step()
-                    if need <= have:
-                        return
-                except Exception:
-                    pass
+        while not os.path.exists(path):
             if perf_counter() - tic > timeout:
                 raise TimeoutError(
-                    f"{path} did not become readable within {timeout:.0f}s"
+                    f"{path} did not appear within {timeout:.0f}s"
                 )
             sleep(1)
-
-    def _wait_for_graph(self, path: str = "graph.bp", timeout: float = 600.0):
-        self._wait_for_bp(path, {"N", "num_edges", "pos_node"}, timeout)
+        self.comm.Barrier()
 
     def get_graph_data_from_stream(self, method: str = "parrsb") -> dict:
         """Get the entire set of graph datasets from a stream.
@@ -295,7 +277,7 @@ class OnlineClient:
         tic = perf_counter()
         graph_data = {}
         if self.backend == "adios":
-            self._wait_for_graph("graph.bp")
+            self._wait_for_bp("graph.bp")
             AdiosSource, Repartitioner = self._import_repartition()
             src = AdiosSource("graph.bp", comm=self.comm, timers=True)
             self.graph_source = src
@@ -394,7 +376,6 @@ class OnlineClient:
         path: str = "checkpoint.bp",
         var: str = "checkpoint",
         ncols: int = 3,
-        timeout: float = 600.0,
     ) -> np.ndarray:
         """Read the nekRS solution checkpoint onto this communicator.
 
@@ -417,7 +398,7 @@ class OnlineClient:
                 f"reading {path}: its blocks are the writer's, whose sizes "
                 "only graph.bp announces"
             )
-        self._wait_for_bp(path, {var}, timeout)
+        self._wait_for_bp(path)
         with self._open_bp_read(path) as stream:
             stream.begin_step()
             if self.repart is not None:

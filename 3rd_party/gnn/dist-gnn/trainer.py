@@ -1837,18 +1837,15 @@ class Trainer:
                 else f"data_rank_0_size_{self.repart.source.src_size}"
             )
             files = os.listdir(data_dir + f"/{traj_sub}")
-            # files = [item for item in files_temp if 'p_step' not in item]
             files.sort(key=lambda x: int(x.split("_")[-1].split(".")[0]))
             file = files[0]
             path_x = data_dir + f"/{traj_sub}/" + file
             data_x = self._load_snapshot(path_x, 3)
         else:
             if self.cfg.client.backend == "adios":
-                # checkpoint.bp is laid out in the nekRS writers' blocks, so
-                # it is read through the same element routing that placed the
-                # graph on this rank -- which is what lets inference run at a
-                # rank count nekRS never saw.
-                data_x = self.client.get_checkpoint_from_file(ncols=3)
+                data_x = self.client.get_checkpoint_from_file(
+                    path="checkpoint.bp", ncols=3
+                )
             else:
                 file = f"checkpt_u_rank_{self.rank}_size_{self.size}"
                 data_x = self.client.get_array(file).reshape((-1, 3))
