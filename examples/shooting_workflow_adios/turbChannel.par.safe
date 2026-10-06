@@ -13,13 +13,15 @@ regularization = hpfrt + nModes=1 + scalingCoeff=5
 constFlowRate = meanVelocity=1.0 + direction=X
 
 [PRESSURE]
-residualTol = 1e-04
+residualTol = 1e-16
+maxIterations = 10
 
 [VELOCITY]
 boundaryTypeMap = zeroValue 
 viscosity = 1/10000
 rho = 1.0
-residualTol = 1e-06
+residualTol = 1e-16
+maxIterations = 10
 
 [CASEDATA]
 ReTau = 550

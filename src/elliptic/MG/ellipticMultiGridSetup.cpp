@@ -154,6 +154,7 @@ void ellipticMultiGridSetup(elliptic_t *elliptic_)
     if (platform->comm.mpiRank == 0) {
       printf("============= BUILDING pMG%d ==================\n", Nc);
     }
+    fflush(stdout);
 
     elliptic_t *ellipticC = ellipticBuildMultigridLevel(ellipticFine, Nc, Nf);
 
@@ -178,6 +179,7 @@ void ellipticMultiGridSetup(elliptic_t *elliptic_)
   if (platform->comm.mpiRank == 0) {
     printf("============= BUILDING COARSE pMG%d ==================\n", Nmin);
   }
+  fflush(stdout);
 
   if (Nmax > Nmin) {
     int Nc = levelDegree[numMGLevels - 1];
