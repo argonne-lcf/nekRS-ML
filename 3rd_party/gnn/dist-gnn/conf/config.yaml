@@ -44,7 +44,7 @@ num_heads: 4
 layer_norm: False
 
 # Halo swap mode
-halo_swap_mode : none # {none, all_to_all, all_to_all_opt, send_recv}
+halo_swap_mode : send_recv # {none, all_to_all, all_to_all_opt, send_recv}
 
 # transform directions (enforces periodicity in graph)
 transform_x: false

@@ -563,10 +563,10 @@ class Trainer:
             for i in self.neighboring_procs:
                 idx_i = halo_info[:, 3] == i
                 # index of nodes to send to proc i
-                mask_send[i] = halo_info[:, 0][idx_i]
+                mask_send[i] = halo_info[:, 0][idx_i].to(self.device)
 
                 # index of nodes to receive from proc i
-                mask_recv[i] = halo_info[:, 1][idx_i]
+                mask_recv[i] = halo_info[:, 1][idx_i].to(self.device)
 
                 if len(mask_send[i]) != len(mask_recv[i]):
                     log.info(

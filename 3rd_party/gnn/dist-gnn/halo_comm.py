@@ -22,24 +22,29 @@ def neighbor_exchange_(
 
     Not differentiable; see :func:`neighbor_exchange` for the autograd version.
 
-    Receives are posted before sends so that the batch is already drainable when
-    the sends land. Empty buffers are skipped.
+    Ops are ordered by rank parity so that for every
+    pair exactly one side sends while the other receives. 
+    Empty buffers are skipped.
     """
     me = dist.get_rank(group=group)
 
     ops = []
-    for k, (buf, peer) in enumerate(zip(recv_list, neighbors)):
+    for k, (rbuf, peer) in enumerate(zip(recv_list, neighbors)):
         peer = int(peer)
-        if not buf.numel():
-            continue
+        sbuf = send_list[k]
+
         if peer == me:
-            buf.copy_(send_list[k])
+            if rbuf.numel():
+                rbuf.copy_(sbuf)
             continue
-        ops.append(dist.P2POp(dist.irecv, buf, peer, group))
-    for k, (buf, peer) in enumerate(zip(send_list, neighbors)):
-        peer = int(peer)
-        if buf.numel() and peer != me:
-            ops.append(dist.P2POp(dist.isend, buf, peer, group))
+
+        recv_op = (
+            [dist.P2POp(dist.irecv, rbuf, peer, group)] if rbuf.numel() else []
+        )
+        send_op = (
+            [dist.P2POp(dist.isend, sbuf, peer, group)] if sbuf.numel() else []
+        )
+        ops += (recv_op + send_op) if me > peer else (send_op + recv_op)
 
     if not ops:
         return

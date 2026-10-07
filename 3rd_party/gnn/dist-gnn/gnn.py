@@ -16,7 +16,7 @@ class DistributedGNN(torch.nn.Module):
         output_node_channels: int,
         n_mlp_hidden_layers: int,
         n_messagePassing_layers: int,
-        halo_swap_mode: Optional[str] = "none",
+        halo_swap_mode: Optional[str] = "send_recv",
         layer_norm: Optional[bool] = False,
         name: Optional[str] = "gnn",
     ):
