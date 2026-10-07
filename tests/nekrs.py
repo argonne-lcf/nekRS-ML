@@ -565,7 +565,7 @@ class NekRSMLOfflineTest(NekRSMLTest):
         args = self.ml_args
         if args["model"] == "dist-gnn":
             self.executable_opts = [
-                "halo_swap_mode=all_to_all_opt",
+                "halo_swap_mode=send_recv",
                 "layer_norm=True",
                 f"gnn_outputs_path={self.gnn_output_dir}",
                 f"traj_data_path={self.traj_dir}",
@@ -760,7 +760,7 @@ class NekRSMLOfflineRepartTest(NekRSMLOfflineTest):
 
         args = self.ml_args
         self.executable_opts = [
-            "halo_swap_mode=all_to_all_opt",
+            "halo_swap_mode=send_recv",
             "layer_norm=True",
             f"gnn_outputs_path={self.repart_graph_dir}",
             f"target_loss={args['target_loss']}",
@@ -988,7 +988,7 @@ class NekRSMLOnlineTest(NekRSMLTest):
 
             arg_str = (
                 "    arguments: "
-                '"halo_swap_mode=all_to_all_opt layer_norm=True online=True verbose=True '
+                '"halo_swap_mode=send_recv layer_norm=True online=True verbose=True '
                 f"consistency=True target_loss={self.target_loss} "
                 f"device_skip={self.sim_rpn} time_dependency={self.time_dependency} "
             )

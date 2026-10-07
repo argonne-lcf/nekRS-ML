@@ -74,7 +74,7 @@ mpiexec -n M python -m repartition.cli \
 
 # 3. train at the same M ranks
 mpiexec -n M python $NEKRS_HOME/3rd_party/gnn/dist-gnn/main.py \
-    halo_swap_mode=all_to_all_opt layer_norm=True \
+    halo_swap_mode=send_recv layer_norm=True \
     gnn_outputs_path=$PWD/gnn_from_fld target_loss=2.7161e-04 \
     transform_x=true transform_y=true transform_z=true
 ```
