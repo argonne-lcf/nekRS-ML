@@ -189,15 +189,7 @@ class TGVOfflineTrajGT(NekRSMLOfflineTest):
             rpn=self.ranks_per_node,
             time_dependency="time_dependent",
             target_loss=3.1556e-01,
-            extra_opts=[
-                "model_name=graph_transformer",
-                # The transformer's halo_swap only implements all_to_all and
-                # asserts on anything else, so it cannot follow the default
-                # over to send_recv. Last value wins in hydra, so this overrides
-                # the base class.
-                "halo_swap_mode=all_to_all_opt",
-                *TGV_TRANSFORM_OPTS,
-            ],
+            extra_opts=["model_name=graph_transformer", *TGV_TRANSFORM_OPTS],
         )
         self.tags |= {"tgv_offline_traj_gt"}
 
