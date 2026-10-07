@@ -23,7 +23,7 @@ def neighbor_exchange_(
     Not differentiable; see :func:`neighbor_exchange` for the autograd version.
 
     Ops are ordered by rank parity so that for every
-    pair exactly one side sends while the other receives. 
+    pair exactly one side sends while the other receives.
     Empty buffers are skipped.
     """
     me = dist.get_rank(group=group)
@@ -123,7 +123,7 @@ def assert_symmetric_neighbors(neighbors: Sequence[int], comm) -> None:
     """Check that every neighbor claims us back, before any exchange runs.
 
     A one-sided neighbor list deadlocks the exchange: our receive is posted but
-    the matching send never comes. 
+    the matching send never comes.
 
     ``comm`` is an mpi4py communicator -- the trainer already has one, and this
     runs during setup where the torch process group may not be the right place to
