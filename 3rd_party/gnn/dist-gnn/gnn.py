@@ -4,6 +4,8 @@ from torch import Tensor, LongTensor
 from torch_geometric.nn.conv import MessagePassing
 import torch.distributed.nn as distnn
 
+from halo_comm import neighbor_exchange
+
 
 class DistributedGNN(torch.nn.Module):
     def __init__(
@@ -14,7 +16,7 @@ class DistributedGNN(torch.nn.Module):
         output_node_channels: int,
         n_mlp_hidden_layers: int,
         n_messagePassing_layers: int,
-        halo_swap_mode: Optional[str] = "all_to_all",
+        halo_swap_mode: Optional[str] = "none",
         layer_norm: Optional[bool] = False,
         name: Optional[str] = "gnn",
     ):
@@ -335,7 +337,6 @@ class DistributedMessagePassingLayer(torch.nn.Module):
             if (
                 self.halo_swap_mode == "all_to_all"
                 or self.halo_swap_mode == "all_to_all_opt"
-                or self.halo_swap_mode == "all_to_all_opt_intel"
             ):
                 # Fill send buffer
                 for i in neighboring_procs:
@@ -351,39 +352,26 @@ class DistributedMessagePassingLayer(torch.nn.Module):
                     input_tensor[mask_recv[i]] = buff_recv[i][:n_recv, :]
 
             elif self.halo_swap_mode == "send_recv":
-                # Fill send buffer
-                for i in neighboring_procs:
-                    n_send = len(mask_send[i])
-                    buff_send[i][:n_send, :] = input_tensor[mask_send[i]]
+                send_tensors = [
+                    input_tensor[mask_send[i]] for i in neighboring_procs
+                ]
 
-                # Perform sendrecv
-                distnn.send_recv(buff_recv, buff_send, neighboring_procs)
+                # Perform send/recv
+                recv_tensors = neighbor_exchange(
+                    send_tensors, neighboring_procs
+                )
 
-                # send_req = []
-                # for dst in neighboring_procs:
-                #     tmp = dist.isend(buff_send[dst], dst)
-                #     send_req.append(tmp)
-                # recv_req = []
-                # for src in neighboring_procs:
-                #     tmp = dist.irecv(buff_recv[src], src)
-                #     recv_req.append(tmp)
-
-                # for req in send_req:
-                #     req.wait()
-                # for req in recv_req:
-                #     req.wait()
-                # dist.barrier()
-
-                # Fill halo nodes
-                for i in neighboring_procs:
-                    n_recv = len(mask_recv[i])
-                    input_tensor[mask_recv[i]] = buff_recv[i][:n_recv, :]
+                # Scatter the halo rows back
+                for i, recv in zip(neighboring_procs, recv_tensors):
+                    input_tensor = input_tensor.index_copy(
+                        0, mask_recv[i], recv
+                    )
 
             elif self.halo_swap_mode == "none":
                 pass
             else:
                 raise ValueError(
-                    "halo_swap_mode %s not valid. Valid options: all_to_all, all_to_all_opt, all_to_all_opt_intel, send_recv, none"
+                    "halo_swap_mode %s not valid. Valid options: all_to_all, all_to_all_opt, send_recv, none"
                     % (self.halo_swap_mode)
                 )
         return input_tensor
