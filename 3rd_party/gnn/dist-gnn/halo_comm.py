@@ -1,28 +1,5 @@
-"""Differentiable neighbor-only halo exchange.
-
-``torch.distributed.nn.all_to_all`` is the obvious way to swap halo nodes, but it
-is a dense collective: the tensor lists it takes are indexed by rank, so every
-rank posts a transfer to all ``world_size - 1`` peers even though a halo only ever
-touches a handful of them. The empty transfers are not free -- each one still
-costs a descriptor, a match-list entry and a completion -- so the exchange grows
-linearly in the number of ranks while the data being moved stays constant.
-
-Measured on Aurora with the production mesh and neighbor topology, one exchange
-costs 4.07 ms at 192 GPUs and 74.09 ms at 24576 GPUs, against a steady 8 real
-neighbors at every scale. With 8 message passing layers that is most of a second
-per step spent on messages of length zero.
-
-PyTorch's NCCL backend already sidesteps this: it lowers the collective to an
-isend/irecv loop that skips the zero-length peers, so on CUDA the exchange is
-effectively neighbor-only. oneCCL implements the same collective as a true
-alltoallv and gets no such treatment. Rather than depend on which vendor happens
-to optimize which collective, this module does the neighbor exchange explicitly,
-on top of point-to-point primitives that every backend supports.
-
-``dist.batch_isend_irecv`` handles the vendor differences for us: it coalesces the
-batch where the backend supports it and otherwise issues the same sends and
-receives one at a time, so the same code is correct on XCCL, NCCL, RCCL, Gloo and
-MPI.
+"""
+Differentiable neighbor-only halo exchange implemented with dist.batch_isend_irecv.
 """
 
 from typing import List, Sequence
@@ -41,30 +18,21 @@ def neighbor_exchange_(
 
     ``send_list[k]`` goes to ``neighbors[k]`` and ``recv_list[k]`` receives what
     ``neighbors[k]`` sent. Both lists are indexed by position in ``neighbors``,
-    not by rank, and must already be the right size -- nothing is allocated,
-    reordered or copied here, so a caller timing this call is timing the
-    transport and nothing else.
+    not by rank, and must already be the right size.
 
     Not differentiable; see :func:`neighbor_exchange` for the autograd version.
 
     Receives are posted before sends so that the batch is already drainable when
-    the sends land. Empty buffers are skipped rather than posted, which is the
-    entire point of this module.
+    the sends land. Empty buffers are skipped.
     """
     me = dist.get_rank(group=group)
 
-    # int() because neighbor lists arrive as numpy int64 (np.unique over
-    # halo_info), which P2POp will not accept as a rank.
     ops = []
     for k, (buf, peer) in enumerate(zip(recv_list, neighbors)):
         peer = int(peer)
         if not buf.numel():
             continue
         if peer == me:
-            # A rank can list itself (a single-rank job, or a partition whose
-            # halo closes on its own ranks). Posting a send to oneself is not
-            # reliably supported across backends and would at best be a slow
-            # way to spell copy_, so short-circuit it.
             buf.copy_(send_list[k])
             continue
         ops.append(dist.P2POp(dist.irecv, buf, peer, group))
@@ -74,8 +42,6 @@ def neighbor_exchange_(
             ops.append(dist.P2POp(dist.isend, buf, peer, group))
 
     if not ops:
-        # A rank with no neighbors still has to not hang here. batch_isend_irecv
-        # rejects an empty list, and there is nothing to wait on anyway.
         return
 
     for req in dist.batch_isend_irecv(ops):
@@ -88,7 +54,7 @@ class _NeighborExchange(torch.autograd.Function):
     The exchange just copies rows from one rank to another, so as a linear
     operator it is a permutation and its adjoint is the same permutation run
     backwards: the gradient of a send is a receive from that same peer, and vice
-    versa. That is the same duality ``torch.distributed.nn``'s ``_AlltoAll`` uses,
+    versa. That is the same duality torch.distributed.nn._AlltoAll uses,
     and it is why the backward below is another call to the same helper with the
     roles swapped.
 
@@ -152,10 +118,7 @@ def assert_symmetric_neighbors(neighbors: Sequence[int], comm) -> None:
     """Check that every neighbor claims us back, before any exchange runs.
 
     A one-sided neighbor list deadlocks the exchange: our receive is posted but
-    the matching send never comes. That hangs with no error, which at a few
-    thousand ranks is a miserable thing to debug, so pay for one collective at
-    setup to rule it out. This is called once outside the step loop, not per
-    exchange.
+    the matching send never comes. 
 
     ``comm`` is an mpi4py communicator -- the trainer already has one, and this
     runs during setup where the torch process group may not be the right place to
