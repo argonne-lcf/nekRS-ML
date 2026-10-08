@@ -739,6 +739,11 @@ class NekRSMLOfflineRepartTest(NekRSMLOfflineTest):
             self.setup_cmd(),
             self.source_cmd(),
             f"export PYTHONPATH={self.repartition_pkg_root}:$PYTHONPATH",
+            # Both routes out of this class reach ADIOS2: the .bp subclasses
+            # hand graph.bp straight to the trainer's AdiosSource, and
+            # repartition.cli imports adios2 to convert it. Neither the
+            # frameworks module nor the venv puts the bindings on the path.
+            *self.adios2_pythonpath_cmds(),
         ]
         if self.repartition_method == "parrsb":
             self.prerun_cmds += self.parrsb_shim_cmds()
