@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #PBS -S /bin/bash
-#PBS -N a2av_bench
+#PBS -N halo_bench
 #PBS -l select=1
 #PBS -l walltime=00:30:00
 #PBS -l filesystems=home:flare
@@ -18,15 +18,15 @@ if [ ${SYSTEM} == "aurora" ]; then
 
   # oneCCL env variables
   export CCL_PROCESS_LAUNCHER=pmix
-  #export CCL_ATL_TRANSPORT=mpi
-  #export CCL_KVS_MODE=mpi
-  #export CCL_BCAST=double_tree
-  #export CCL_CONFIGURATION_PATH=""
-  #export CCL_CONFIGURATION=cpu_gpu_dpcpp
-  #export CCL_KVS_CONNECTION_TIMEOUT=600
-  #export CCL_ZE_CACHE_OPEN_IPC_HANDLES_THRESHOLD=1024
-  #export CCL_KVS_USE_MPI_RANKS=1
-  #export CCL_ENABLE_SYCL_KERNELS=1
+  export CCL_ATL_TRANSPORT=mpi
+  export CCL_KVS_MODE=mpi
+  export CCL_BCAST=double_tree
+  export CCL_CONFIGURATION_PATH=""
+  export CCL_CONFIGURATION=cpu_gpu_dpcpp
+  export CCL_KVS_CONNECTION_TIMEOUT=600
+  export CCL_ZE_CACHE_OPEN_IPC_HANDLES_THRESHOLD=1024
+  export CCL_KVS_USE_MPI_RANKS=1
+  export CCL_ENABLE_SYCL_KERNELS=1
   export CCL_ALLTOALLV=topo
   export CCL_ALLTOALLV_SCALEOUT=topo
   export CCL_ALLTOALLV_MONOLITHIC_KERNEL=0
@@ -48,17 +48,19 @@ if [ ${SYSTEM} == "aurora" ]; then
   CPU_BINDING=list:1-4:8-11:16-19:24-27:32-35:40-43:53-56:60-63:68-71:76-79:84-87:92-95
 fi
 
-EXE=./all2all_bench.py
+EXE=./halo_bench.py
 NNODES=`wc -l < $PBS_NODEFILE`
 NRANKS=$(( NNODES * RANKS_PER_NODE ))
-A2A=neighbor
-BUFF_SIZE=1572500
+BUFFERS=neighbor
+BUFF_SIZE=1610240
 NEIGHBORS=rcb_box
+HALO_IMPL=custom
 
 mpiexec --np ${NRANKS} -ppn ${RANKS_PER_NODE} --cpu-bind  $CPU_BINDING \
         python $EXE \
-        --all_to_all_buff $A2A \
+        --buffers $BUFFERS \
+        --halo_impl $HALO_IMPL \
         --buff_size $BUFF_SIZE \
         --neighbors $NEIGHBORS \
         --logging info \
-        2>&1 | tee a2aBench_n${NNODES}_r${NRANKS}_buff${BUFF_SIZE}__${A2A}_${NEIGHBORS}.log
+        2>&1 | tee haloBench_n${NNODES}_r${NRANKS}_buff${BUFF_SIZE}_${BUFFERS}_${NEIGHBORS}_${HALO_IMPL}.log

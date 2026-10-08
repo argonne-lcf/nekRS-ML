@@ -11,6 +11,8 @@ import torch
 import torch.distributed as dist
 import torch.distributed.nn as distnn
 
+from halo_comm import neighbor_exchange_
+
 TORCH_DTYPE = torch.float32
 TORCH_ITEMSIZE = torch.empty(0, dtype=TORCH_DTYPE).element_size()
 MB_SIZE = 1000 * 1000
@@ -213,7 +215,7 @@ def get_neighbors(args):
     """
     neighbors = []
     shared = None
-    if args.all_to_all_buff == "neighbor":
+    if args.buffers == "neighbor":
         if SIZE == 1:
             neighbors = [0]
         else:
@@ -253,6 +255,16 @@ def buffer_lengths(args, neighbors, shared):
     return {i: max(1, round(n_max * shared[i] / largest)) for i in neighbors}
 
 
+def peer_ranks(args, neighbors):
+    """Ranks this one actually trades with, in the order buffers are indexed.
+
+    Under "naive" every rank holds a full-size buffer, so the point-to-point
+    implementation has to post to all of them to move the same bytes; narrowing
+    it to the neighbor list there would be measuring a different exchange.
+    """
+    return list(range(SIZE)) if args.buffers == "naive" else list(neighbors)
+
+
 def build_buffers(args, neighbors, shared=None):
     buff_send_sz = [0] * SIZE
     buff_recv_sz = [0] * SIZE
@@ -261,7 +273,7 @@ def build_buffers(args, neighbors, shared=None):
     n_elements = args.buff_size // TORCH_ITEMSIZE
     lengths = buffer_lengths(args, neighbors, shared)
 
-    if args.all_to_all_buff == "naive":
+    if args.buffers == "naive":
         buff_send = [torch.empty(0, device=DEVICE)] * SIZE
         buff_recv = [torch.empty(0, device=DEVICE)] * SIZE
         for i in range(SIZE):
@@ -285,7 +297,7 @@ def build_buffers(args, neighbors, shared=None):
                 * buff_recv[i].element_size()
                 / MB_SIZE
             )
-    elif args.all_to_all_buff == "neighbor":
+    elif args.buffers == "neighbor":
         buff_send = [torch.empty(0, device=DEVICE)] * SIZE
         buff_recv = [torch.empty(0, device=DEVICE)] * SIZE
         for i in neighbors:
@@ -318,34 +330,55 @@ def build_buffers(args, neighbors, shared=None):
         )
         COMM.Barrier()
 
+    # The two implementations want the buffers laid out differently: torch's
+    # all_to_all takes lists indexed by rank, the custom one takes lists indexed
+    # by position in the peer list.
+    if args.halo_impl == "custom":
+        peers = peer_ranks(args, neighbors)
+        buff_send = [buff_send[i] for i in peers]
+        buff_recv = [buff_recv[i] for i in peers]
+
     return [buff_send, buff_recv]
 
 
 def halo_exchange(args, neighbors, buffers):
-    buff_send_safe = buffers[0]
-    buff_recv_safe = buffers[1]
-    buff_send = buff_send_safe
-    buff_recv = buff_recv_safe
+    # Copy the lists rather than aliasing them: the loop below rebinds every
+    # slot each iteration, so without a copy the "safe" lists would be the very
+    # lists being overwritten, and the caller's buffers would be clobbered too.
+    # Only the list objects are duplicated; the tensors are shared, which is all
+    # empty_like needs to read a shape from.
+    buff_send_safe = list(buffers[0])
+    buff_recv_safe = list(buffers[1])
+    buff_send = list(buff_send_safe)
+    buff_recv = list(buff_recv_safe)
+
+    peers = peer_ranks(args, neighbors)
+
+    # Which positions in the buffer lists to fill and check
+    if args.halo_impl == "custom":
+        slots = list(enumerate(peers))
+    else:
+        fill = range(SIZE) if args.buffers == "naive" else neighbors
+        slots = [(int(i), int(i)) for i in fill]
 
     times = []
     for itr in range(args.iterations):
         # initialize the buffers
-        for i in range(SIZE):
+        for i in range(len(buff_send)):
             buff_send[i] = torch.empty_like(buff_send_safe[i])
             buff_recv[i] = torch.empty_like(buff_recv_safe[i])
 
         # fill in the non-empty buffers with the rank ID
-        if args.all_to_all_buff == "naive":
-            for i in range(SIZE):
-                buff_send[i].fill_(RANK)
-        elif args.all_to_all_buff == "neighbor":
-            for i in neighbors:
-                buff_send[i].fill_(RANK)
+        for slot, _peer in slots:
+            buff_send[slot].fill_(RANK)
 
-        # Perform the all_to_all
+        # Perform the halo exchange
         COMM.Barrier()
         tic = perf_counter()
-        distnn.all_to_all(buff_recv, buff_send)
+        if args.halo_impl == "custom":
+            neighbor_exchange_(buff_recv, buff_send, peers)
+        else:
+            distnn.all_to_all(buff_recv, buff_send)
         if WITH_CUDA:
             torch.cuda.synchronize()
         elif WITH_XPU:
@@ -355,13 +388,12 @@ def halo_exchange(args, neighbors, buffers):
         times.append(toc - tic)
 
         # Check that the received buffers have the expected value
-        for i in range(SIZE):
-            if buff_recv[i].numel() > 0:
-                expected = i
-                if not torch.all(buff_recv[i] == expected):
+        for slot, peer in slots:
+            if buff_recv[slot].numel() > 0:
+                if not torch.all(buff_recv[slot] == peer):
                     print(
-                        f"[RANK {RANK}] Error: recv buffer from rank {i} does not match expected value {expected},",
-                        f"recv buffer stats: min={torch.min(buff_recv[i])}, max={torch.max(buff_recv[i])}",
+                        f"[RANK {RANK}] Error: recv buffer from rank {peer} does not match expected value {peer},",
+                        f"recv buffer stats: min={torch.min(buff_recv[slot])}, max={torch.max(buff_recv[slot])}",
                         flush=True,
                     )
                     sys.exit(1)
@@ -381,17 +413,25 @@ def main() -> None:
         description="PyTorch distributed nn alltoall benchmark"
     )
     parser.add_argument(
-        "--all_to_all_buff",
+        "--buffers",
         default="naive",
         type=str,
         choices=["naive", "neighbor"],
-        help="Type of all_to_all buffers",
+        help="How buffers are filled for the exchange",
+    )
+    parser.add_argument(
+        "--halo_impl",
+        default="torch",
+        type=str,
+        choices=["torch", "custom"],
+        help="Implementation for the halo exchange. torch uses the all_to_all collective, "
+        "custom posts point-to-point only to the ranks that share nodes via halo_comm",
     )
     parser.add_argument(
         "--buff_size",
         default=1_000_000,
         type=int,
-        help="Buffer size to the all_to_all in bytes. With --neighbors "
+        help="Buffer size to the halo exchange in bytes. With --neighbors "
         "rcb_box this is the size of the largest buffer in the job and the "
         "rest scale down with contact area",
     )
@@ -408,7 +448,7 @@ def main() -> None:
         "--num_neighbors",
         default=1,
         type=int,
-        help="Number of neighbors involved in the all_to_all",
+        help="Number of neighbors involved in the halo exchange",
     )
     parser.add_argument(
         "--iterations", default=50, type=int, help="Number of iterations to run"

@@ -43,6 +43,7 @@ import gnn
 import graph_transformer as gtr
 import graph_connectivity as gcon
 from client import OnlineClient
+from halo_comm import assert_symmetric_neighbors
 from create_halo_info_par import (
     get_reduced_halo_ids,
     get_halo_info_fast,
@@ -134,6 +135,12 @@ class Trainer:
         self.mask_send, self.mask_recv = self.build_masks()
         if self.rank == 0:
             log.info("Done with build_masks")
+
+        # Check symmetry of halo exchange neighbors
+        if self.size > 1 and self.cfg.halo_swap_mode == "send_recv":
+            assert_symmetric_neighbors(self.neighboring_procs, self.comm)
+            if self.rank == 0:
+                log.info("Halo neighbor lists are symmetric!")
 
         self.buffer_send, self.buffer_recv, self.n_buffer_rows = (
             self.build_buffers(self.cfg.hidden_channels)
@@ -556,10 +563,10 @@ class Trainer:
             for i in self.neighboring_procs:
                 idx_i = halo_info[:, 3] == i
                 # index of nodes to send to proc i
-                mask_send[i] = halo_info[:, 0][idx_i]
+                mask_send[i] = halo_info[:, 0][idx_i].to(self.device)
 
                 # index of nodes to receive from proc i
-                mask_recv[i] = halo_info[:, 1][idx_i]
+                mask_recv[i] = halo_info[:, 1][idx_i].to(self.device)
 
                 if len(mask_send[i]) != len(mask_recv[i]):
                     log.info(
@@ -631,24 +638,6 @@ class Trainer:
                         dtype=self.torch_dtype,
                         device=self.device,
                     )
-            elif self.cfg.halo_swap_mode == "all_to_all_opt_intel":
-                buff_send = [
-                    torch.zeros(1, device=self.device, dtype=self.torch_dtype)
-                ] * self.size
-                buff_recv = [
-                    torch.zeros(1, device=self.device, dtype=self.torch_dtype)
-                ] * self.size
-                for i in self.neighboring_procs:
-                    buff_send[i] = torch.zeros(
-                        [int(n_nodes_to_exchange[i]), n_features],
-                        dtype=self.torch_dtype,
-                        device=self.device,
-                    )
-                    buff_recv[i] = torch.zeros(
-                        [int(n_nodes_to_exchange[i]), n_features],
-                        dtype=self.torch_dtype,
-                        device=self.device,
-                    )
             elif self.cfg.halo_swap_mode == "send_recv":
                 buff_send = [
                     torch.empty(0, device=self.device, dtype=self.torch_dtype)
@@ -656,21 +645,6 @@ class Trainer:
                 buff_recv = [
                     torch.empty(0, device=self.device, dtype=self.torch_dtype)
                 ] * self.size
-                for i in self.neighboring_procs:
-                    buff_send[i] = torch.empty(
-                        [int(n_nodes_to_exchange[i]), n_features],
-                        dtype=self.torch_dtype,
-                        device=self.device,
-                    )
-                    buff_recv[i] = torch.empty(
-                        [int(n_nodes_to_exchange[i]), n_features],
-                        dtype=self.torch_dtype,
-                        device=self.device,
-                    )
-
-            # for i in self.neighboring_procs:
-            #    buff_send[i] = torch.empty([len(self.mask_send[i]), n_features], dtype=torch.float32, device=self.device_id)
-            #    buff_recv[i] = torch.empty([len(self.mask_recv[i]), n_features], dtype=torch.float32, device=self.device_id)
 
             # Measure the size of the buffers
             buff_send_sz = [0] * self.size
@@ -2276,12 +2250,8 @@ class Trainer:
         tic = time.time()
         if self.cfg.halo_swap_mode != "none":
             for i in range(self.size):
-                if self.cfg.halo_swap_mode == "all_to_all_opt_intel":
-                    self.buffer_send[i] = torch.zeros_like(self.buffer_send[i])
-                    self.buffer_recv[i] = torch.zeros_like(self.buffer_recv[i])
-                else:
-                    self.buffer_send[i] = torch.empty_like(self.buffer_send[i])
-                    self.buffer_recv[i] = torch.empty_like(self.buffer_recv[i])
+                self.buffer_send[i] = torch.empty_like(self.buffer_send[i])
+                self.buffer_recv[i] = torch.empty_like(self.buffer_recv[i])
         else:
             self.buffer_send = None
             self.buffer_recv = None
@@ -2426,12 +2396,8 @@ class Trainer:
         tic = time.time()
         if self.cfg.halo_swap_mode != "none":
             for i in range(self.size):
-                if self.cfg.halo_swap_mode == "all_to_all_opt_intel":
-                    self.buffer_send[i] = torch.zeros_like(self.buffer_send[i])
-                    self.buffer_recv[i] = torch.zeros_like(self.buffer_recv[i])
-                else:
-                    self.buffer_send[i] = torch.empty_like(self.buffer_send[i])
-                    self.buffer_recv[i] = torch.empty_like(self.buffer_recv[i])
+                self.buffer_send[i] = torch.empty_like(self.buffer_send[i])
+                self.buffer_recv[i] = torch.empty_like(self.buffer_recv[i])
         else:
             self.buffer_send = None
             self.buffer_recv = None
@@ -2524,20 +2490,12 @@ class Trainer:
                 # re-allocate send buffer
                 if self.cfg.halo_swap_mode != "none":
                     for i in range(self.size):
-                        if self.cfg.halo_swap_mode == "all_to_all_opt_intel":
-                            self.buffer_send[i] = torch.zeros_like(
-                                self.buffer_send[i]
-                            )
-                            self.buffer_recv[i] = torch.zeros_like(
-                                self.buffer_recv[i]
-                            )
-                        else:
-                            self.buffer_send[i] = torch.empty_like(
-                                self.buffer_send[i]
-                            )
-                            self.buffer_recv[i] = torch.empty_like(
-                                self.buffer_recv[i]
-                            )
+                        self.buffer_send[i] = torch.empty_like(
+                            self.buffer_send[i]
+                        )
+                        self.buffer_recv[i] = torch.empty_like(
+                            self.buffer_recv[i]
+                        )
                 else:
                     self.buffer_send = None
                     self.buffer_recv = None

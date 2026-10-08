@@ -5,6 +5,8 @@ import einops
 import torch.distributed.nn as distnn
 from torch.nn.functional import scaled_dot_product_attention as sdpa
 
+from halo_comm import neighbor_exchange
+
 try:
     from torch_scatter import scatter_mean
 
@@ -296,9 +298,10 @@ class ElementWiseAttention(nn.Module):
             # add attn_output to x except the last num_halo_nodes
             x[:-num_halo_nodes] = res[:-num_halo_nodes] + attn_output
             # this should have populated the halo nodes
-            if (
-                self.halo_swap_mode == "all_to_all"
-                or self.halo_swap_mode == "all_to_all_opt"
+            if self.halo_swap_mode in (
+                "all_to_all",
+                "all_to_all_opt",
+                "send_recv",
             ):
                 x = self.halo_swap(
                     x,
@@ -346,18 +349,35 @@ class ElementWiseAttention(nn.Module):
         Performs halo swap using send/receive buffers
         """
         if SIZE > 1:
-            # Fill send buffer
-            for i in neighboring_procs:
-                n_send = len(mask_send[i])
-                buff_send[i][:n_send, :] = input_tensor[mask_send[i]]
+            if self.halo_swap_mode == "send_recv":
+                # Fill send buffer
+                send_tensors = [
+                    input_tensor[mask_send[i]] for i in neighboring_procs
+                ]
 
-            # Perform all_to_all
-            distnn.all_to_all(buff_recv, buff_send)
+                # Perform send/recv
+                recv_tensors = neighbor_exchange(
+                    send_tensors, neighboring_procs
+                )
 
-            # Fill halo nodes
-            for i in neighboring_procs:
-                n_recv = len(mask_recv[i])
-                input_tensor[mask_recv[i]] = buff_recv[i][:n_recv, :]
+                # Distributed recv buffers
+                for i, recv in zip(neighboring_procs, recv_tensors):
+                    input_tensor = input_tensor.index_copy(
+                        0, mask_recv[i], recv
+                    )
+            else:
+                # Fill send buffer
+                for i in neighboring_procs:
+                    n_send = len(mask_send[i])
+                    buff_send[i][:n_send, :] = input_tensor[mask_send[i]]
+
+                # Perform all_to_all
+                distnn.all_to_all(buff_recv, buff_send)
+
+                # Fill halo nodes
+                for i in neighboring_procs:
+                    n_recv = len(mask_recv[i])
+                    input_tensor[mask_recv[i]] = buff_recv[i][:n_recv, :]
 
         return input_tensor
 
