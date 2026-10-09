@@ -439,27 +439,41 @@ def get_edge_weights(
         num_edges_own = sample.edge_index.shape[1]
         edge_weights = torch.ones(num_edges_own)
 
-        # Send/receive the edge index
-        for j in neighboring_procs:
-            COMM.Isend([data_reduced.edge_index, MPI.INT], dest=j)
+        # Send/receive the edge index and the global ids.
+        TAG_EDGE_INDEX = 7001
+        TAG_GLOBAL_IDS = 7002
+
+        reqs = [
+            COMM.Isend(
+                [data_reduced.edge_index, MPI.INT64_T],
+                dest=j,
+                tag=TAG_EDGE_INDEX,
+            )
+            for j in neighboring_procs
+        ]
         edge_index_nei_list = []
         for j in neighboring_procs:
             tmp = torch.zeros(edge_index_shape_list[j], dtype=torch.int64)
-            COMM.Recv([tmp, MPI.INT], source=j)
+            COMM.Recv([tmp, MPI.INT64_T], source=j, tag=TAG_EDGE_INDEX)
             edge_index_nei_list.append(tmp)
+        MPI.Request.Waitall(reqs)
         COMM.Barrier()
-        # if RANK == 0: print('Communicated the edge_index arrays', flush=True)
 
-        # Send/receive the global ids
-        for j in neighboring_procs:
-            COMM.Isend([data_reduced.global_ids, MPI.INT], dest=j)
+        reqs = [
+            COMM.Isend(
+                [data_reduced.global_ids, MPI.INT64_T],
+                dest=j,
+                tag=TAG_GLOBAL_IDS,
+            )
+            for j in neighboring_procs
+        ]
         global_ids_nei_list = []
         for j in neighboring_procs:
             tmp = torch.zeros(global_ids_shape_list[j], dtype=torch.int64)
-            COMM.Recv([tmp, MPI.INT], source=j)
+            COMM.Recv([tmp, MPI.INT64_T], source=j, tag=TAG_GLOBAL_IDS)
             global_ids_nei_list.append(tmp)
+        MPI.Request.Waitall(reqs)
         COMM.Barrier()
-        # if RANK == 0: print('Communicated the global_ids arrays', flush=True)
 
         for i, rank_nei in enumerate(neighboring_procs):
             # extract only the halo rows for this neighbor
